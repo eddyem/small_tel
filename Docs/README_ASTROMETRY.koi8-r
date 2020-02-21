@@ -1,0 +1,21 @@
+1. сделать астрометрию
+2. вычислить координаты центра:
+	xy2sky wcs_file.fits Xc Yc
+3. полученный ответ: RA0 DEC0 J2000 X Y, искомые разности:
+	INPRA0 - RA0 = dAlp
+	INPDEC0 - DEC0 = dDel
+4. преобразовать в dA, dZ обе пары
+	calcAZhdeg(ra,dec,st)
+	получатся INPA,INPZ и A,Z
+5. dA = INPA-A, dZ=INPZ-Z
+
+Определение INPRA/DEC:
+INPRA0=$(echo "15*$(fitshdr $FIT |grep INPRA0| sed 's|.*= *\(.*\)/.*|\1|')" | bc -l)
+INPDEC0=$(fitshdr $FIT |grep INPDEC0| sed 's|.*= *\(.*\)/.*|\1|')
+
+WCS=$(bsnm $FIT)_wcs.fits
+solve-field --use-sextractor -p --ra $INPRA0 --dec $INPDEC0 -5 0.5 -L 0.29 -H 0.32 -u arcsecperpix -O -N $WCS $FIT
+retval=$?
+rm *.axy *.solved *.corr *.xyls *.match *.rdls
+
+process_FITS файл Xc Yc 

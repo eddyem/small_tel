@@ -1,0 +1,15 @@
+cmdlnopts.c
+cmdlnopts.h
+daemon.c
+emulation.c
+emulation.h
+libsofa.c
+libsofa.h
+main.c
+main.h
+parseargs.c
+parseargs.h
+telescope.c
+telescope.h
+usefull_macros.c
+usefull_macros.h

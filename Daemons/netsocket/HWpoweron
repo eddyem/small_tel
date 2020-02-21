@@ -1,0 +1,25 @@
+#!/bin/bash
+
+COMDEV=/dev/ttyUSB0
+stty -F $COMDEV -hupcl -opost -onlcr -isig -iexten -echo -echoe -echok -echoctl -echoke -icanon min 0 time 5
+
+# A   - turn off triac0
+# B   - turn off triac1
+# c/C - check in0/1
+# i/I - show current ampl. (ADU)
+# k/K - set/reset PKEY1
+# l/L - set/reset NKEY1
+# m/M - set/reset NKEY2
+# n/o - activate out0/1
+# N/O - deactivate out0/1
+# s/S - show all statistic
+# y/Y - turn on/off relay0
+# z/Z - turn on/off relay1
+
+echo "Turn ON PC"
+echo ":y#" > $COMDEV
+cat $COMDEV
+sleep 3
+echo "Turn ON devices"
+echo ":z#" > $COMDEV
+cat $COMDEV

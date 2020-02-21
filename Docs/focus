@@ -1,0 +1,14 @@
+#!/bin/bash
+step=1000
+if [ $# -lt 1 -o $# -gt 3 ]; then
+	echo "USAGE: $0 start_foc end_foc [step - default 1000]"
+	exit 1
+fi
+
+[ $# = 3 ] && step=$3
+for f in $(seq $1 $step $2); do
+	echo "goto $f"
+	fli_control -g $f
+	fli_control -x 5000 --force focus_$(printf "%06d" $f)
+	fitsread -a "FOCUS   = ${f}" --inplace -i $(ls -t *fit | head -n1)
+done

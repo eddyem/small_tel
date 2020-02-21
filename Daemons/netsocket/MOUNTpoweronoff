@@ -1,0 +1,11 @@
+#!/bin/bash
+
+COMDEV=/dev/ttyUSB0
+stty -F $COMDEV -hupcl -opost -onlcr -isig -iexten -echo -echoe -echok -echoctl -echoke -icanon min 0 time 5
+
+echo "Turn ON/OFF mount"
+echo ":o#" > $COMDEV
+cat $COMDEV
+sleep 1.4
+echo ":O#" > $COMDEV
+cat $COMDEV

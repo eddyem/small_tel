@@ -1,0 +1,43 @@
+#!/bin/bash
+
+T=local.m
+
+function procfile(){
+f=$1
+OLD=$(echo $f|sed -e 's/_/,/' -e 's/\.new//')
+NEW=$(xy2sky -d $f 2076 2064)
+NEWRA=$(echo $NEW | awk '{print $1}')
+NEWDEC=$(echo $NEW | awk '{print $2}')
+
+cat > local.m << EOF
+x=$NEWRA/15; c=''; if(x<0)c='-';x=-x;endif;
+H=floor(x);x=(x-H)*60;
+M=floor(x);x=(x-M)*60;
+printf("%c%02d:%02d:%02.1f\n", c, H,M,x);
+EOF
+
+NEWRA0=$(octave $T 2>/dev/null)
+
+cat > local.m << EOF
+x=$NEWDEC; c='+'; if(x<0)c='-';x=-x;endif;
+H=floor(x);x=(x-H)*60;
+M=floor(x);x=(x-M)*60;
+printf("%c%02d:%02d:%02d\n", c, H,M,round(x));
+EOF
+
+NEWDEC0=$(octave $T 2>/dev/null)
+
+TM=$(listhead $f|grep "DATE  " |  sed -e "s/.*'.*T\(.*\)'.*/\\1/")
+#'
+echo -e "${OLD},E,$NEWRA0,$NEWDEC0,$TM"
+
+rm -f $T
+}
+
+if [ $# -gt 0 ]; then
+	procfile $*
+else
+	for f in *.new; do
+		procfile $f
+	done
+fi

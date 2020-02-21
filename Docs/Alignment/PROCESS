@@ -1,0 +1,11 @@
+for f in *.fit; do solve-field --use-sextractor -p -L 1.2 -H 1.5 -u arcsecperpix $f; done
+rm *.axy *.corr *.xyls *.match *.rdls *.solved *.wcs
+makelist >> coordslist
+convert UTC into sidereal time
+while read l; do echo ":newalpt${l}#"; done < coordslist 
+
+enter into mount terminal
+:newalig# - start new
+enter all strings :newalpt...
+:endalig# - end
+:modelsv0NAME# - save
