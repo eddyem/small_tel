@@ -24,9 +24,13 @@
 #ifndef __TELESCOPE_H__
 #define __TELESCOPE_H__
 
-int connect_telescope(char *dev);
+// max time after last coordinates reading
+#define COORDS_TOO_OLD_TIME     (5)
+
+int connect_telescope(char *dev, char *hdrname);
 int point_telescope(double ra, double decl);
 int get_telescope_coords(double *ra, double *decl);
 void stop_telescope();
+void wrhdr();
 
 #endif // __TELESCOPE_H__

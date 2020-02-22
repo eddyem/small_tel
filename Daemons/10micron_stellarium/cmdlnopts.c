@@ -46,6 +46,7 @@ glob_pars const Gdefault = {
     .device = DEFAULT_COMDEV,
     .port = DEFAULT_PORT,
     .pidfile = DEFAULT_PIDFILE,
+    .crdsfile = "/tmp/10micron.fitsheader",
     .emulation = 0,
     .logfile = NULL // don't save logs
 };
@@ -61,6 +62,7 @@ myoption cmdlnopts[] = {
     {"emulation",NO_ARGS,   NULL,   'e',    arg_int,    APTR(&G.emulation), _("run in emulation mode")},
     //{"hostname",NEED_ARG,   NULL,   'H',    arg_string, APTR(&G.hostname),  _("hostname to connect (default: localhost)")},
     {"logfile", NEED_ARG,   NULL,   'l',    arg_string, APTR(&G.logfile),   _("file to save logs")},
+    {"hdrfile", NEED_ARG,   NULL,   'o',    arg_string, APTR(&G.crdsfile),  _("file to save FITS-header with coordinates and time")},
     {"pidfile", NEED_ARG,   NULL,   'P',    arg_string, APTR(&G.pidfile),   _("pidfile (default: " DEFAULT_PIDFILE ")")},
     {"port",    NEED_ARG,   NULL,   'p',    arg_string, APTR(&G.port),      _("port to connect (default: " DEFAULT_PORT ")")},
    end_option

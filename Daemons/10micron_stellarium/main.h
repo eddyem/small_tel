@@ -22,16 +22,16 @@
 #ifndef __MAIN_H__
 #define __MAIN_H__
 
-#include <stdio.h>
+#include <assert.h>
+#include <err.h>
+#include <errno.h>
 #include <libintl.h>
 #include <locale.h>
-#include <assert.h>
-#include <string.h>
-#include <stdarg.h>
-#include <errno.h>
-#include <err.h>
-#include <unistd.h>
 #include <pthread.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <string.h>
+#include <unistd.h>
 
 #include "cmdlnopts.h"
 #include "usefull_macros.h"

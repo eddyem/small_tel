@@ -20,29 +20,21 @@
  */
 
 #include <arpa/inet.h>
-#include <assert.h>
 #include <endian.h>
-#include <err.h>
-#include <errno.h>
 #include <math.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <signal.h>
-#include <stdarg.h>
-#include <stdio.h>
-#include <string.h>
 #include <sys/prctl.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <time.h>
-#include <unistd.h>
 
-#include "cmdlnopts.h"
 #include "emulation.h"
 #include "libsofa.h"
+#include "main.h"
 #include "telescope.h"
-#include "usefull_macros.h"
 
 // daemon.c
 extern void check4running(char *self, char *pidfilename, void (*iffound)(pid_t pid));
@@ -311,14 +303,26 @@ void handle_socket(int sock){
     close(sock);
 }
 
+static void *hdrthread(_U_ void *buf){
+    // write FITS-header at most once per second
+    do{
+        wrhdr();
+        usleep(1000); // give a chanse to write/read for others
+    }while(1);
+    return NULL;
+}
+
 static inline void main_proc(){
     int sock;
     int reuseaddr = 1;
+    pthread_t hthrd;
     // connect to telescope
     if(!GP->emulation){
-        if(!connect_telescope(GP->device)){
+        if(!connect_telescope(GP->device, GP->crdsfile)){
             ERRX(_("Can't connect to telescope device"));
         }
+        if(pthread_create(&hthrd, NULL, hdrthread, NULL))
+            ERR(_("Can't create writing thread"));
     }
     // open socket
     struct addrinfo hints, *res, *p;
@@ -384,6 +388,8 @@ static inline void main_proc(){
         }*/
         handle_socket(newsock);
     }
+    pthread_cancel(hthrd); // cancel steppers' thread
+    pthread_join(hthrd, NULL);
     close(sock);
 }
 
@@ -399,6 +405,11 @@ int main(int argc, char **argv){
     signal(SIGINT, signals);  // ctrl+C - quit
     signal(SIGQUIT, signals); // ctrl+\ - quit
     signal(SIGTSTP, SIG_IGN); // ignore ctrl+Z
+
+    int fd;
+    if((fd = open(GP->crdsfile, O_WRONLY | O_TRUNC | O_CREAT, 0644)) < 0) // test FITS-header file for writing
+        ERR(_("Can't open %s for writing"), GP->crdsfile);
+    close(fd);
 
     printf(_("Start socket\n"));
     putlog("Starting, master PID=%d", getpid());

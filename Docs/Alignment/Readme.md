@@ -10,3 +10,4 @@ Alignment procedure:
 - enter data into telescope mount
 
 You should store parameters RA2000, DEC2000 and SidTime of each FITS-file.
+Also you will need telescope position data for each file - it's side of pier!

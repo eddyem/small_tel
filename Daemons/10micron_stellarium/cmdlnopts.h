@@ -33,6 +33,7 @@ typedef struct{
     char *port;             // port to connect
     char *pidfile;          // name of PID file
     char *logfile;          // logging to this file
+    char *crdsfile;         // file where FITS-header should be written
     int emulation;          // run in emulation mode
     int rest_pars_num;      // number of rest parameters
     char** rest_pars;       // the rest parameters: array of char*
