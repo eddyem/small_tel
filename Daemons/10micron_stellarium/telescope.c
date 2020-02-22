@@ -113,7 +113,7 @@ int chkconn(){
  */
 int connect_telescope(char *dev, char *hdrname){
     if(!dev) return 0;
-    tcflag_t spds[] = {B115200, B57600, B38400, B19200, B9600, B4800, B2400, B1200, 0}, *speeds = spds;
+    tcflag_t spds[] = {B9600, B115200, B57600, B38400, B19200, B4800, B2400, B1200, 0}, *speeds = spds;
     DBG("Connection to device %s...", dev);
     putlog("Try to connect to device %s...", dev);
     while(*speeds){
@@ -320,12 +320,26 @@ static void getplace(){
  * @brief wrhdr - try to write into header file
  */
 void wrhdr(){
+    static int failcounter = 0;
     char *ans = NULL, *jd = NULL, *lst = NULL, *date = NULL;
     // get coordinates for writing to file & sending to stellarium client
     ans = write_cmd(":GR#");
-    if(!str2coord(ans, &r)) return;
+    if(!str2coord(ans, &r)){
+        if(++failcounter == 10){
+            DBG("Can't ger RA 10 times!");
+            signals(9);
+        }
+        return;
+    }
     ans = write_cmd(":GD#");
-    if(!str2coord(ans, &d)) return;
+    if(!str2coord(ans, &d)){
+        if(++failcounter == 10){
+            DBG("Can't ger DEC 10 times!");
+            signals(9);
+        }
+        return;
+    }
+    failcounter = 0;
     tlast = time(NULL);
     if(!hdname) return;
     if(!elevation || !longitude || !latitude) getplace();
