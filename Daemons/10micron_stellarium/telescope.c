@@ -22,6 +22,7 @@
  */
 #include <pthread.h>
 
+#include "libsofa.h"
 #include "telescope.h"
 #include "usefull_macros.h"
 
@@ -38,6 +39,8 @@
 #define BUFLEN 80
 
 static char *hdname = NULL;
+static double ptRAdeg, ptDECdeg; // target RA/DEC J2000
+static int Target = 0; // target coordinates entered
 
 /**
  * read strings from terminal (ending with '\n') with timeout
@@ -115,7 +118,6 @@ int connect_telescope(char *dev, char *hdrname){
     if(!dev) return 0;
     tcflag_t spds[] = {B9600, B115200, B57600, B38400, B19200, B4800, B2400, B1200, 0}, *speeds = spds;
     DBG("Connection to device %s...", dev);
-    putlog("Try to connect to device %s...", dev);
     while(*speeds){
         DBG("Try %d", *speeds);
         tty_init(dev, *speeds);
@@ -130,9 +132,10 @@ int connect_telescope(char *dev, char *hdrname){
     }
     write_cmd(":U2#");
     write_cmd(":U2#");
-    putlog("connected to %s@115200, will write FITS-header into %s", dev, hdrname);
+    putlog("Connected to %s@115200, will write FITS-header into %s", dev, hdrname);
     hdname = strdup(hdrname);
     DBG("connected");
+    Target = 0;
     return 1;
 }
 
@@ -141,7 +144,6 @@ int connect_telescope(char *dev, char *hdrname){
 :SrHH:MM:SS.SS# - set target RA (return 1 if all OK)
 :SdsDD*MM:SS.S# - set target DECL (return 1 if all OK)
 */
-
 /**
  * send coordinates to telescope
  * @param ra - right ascention (hours)
@@ -150,6 +152,9 @@ int connect_telescope(char *dev, char *hdrname){
  */
 int point_telescope(double ra, double dec){
     DBG("try to send ra=%g, decl=%g", ra, dec);
+    ptRAdeg = ra * 15.;
+    ptDECdeg = dec;
+    Target = 0;
     int err = 0;
     static char buf[80];
     char sign = '+';
@@ -190,7 +195,8 @@ int point_telescope(double ra, double dec){
         putlog("error sending coordinates (err = %d: RA/DEC/MOVE)!", err);
         return 0;
     }else{
-        putlog("Send ra=%g, dec=%g", ra, dec);
+        Target = 1;
+        putlog("Send ra=%g degr, dec=%g degr", ptRAdeg, ptDECdeg);
     }
     return 1;
 }
@@ -267,7 +273,10 @@ int get_telescope_coords(double *ra, double *decl){
 
 void stop_telescope(){
     for(int i = 0; i < 3; ++i){
-        if(write_cmd(":STOP#")) return;
+        if(write_cmd(":STOP#")){
+            Target = 0;
+            return;
+        }
     }
     putlog("Can't send command STOP");
 }
@@ -321,12 +330,13 @@ static void getplace(){
  */
 void wrhdr(){
     static int failcounter = 0;
-    char *ans = NULL, *jd = NULL, *lst = NULL, *date = NULL;
+    char *ans = NULL, *jd = NULL, *lst = NULL, *date = NULL, *pS = NULL;
     // get coordinates for writing to file & sending to stellarium client
     ans = write_cmd(":GR#");
     if(!str2coord(ans, &r)){
         if(++failcounter == 10){
-            DBG("Can't ger RA 10 times!");
+            putlog("Lost connection with mount");
+            DBG("Can't get RA!");
             signals(9);
         }
         return;
@@ -334,7 +344,8 @@ void wrhdr(){
     ans = write_cmd(":GD#");
     if(!str2coord(ans, &d)){
         if(++failcounter == 10){
-            DBG("Can't ger DEC 10 times!");
+            putlog("Lost connection with mount");
+            DBG("Can't get DEC!");
             signals(9);
         }
         return;
@@ -353,36 +364,47 @@ void wrhdr(){
             date = dups(ans, 1);
         }
     }
+    ans = write_cmd(":pS#"); pS = dups(ans, 1);
 #define WRHDR(k, v, c)  do{if(printhdr(hdrfd, k, v, c)){close(hdrfd); return;}}while(0)
     char val[22];
     if(unlink(hdname)){
         WARN("unlink(%s)", hdname);
+        FREE(jd); FREE(lst); FREE(date); FREE(pS);
         return;
     }
     int hdrfd = open(hdname, O_WRONLY | O_TRUNC | O_CREAT, 0644);
     if(hdrfd < 0){
         WARN("Can't open %s", hdname);
+        FREE(jd); FREE(lst); FREE(date); FREE(pS);
         return;
     }
     WRHDR("TIMESYS", "'UTC'", "Time system");
     WRHDR("ORIGIN", "'SAO RAS'", "Organization responsible for the data");
     WRHDR("TELESCOP", "'Astrosib-500'", "Telescope name");
+    if(Target){ // target coordinates entered - store them @header
+        snprintf(val, 22, "%.10f", ptRAdeg);
+        WRHDR("TAGRA", val, "Target RA (J2000), degrees");
+        snprintf(val, 22, "%.10f", ptDECdeg);
+        WRHDR("TAGDEC", val, "Target DEC (J2000), degrees");
+    }
     snprintf(val, 22, "%.10f", r*15.); // convert RA to degrees
-    WRHDR("RA", val, "Right ascension, current epoch");
+    WRHDR("RA", val, "Telescope right ascension, current epoch");
     snprintf(val, 22, "%.10f", d);
-    WRHDR("DEC", val, "Declination, current epoch");
+    WRHDR("DEC", val, "Telescope declination, current epoch");
+    sMJD mjd;
+    if(!get_MJDt(NULL, &mjd)){
+        snprintf(val, 22, "%.10f", 2000.+(mjd.MJD-MJD2000)/365.25); // calculate EPOCH/EQUINOX
+        WRHDR("EQUINOX", val, "Equinox of celestial coordinate system");
+    }
+    if(pS) WRHDR("PIERSIDE", pS, "Pier side of telescope mount");
     if(elevation) WRHDR("ELEVAT", elevation, "Elevation of site over the sea level");
     if(longitude) WRHDR("LONGITUD", longitude, "Geo longitude of site (east negative)");
     if(latitude) WRHDR("LATITUDE", latitude, "Geo latitude of site (south negative)");
-    if(jd) WRHDR("MJD-END", jd, "Julian date of observations end");
+    if(jd) WRHDR("JD-END", jd, "Julian date of observations end");
     if(lst) WRHDR("LSTEND", lst, "Local sidereal time of observations end");
     if(date) WRHDR("DATE-END", date, "Date (UTC) of observations end");
-    FREE(jd);
-    FREE(lst);
-    FREE(date);
+    FREE(jd); FREE(lst); FREE(date); FREE(pS);
         // WRHDR("", , "");
-    //ans = write_cmd(":GC#");
-    //char *ans1 = write_cmd(":GC#");
 #undef WRHDR
     close(hdrfd);
 }

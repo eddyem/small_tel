@@ -1,0 +1,26 @@
+#!/bin/bash
+# start observation: open everything, turn on power etc
+export http_proxy=""
+
+echo "Turn ON hardware power"
+ssh obs@192.168.70.34 ~/bin/HWpoweron
+echo "Open dome"
+curl localhost:55555/open
+while true; do
+	ANS=$(curl localhost:55555/status 2>/dev/null)
+	echo "Status: $ANS"
+	[ $ANS = "opened" ] && break
+	sleep 1
+done
+echo "Turn ON mount"
+ssh obs@192.168.70.34 ~/bin/MOUNTpoweronoff
+echo "set camera temperature to -25degrC"
+fli_control -t-25
+echo "Open telescope doors"
+curl localhost:4444/open
+while true; do
+	ANS=$(curl localhost:4444/status 2>/dev/null)
+	echo "Status: $ANS"
+	[ $ANS = "opened" ] && break
+	sleep 1
+done

@@ -53,12 +53,14 @@ static volatile int global_quit = 0;
 // quit by signal
 void signals(int sig){
     signal(sig, SIG_IGN);
+    unlink(GP->crdsfile); // remove header file
+    unlink(GP->pidfile);  // and remove pidfile
     restore_console();
     restore_tty();
     DBG("Get signal %d, quit.\n", sig);
     global_quit = 1;
     sleep(1);
-    putlog("PID %d exit with status %d", getpid(), sig);
+    WARNX(_("PID %d exit with status %d"), getpid(), sig);
     exit(sig);
 }
 
@@ -179,7 +181,7 @@ char *radec2str(double ra, double dec){
 int setCoords(double ra, double dec){
     char *radec = radec2str(ra, dec);
     DBG("Set RA/Decl to %s", radec);
-    putlog("try to set RA/Decl to %s", radec);
+    putlog("Try to set RA/Decl to %s", radec);
     int (*pointfunction)(double, double) = point_telescope;
     if(GP->emulation) pointfunction = point_emulation;
     return pointfunction(ra, dec);
@@ -427,10 +429,10 @@ int main(int argc, char **argv){
             ERR("ERROR on fork");
         }
         if(childpid){
-            putlog("Created child with PID %d\n", childpid);
+            WARNX(_("Created child with PID %d\n"), childpid);
             DBG("Created child with PID %d\n", childpid);
             wait(NULL);
-            putlog("Child %d died\n", childpid);
+            WARNX(_("Child %d died\n"), childpid);
             DBG("Child %d died\n", childpid);
         }else{
             prctl(PR_SET_PDEATHSIG, SIGTERM); // send SIGTERM to child when parent dies

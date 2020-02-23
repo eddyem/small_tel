@@ -1,0 +1,7 @@
+Scripts from main telescope computer
+
+HWoff - turn hardware off
+HWon  - turn hardware on
+STARTobs - start observations: turn hardware on and open dome/telescope
+STOPobs  - end observations: turn all off and close everything
+

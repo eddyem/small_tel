@@ -23,6 +23,9 @@
 #include <sofam.h>
 #include <sys/time.h>
 
+// JD2451544.5 == 2000.0
+#define MJD2000  (51544)
+
 typedef struct{
     double utc1; double utc2; // UTC JD, commonly used MJD = utc1+utc2-2400000.5
     double MJD;

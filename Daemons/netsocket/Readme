@@ -1,0 +1,5 @@
+Scripts from network socket
+
+HWpoweroff      - turn off hardware power
+HWpoweron       - turn on hardware power
+MOUNTpoweronoff - switch mount on/off

@@ -39,6 +39,8 @@ glob_pars  G;
 //#define ACCEPT_IP  "192.168.3.225"
 // default PID filename:
 #define DEFAULT_PIDFILE "/tmp/stellariumdaemon.pid"
+// default file with headers
+#define DEFAULT_FITSHDR "/tmp/10micron.fitsheader"
 
 //            DEFAULTS
 // default global parameters
@@ -46,7 +48,7 @@ glob_pars const Gdefault = {
     .device = DEFAULT_COMDEV,
     .port = DEFAULT_PORT,
     .pidfile = DEFAULT_PIDFILE,
-    .crdsfile = "/tmp/10micron.fitsheader",
+    .crdsfile = DEFAULT_FITSHDR,
     .emulation = 0,
     .logfile = NULL // don't save logs
 };
