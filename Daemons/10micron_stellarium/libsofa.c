@@ -46,7 +46,7 @@ void radtodeg(double r){
 #endif
 
 // temporal stubs for weather/place data; return 0 if all OK
-static int getPlace(placeData *p){
+int getPlace(placeData *p){
     if(!p) return 0;
     /* Site longitude, latitude (radians) and height above the geoid (m). */
     p->slong = 0.7232763200;
@@ -59,14 +59,14 @@ static int getPlace(placeData *p){
     //DBG("long: %.10f, lat: %.10f", p->slong, p->slat);
     return 0;
 }
-static int getWeath(placeWeather *w){
+int getWeath(placeWeather *w){
     if(!w) return 0;
     w->relhum = 0.7;
     w->tc = 0.;
     w->php = 780.;
     return 0;
 }
-static int getDUT(almDut *a){
+int getDUT(almDut *a){
     if(!a) return 0;
     a->px = a->py = a->DUT1 = 0.;
     return 0;

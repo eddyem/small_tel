@@ -26,6 +26,8 @@
 
 // max time after last coordinates reading
 #define COORDS_TOO_OLD_TIME     (5)
+// make datetime/pressure/temperature corrections each CORRECTIONS_TIMEDIFF seconds
+#define CORRECTIONS_TIMEDIFF    (3600)
 
 int connect_telescope(char *dev, char *hdrname);
 int point_telescope(double ra, double decl);

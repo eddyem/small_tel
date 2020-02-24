@@ -70,5 +70,7 @@ typedef struct{
 
 int get_MJDt(struct timeval *tval, sMJD *MJD);
 int get_ObsPlace(struct timeval *tval, polarCrds *p2000, polarCrds *pnow, horizCrds *hnow);
-
+int getDUT(almDut *a);
+int getWeath(placeWeather *w);
+int getPlace(placeData *p);
 #endif // LIBSOFA_H__

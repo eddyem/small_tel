@@ -98,6 +98,46 @@ static char *write_cmd(const char *cmd){
     return NULL;
 }
 
+// write to telescope mount corrections: datetime, pressure and temperature
+static void makecorr(){
+    // write current date&time
+	char buf[64], *ans;
+#ifdef EBUG
+        write_cmd(":GUDT#");
+#endif
+    write_cmd(":gT#"); // correct time by GPS
+    ans = write_cmd(":gtg#");
+    if(!ans || *ans != '1'){
+        WARNX("mount don't synchronized with GPS! Refresh datetime");
+        time_t t = time(NULL);
+        struct tm *stm = localtime(&t);
+        struct timeval tv;
+        gettimeofday(&tv,NULL);
+        snprintf(buf, 64, ":SLDT%04d-%02d-%02d,%02d:%02d:%02d.%02ld#", 1900+stm->tm_year, stm->tm_mon, stm->tm_mday,
+                 stm->tm_hour, stm->tm_min, stm->tm_sec, tv.tv_usec/10000);
+        ans = write_cmd(buf);
+        if(!ans || *ans != '1'){
+            WARNX("Can't write current date/time");
+            putlog("Can't set system time");
+        }else putlog("Set system time by command %s", buf);
+#ifdef EBUG
+        write_cmd(":GUDT#");
+#endif
+    }
+    placeWeather w;
+    if(getWeath(&w)) putlog("Can't determine weather data");
+    else{ // set refraction model data
+        snprintf(buf, 64, ":SRPRS%.1f#", w.php);
+        ans = write_cmd(buf);
+        if(!ans || *ans != '1') putlog("Can't set pressure data of refraction model");
+        else putlog("Correct pressure to %g", w.php);
+        snprintf(buf, 64, ":SRTMP%.1f#", w.tc);
+        ans = write_cmd(buf);
+        if(!ans || *ans != '1') putlog("Can't set temperature data of refraction model");
+        else putlog("Correct temperature to %g", w.tc);
+    }
+}
+
 
 int chkconn(){
     char tmpbuf[4096];
@@ -131,11 +171,13 @@ int connect_telescope(char *dev, char *hdrname){
         if(!chkconn()) return 0;
     }
     write_cmd(":U2#");
-    write_cmd(":U2#");
+    write_cmd(":U2#"); // set high precision
+    write_cmd(":So10#"); // set minimum altitude to 10 degrees
     putlog("Connected to %s@115200, will write FITS-header into %s", dev, hdrname);
     hdname = strdup(hdrname);
     DBG("connected");
     Target = 0;
+    write_cmd(":gT#"); // correct time by GPS
     return 1;
 }
 
@@ -324,12 +366,16 @@ static void getplace(){
     }
 }
 
-
 /**
  * @brief wrhdr - try to write into header file
  */
 void wrhdr(){
     static int failcounter = 0;
+    static time_t lastcorr = 0; // last time of corrections made
+    if(time(NULL) - lastcorr > CORRECTIONS_TIMEDIFF){
+        lastcorr = time(NULL);
+        makecorr();
+    }
     char *ans = NULL, *jd = NULL, *lst = NULL, *date = NULL, *pS = NULL;
     // get coordinates for writing to file & sending to stellarium client
     ans = write_cmd(":GR#");
@@ -354,7 +400,7 @@ void wrhdr(){
     tlast = time(NULL);
     if(!hdname) return;
     if(!elevation || !longitude || !latitude) getplace();
-    ans = write_cmd(":GJD#"); jd = dups(ans, 0);
+    ans = write_cmd(":GJD1#"); jd = dups(ans, 0);
     ans = write_cmd(":GS#"); lst = dups(ans, 1);
     ans = write_cmd(":GUDT#");
     if(ans){
@@ -395,12 +441,14 @@ void wrhdr(){
     if(!get_MJDt(NULL, &mjd)){
         snprintf(val, 22, "%.10f", 2000.+(mjd.MJD-MJD2000)/365.25); // calculate EPOCH/EQUINOX
         WRHDR("EQUINOX", val, "Equinox of celestial coordinate system");
+        snprintf(val, 22, "%.10f", mjd.MJD);
+        WRHDR("MJD-END", val, "Modified julian date of observations end");
     }
+    if(jd) WRHDR("JD-END", jd, "Julian date of observations end");
     if(pS) WRHDR("PIERSIDE", pS, "Pier side of telescope mount");
     if(elevation) WRHDR("ELEVAT", elevation, "Elevation of site over the sea level");
     if(longitude) WRHDR("LONGITUD", longitude, "Geo longitude of site (east negative)");
     if(latitude) WRHDR("LATITUDE", latitude, "Geo latitude of site (south negative)");
-    if(jd) WRHDR("JD-END", jd, "Julian date of observations end");
     if(lst) WRHDR("LSTEND", lst, "Local sidereal time of observations end");
     if(date) WRHDR("DATE-END", date, "Date (UTC) of observations end");
     FREE(jd); FREE(lst); FREE(date); FREE(pS);
@@ -409,6 +457,4 @@ void wrhdr(){
     close(hdrfd);
 }
 
-// LSTSTART - sid time
-// MJD-END
 

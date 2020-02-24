@@ -49,18 +49,22 @@ static uint8_t buff[BUFLEN+1];
 // global parameters
 static glob_pars *GP = NULL;
 
+static pid_t childpid = 1; // PID of child process
 static volatile int global_quit = 0;
 // quit by signal
 void signals(int sig){
     signal(sig, SIG_IGN);
     unlink(GP->crdsfile); // remove header file
     unlink(GP->pidfile);  // and remove pidfile
-    restore_console();
-    restore_tty();
+    if(childpid){ // parent process
+        restore_console();
+        restore_tty();
+    }
     DBG("Get signal %d, quit.\n", sig);
     global_quit = 1;
     sleep(1);
-    WARNX(_("PID %d exit with status %d"), getpid(), sig);
+    if(childpid) putlog("PID %d exit with status %d after child's %d death", getpid(), sig, childpid);
+    else WARN("Child %d died with %d", getpid(), sig);
     exit(sig);
 }
 
@@ -403,6 +407,7 @@ int main(int argc, char **argv){
     if(GP->logfile) openlogfile(GP->logfile);
 
     signal(SIGTERM, signals); // kill (-15) - quit
+    signal(SIGKILL, signals); // kill (-9) - quit
     signal(SIGHUP, SIG_IGN);  // hup - ignore
     signal(SIGINT, signals);  // ctrl+C - quit
     signal(SIGQUIT, signals); // ctrl+\ - quit
@@ -423,7 +428,7 @@ int main(int argc, char **argv){
 #endif // EBUG
 
     while(1){
-        pid_t childpid = fork();
+        childpid = fork();
         if(childpid < 0){
             putlog("fork() error");
             ERR("ERROR on fork");
