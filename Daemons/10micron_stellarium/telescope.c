@@ -83,13 +83,13 @@ static char *read_string(){
 static char *write_cmd(const char *cmd){
     static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
     pthread_mutex_lock(&mutex);
-    DBG("Write %s", cmd);
+    //DBG("Write %s", cmd);
     if(write_tty(cmd, strlen(cmd))) return NULL;
     double t0 = dtime();
     static char *ans;
     while(dtime() - t0 < T_POLLING_TMOUT){ // read answer
         if((ans = read_string())){ // parse new data
-            DBG("got answer: %s", ans);
+           // DBG("got answer: %s", ans);
             pthread_mutex_unlock(&mutex);
             return ans;
         }
@@ -101,10 +101,8 @@ static char *write_cmd(const char *cmd){
 // write to telescope mount corrections: datetime, pressure and temperature
 static void makecorr(){
     // write current date&time
-	char buf[64], *ans;
-#ifdef EBUG
-        write_cmd(":GUDT#");
-#endif
+    char buf[64], *ans;
+    DBG("curtime: %s", write_cmd(":GUDT#"));
     write_cmd(":gT#"); // correct time by GPS
     ans = write_cmd(":gtg#");
     if(!ans || *ans != '1'){
@@ -113,16 +111,15 @@ static void makecorr(){
         struct tm *stm = localtime(&t);
         struct timeval tv;
         gettimeofday(&tv,NULL);
-        snprintf(buf, 64, ":SLDT%04d-%02d-%02d,%02d:%02d:%02d.%02ld#", 1900+stm->tm_year, stm->tm_mon, stm->tm_mday,
+        snprintf(buf, 64, ":SLDT%04d-%02d-%02d,%02d:%02d:%02d.%02ld#", 1900+stm->tm_year, stm->tm_mon+1, stm->tm_mday,
                  stm->tm_hour, stm->tm_min, stm->tm_sec, tv.tv_usec/10000);
+        DBG("write: %s", buf);
         ans = write_cmd(buf);
         if(!ans || *ans != '1'){
             WARNX("Can't write current date/time");
             putlog("Can't set system time");
         }else putlog("Set system time by command %s", buf);
-#ifdef EBUG
-        write_cmd(":GUDT#");
-#endif
+        DBG("curtime: %s", write_cmd(":GUDT#"));
     }
     placeWeather w;
     if(getWeath(&w)) putlog("Can't determine weather data");
@@ -226,10 +223,11 @@ int point_telescope(double ra, double dec){
         err = 2;
         goto ret;
     }
+    DBG("Move");
     ans = write_cmd(":MS#");
     if(!ans || *ans != '0'){
         putlog("move error, answer: %s", ans);
-        err = 2;
+        err = 3;
         goto ret;
     }
     ret:
@@ -299,28 +297,26 @@ static int printhdr(int fd, const char *key, const char *val, const char *cmnt){
 
 
 static double r = 0., d = 0.; // RA/DEC from wrhdr
+static int mountstatus = 0; // return of :Gstat#
 static time_t tlast = 0; // last time coordinates were refreshed
 /**
  * get coordinates
  * @param ra (o)   - right ascension (hours)
  * @param decl (o) - declination (degrees)
- * @return 1 if all OK
+ * @return telescope status or -1 if coordinates are too old
  */
 int get_telescope_coords(double *ra, double *decl){
-    if(time(NULL) - tlast > COORDS_TOO_OLD_TIME) return 0; // coordinates are too old
+    if(!tlast) tlast = time(NULL);
+    if(time(NULL) - tlast > COORDS_TOO_OLD_TIME) return -1; // coordinates are too old
     if(ra) *ra = r;
     if(decl) *decl = d;
-    return 1;
+    return mountstatus;
 }
 
 void stop_telescope(){
-    for(int i = 0; i < 3; ++i){
-        if(write_cmd(":STOP#")){
-            Target = 0;
-            return;
-        }
-    }
-    putlog("Can't send command STOP");
+    write_cmd(":RT9#");  // stop tracking
+    write_cmd(":STOP#"); // halt moving
+    Target = 0;
 }
 
 // site characteristics
@@ -364,6 +360,33 @@ static void getplace(){
         ans = write_cmd(":Gt#");
         latitude = dups(ans, 1);
     }
+}
+
+static const char *statuses[12] = {
+    [0] = "'Tracking'",
+    [1] = "'Going to stop'",
+    [2] = "'Slewing to park'",
+    [3] = "'Unparking'",
+    [4] = "'Slewing to home'",
+    [5] = "'Parked'",
+    [6] = "'Slewing or going to stop'",
+    [7] = "'Stopped'",
+    [8] = "'Motors inhibited, T too low'",
+    [9] = "'Outside tracking limit'",
+    [10]= "'Following satellite'",
+    [11]= "'Data inconsistency'"
+};
+
+/**
+ * @brief strstatus - return string explanation of mount status
+ * @param status - integer status code
+ * @return statically allocated string with explanation
+ */
+static const char* strstatus(int status){
+    if(status < 0) return "'Signal lost'";
+    if(status < (int)(sizeof(statuses)/sizeof(char*)-1)) return statuses[status];
+    if(status == 99) return "'Error'";
+    return "'Unknown status'";
 }
 
 /**
@@ -411,6 +434,11 @@ void wrhdr(){
         }
     }
     ans = write_cmd(":pS#"); pS = dups(ans, 1);
+    ans = write_cmd(":Gstat#");
+    if(ans){
+        mountstatus = atoi(ans);
+        //DBG("Status: %d", mountstatus);
+    }
 #define WRHDR(k, v, c)  do{if(printhdr(hdrfd, k, v, c)){close(hdrfd); return;}}while(0)
     char val[22];
     if(unlink(hdname)){
@@ -437,6 +465,7 @@ void wrhdr(){
     WRHDR("RA", val, "Telescope right ascension, current epoch");
     snprintf(val, 22, "%.10f", d);
     WRHDR("DEC", val, "Telescope declination, current epoch");
+    WRHDR("TELSTAT", strstatus(mountstatus), "Telescope mount status");
     sMJD mjd;
     if(!get_MJDt(NULL, &mjd)){
         snprintf(val, 22, "%.10f", 2000.+(mjd.MJD-MJD2000)/365.25); // calculate EPOCH/EQUINOX

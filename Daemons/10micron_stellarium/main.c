@@ -257,28 +257,29 @@ int proc_data(uint8_t *data, ssize_t len){
 /**
  * main socket service procedure
  */
-void handle_socket(int sock){
+void *handle_socket(void *sockd){
     FNAME();
-    if(global_quit) return;
+    if(global_quit) return NULL;
     ssize_t rd;
     outdata dout;
+    int sock = *(int*)sockd;
     dout.len = htole16(sizeof(outdata));
     dout.type = 0;
-    dout.status = 0;
     int (*getcoords)(double*, double*) = get_telescope_coords;
     if(GP->emulation) getcoords = get_emul_coords;
     while(!global_quit){
         // get coordinates
         double RA = 0., Decl = 0.;
-        if(!getcoords(&RA, &Decl)){
+        if((dout.status = getcoords(&RA, &Decl)) < 0){
             WARNX("Error: can't get coordinates");
-         //   continue;
+            sleep(1);
+            continue;
         }
-        DBG("got : %g/%g", RA, Decl);
+        //DBG("got : %g/%g", RA, Decl);
         dout.ra = htole32(HRS2RA(RA));
         dout.dec = (int32_t)htole32(DEG2DEC(Decl));
         if(!send_data((uint8_t*)&dout, sizeof(outdata), sock)) break;
-        DBG("sent ra = %g, dec = %g", RA2HRS(dout.ra), DEC2DEG(dout.dec));
+        //DBG("sent ra = %g, dec = %g", RA2HRS(dout.ra), DEC2DEG(dout.dec));
         fd_set readfds;
         struct timeval timeout;
         FD_ZERO(&readfds);
@@ -307,6 +308,7 @@ void handle_socket(int sock){
         else dout.status = 0;
     }
     close(sock);
+    return NULL;
 }
 
 static void *hdrthread(_U_ void *buf){
@@ -392,9 +394,18 @@ static inline void main_proc(){
             close(newsock);
             continue;
         }*/
-        handle_socket(newsock);
+        //handle_socket(newsock);
+        pthread_t rthrd;
+        if(pthread_create(&rthrd, NULL, handle_socket, (void*)&newsock)){
+            putlog("Error creating listen thread");
+            ERR(_("Can't create socket thread"));
+        }else{
+            DBG("Thread created, detouch");
+            pthread_detach(rthrd); // don't care about thread state
+
+        }
     }
-    pthread_cancel(hthrd); // cancel steppers' thread
+    pthread_cancel(hthrd); // cancel reading thread
     pthread_join(hthrd, NULL);
     close(sock);
 }

@@ -82,7 +82,7 @@ int get_MJDt(struct timeval *tval, sMJD *MJD){
     struct tm tms;
     double tSeconds;
     if(!tval){
-        DBG("MJD for current time");
+        //DBG("MJD for current time");
         struct timeval currentTime;
         gettimeofday(&currentTime, NULL);
         gmtime_r(&currentTime.tv_sec, &tms);
@@ -102,11 +102,11 @@ int get_MJDt(struct timeval *tval, sMJD *MJD){
     MJD->MJD = utc1 - 2400000.5 + utc2;
     MJD->utc1 = utc1;
     MJD->utc2 = utc2;
-    DBG("UTC(m): %g, %.8f\n", utc1 - 2400000.5, utc2);
+    //DBG("UTC(m): %g, %.8f\n", utc1 - 2400000.5, utc2);
     if(iauUtctai(utc1, utc2, &MJD->tai1, &MJD->tai2)) return -1;
-    DBG("TAI");
+    //DBG("TAI");
     if(iauTaitt(MJD->tai1, MJD->tai2, &MJD->tt1, &MJD->tt2)) return -1;
-    DBG("TT");
+    //DBG("TT");
     return 0;
 }
 
