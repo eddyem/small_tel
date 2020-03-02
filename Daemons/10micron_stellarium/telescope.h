@@ -34,5 +34,6 @@ int point_telescope(double ra, double decl);
 int get_telescope_coords(double *ra, double *decl);
 void stop_telescope();
 void wrhdr();
+void *term_thread(void *sockd);
 
 #endif // __TELESCOPE_H__

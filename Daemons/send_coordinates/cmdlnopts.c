@@ -38,7 +38,6 @@ static glob_pars  G;
 //            DEFAULTS
 // default global parameters
 static glob_pars const Gdefault = {
-    .pidfile = DEFAULT_PIDFILE,
     .port = DEFAULT_PORT,
     .host = DEFAULT_HOST,
 };
@@ -50,7 +49,6 @@ static glob_pars const Gdefault = {
 static myoption cmdlnopts[] = {
 // common options
     {"help",    NO_ARGS,    NULL,   'h',    arg_int,    APTR(&help),        _("show this help")},
-    {"pidfile", NEED_ARG,   NULL,   'p',    arg_string, APTR(&G.pidfile),   _("pidfile (default: " DEFAULT_PIDFILE ")")},
     {"port",    NEED_ARG,   NULL,   'P',    arg_string, APTR(&G.port),      _("port to connect (default: " DEFAULT_PORT ")")},
     {"host",    NEED_ARG,   NULL,   'H',    arg_string, APTR(&G.host),      _("host to connect (default: " DEFAULT_HOST ")")},
     {"ra",      NEED_ARG,   NULL,   'r',    arg_string, APTR(&G.ra),        _("target RA: HH:MM:SS.SS")},

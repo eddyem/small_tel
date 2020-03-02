@@ -25,7 +25,6 @@
  * here are some typedef's for global data
  */
 typedef struct{
-    char *pidfile;          // name of PID file
     char *port;             // port to connect
     char *host;             // hostname
     char *ra;               // RA in string form

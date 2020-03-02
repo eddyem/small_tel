@@ -20,9 +20,13 @@
  * MA 02110-1301, USA.
  *
  */
+#include <arpa/inet.h>  // ntoa
+#include <netinet/in.h> // ntoa
 #include <pthread.h>
+#include <sys/socket.h> // getpeername
 
 #include "libsofa.h"
+#include "main.h" // global_quit
 #include "telescope.h"
 #include "usefull_macros.h"
 
@@ -35,7 +39,6 @@
 #define WAIT_TMOUT (0.01)
 #endif
 
-
 #define BUFLEN 80
 
 static char *hdname = NULL;
@@ -45,6 +48,7 @@ static int Target = 0; // target coordinates entered
 /**
  * read strings from terminal (ending with '\n') with timeout
  * @return NULL if nothing was read or pointer to static buffer
+ * THREAD UNSAFE!
  */
 static char *read_string(){
     static char buf[BUFLEN];
@@ -78,20 +82,25 @@ static char *read_string(){
 
 /**
  * write command, thread-safe
+ * @param cmd  (i) - command to write
+ * @param buff (o) - buffer (WHICH SIZE = BUFLEN!!!) to which write data (or NULL if don't need)
  * @return answer or NULL if error occured (or no answer)
+ * WARNING!!! data returned is allocated by strdup! You MUST free it when don't need
  */
-static char *write_cmd(const char *cmd){
+static char *write_cmd(const char *cmd, char *buff){
     static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
     pthread_mutex_lock(&mutex);
     //DBG("Write %s", cmd);
     if(write_tty(cmd, strlen(cmd))) return NULL;
     double t0 = dtime();
-    static char *ans;
+    char *ans;
     while(dtime() - t0 < T_POLLING_TMOUT){ // read answer
         if((ans = read_string())){ // parse new data
            // DBG("got answer: %s", ans);
             pthread_mutex_unlock(&mutex);
-            return ans;
+            if(!buff) return NULL;
+            strncpy(buff, ans, BUFLEN-1);
+            return buff;
         }
     }
     pthread_mutex_unlock(&mutex);
@@ -99,48 +108,60 @@ static char *write_cmd(const char *cmd){
 }
 
 // write to telescope mount corrections: datetime, pressure and temperature
-static void makecorr(){
+// @return 1 if time was corrected
+static int makecorr(){
+    int ret = 0;
     // write current date&time
-    char buf[64], *ans;
-    DBG("curtime: %s", write_cmd(":GUDT#"));
-    write_cmd(":gT#"); // correct time by GPS
-    ans = write_cmd(":gtg#");
-    if(!ans || *ans != '1'){
-        WARNX("mount don't synchronized with GPS! Refresh datetime");
-        time_t t = time(NULL);
-        struct tm *stm = localtime(&t);
-        struct timeval tv;
-        gettimeofday(&tv,NULL);
-        snprintf(buf, 64, ":SLDT%04d-%02d-%02d,%02d:%02d:%02d.%02ld#", 1900+stm->tm_year, stm->tm_mon+1, stm->tm_mday,
-                 stm->tm_hour, stm->tm_min, stm->tm_sec, tv.tv_usec/10000);
-        DBG("write: %s", buf);
-        ans = write_cmd(buf);
-        if(!ans || *ans != '1'){
-            WARNX("Can't write current date/time");
-            putlog("Can't set system time");
-        }else putlog("Set system time by command %s", buf);
-        DBG("curtime: %s", write_cmd(":GUDT#"));
+    char buf[64], ibuff[BUFLEN], *ans;
+    DBG("curtime: %s", write_cmd(":GUDT#", ibuff));
+    ans = write_cmd(":Gstat#", ibuff);
+    /*
+     * there's no GPS on this mount and there's no need for it!
+    write_cmd(":gT#", NULL); // correct time by GPS
+    ans = write_cmd(":gtg#", ibuff);
+    */
+
+    if(!ans || *ans == '0'){ // system is in tracking or unknown state - don't update data!
+        return 0;
     }
+    WARNX("Refresh datetime");
+    time_t t = time(NULL);
+    struct tm *stm = localtime(&t);
+    struct timeval tv;
+    gettimeofday(&tv,NULL);
+    snprintf(buf, 64, ":SLDT%04d-%02d-%02d,%02d:%02d:%02d.%02ld#", 1900+stm->tm_year, stm->tm_mon+1, stm->tm_mday,
+             stm->tm_hour, stm->tm_min, stm->tm_sec, tv.tv_usec/10000);
+    DBG("write: %s", buf);
+    ans = write_cmd(buf, ibuff);
+    if(!ans || *ans != '1'){
+        WARNX("Can't write current date/time");
+        putlog("Can't set system time");
+    }else{
+        putlog("Set system time by command %s", buf);
+        ret = 1;
+    }
+    DBG("curtime: %s", write_cmd(":GUDT#", ibuff));
     placeWeather w;
     if(getWeath(&w)) putlog("Can't determine weather data");
     else{ // set refraction model data
         snprintf(buf, 64, ":SRPRS%.1f#", w.php);
-        ans = write_cmd(buf);
+        ans = write_cmd(buf, ibuff);
         if(!ans || *ans != '1') putlog("Can't set pressure data of refraction model");
         else putlog("Correct pressure to %g", w.php);
         snprintf(buf, 64, ":SRTMP%.1f#", w.tc);
-        ans = write_cmd(buf);
+        ans = write_cmd(buf, ibuff);
         if(!ans || *ans != '1') putlog("Can't set temperature data of refraction model");
         else putlog("Correct temperature to %g", w.tc);
     }
+    return ret;
 }
 
 
 int chkconn(){
     char tmpbuf[4096];
     read_tty(tmpbuf, 4096); // clear rbuf
-    write_cmd("#"); // clear cmd buffer
-    if(!write_cmd(":SB0#")) return 0; // 115200
+    write_cmd("#", NULL); // clear cmd buffer
+    if(!write_cmd(":SB0#", tmpbuf)) return 0; // 115200
     //if(!write_cmd(":GR#")) return 0;
     return 1;
 }
@@ -167,14 +188,16 @@ int connect_telescope(char *dev, char *hdrname){
         tty_init(dev, B115200);
         if(!chkconn()) return 0;
     }
-    write_cmd(":U2#");
-    write_cmd(":U2#"); // set high precision
-    write_cmd(":So10#"); // set minimum altitude to 10 degrees
+    write_cmd("#", NULL); // clear previous buffer
+    write_cmd(":STOP#", NULL); // stop tracking after poweron
+    write_cmd(":U2#", NULL); // set high precision
+    write_cmd(":So10#", NULL); // set minimum altitude to 10 degrees
     putlog("Connected to %s@115200, will write FITS-header into %s", dev, hdrname);
+    FREE(hdname);
     hdname = strdup(hdrname);
     DBG("connected");
     Target = 0;
-    write_cmd(":gT#"); // correct time by GPS
+    write_cmd(":gT#", NULL); // correct time by GPS
     return 1;
 }
 
@@ -195,7 +218,7 @@ int point_telescope(double ra, double dec){
     ptDECdeg = dec;
     Target = 0;
     int err = 0;
-    static char buf[80];
+    char buf[80], ibuff[BUFLEN];
     char sign = '+';
     if(dec < 0){
         sign = '-';
@@ -212,19 +235,19 @@ int point_telescope(double ra, double dec){
     int dm = (int)dec;
     dec -= dm; dec *= 60.;
     snprintf(buf, 80, ":Sr%d:%d:%.2f#", h,m,ra);
-    char *ans = write_cmd(buf);
+    char *ans = write_cmd(buf, ibuff);
     if(!ans || *ans != '1'){
         err = 1;
         goto ret;
     }
     snprintf(buf, 80, ":Sd%c%d:%d:%.1f#", sign,d,dm,dec);
-    ans = write_cmd(buf);
+    ans = write_cmd(buf, ibuff);
     if(!ans || *ans != '1'){
         err = 2;
         goto ret;
     }
     DBG("Move");
-    ans = write_cmd(":MS#");
+    ans = write_cmd(":MS#", ibuff);
     if(!ans || *ans != '0'){
         putlog("move error, answer: %s", ans);
         err = 3;
@@ -314,8 +337,9 @@ int get_telescope_coords(double *ra, double *decl){
 }
 
 void stop_telescope(){
-    write_cmd(":RT9#");  // stop tracking
-    write_cmd(":STOP#"); // halt moving
+    write_cmd(":RT9#", NULL);  // stop tracking
+    write_cmd(":AL#", NULL);   // stop tracking
+    write_cmd(":STOP#", NULL); // halt moving
     Target = 0;
 }
 
@@ -347,24 +371,24 @@ static char *dups(const char *buf, int astr){
 }
 
 static void getplace(){
-    char *ans;
+    char *ans, ibuff[BUFLEN];
     if(!elevation){
-        ans = write_cmd(":Gev#");
+        ans = write_cmd(":Gev#", ibuff);
         elevation = dups(ans, 0);
     }
     if(!longitude){
-        ans = write_cmd(":Gg#");
+        ans = write_cmd(":Gg#", ibuff);
         longitude = dups(ans, 1);
     }
     if(!latitude){
-        ans = write_cmd(":Gt#");
+        ans = write_cmd(":Gt#", ibuff);
         latitude = dups(ans, 1);
     }
 }
 
 static const char *statuses[12] = {
     [0] = "'Tracking'",
-    [1] = "'Going to stop'",
+    [1] = "'Stoped or homing'",
     [2] = "'Slewing to park'",
     [3] = "'Unparking'",
     [4] = "'Slewing to home'",
@@ -396,12 +420,13 @@ void wrhdr(){
     static int failcounter = 0;
     static time_t lastcorr = 0; // last time of corrections made
     if(time(NULL) - lastcorr > CORRECTIONS_TIMEDIFF){
-        lastcorr = time(NULL);
-        makecorr();
+        if(makecorr()) lastcorr = time(NULL);
+        else lastcorr += 30; // failed -> check 30s later
     }
     char *ans = NULL, *jd = NULL, *lst = NULL, *date = NULL, *pS = NULL;
+    char ibuff[BUFLEN];
     // get coordinates for writing to file & sending to stellarium client
-    ans = write_cmd(":GR#");
+    ans = write_cmd(":GR#", ibuff);
     if(!str2coord(ans, &r)){
         if(++failcounter == 10){
             putlog("Lost connection with mount");
@@ -410,7 +435,7 @@ void wrhdr(){
         }
         return;
     }
-    ans = write_cmd(":GD#");
+    ans = write_cmd(":GD#", ibuff);
     if(!str2coord(ans, &d)){
         if(++failcounter == 10){
             putlog("Lost connection with mount");
@@ -421,11 +446,14 @@ void wrhdr(){
     }
     failcounter = 0;
     tlast = time(NULL);
-    if(!hdname) return;
+    if(!hdname){
+        DBG("hdname not given!");
+        return;
+    }
     if(!elevation || !longitude || !latitude) getplace();
-    ans = write_cmd(":GJD1#"); jd = dups(ans, 0);
-    ans = write_cmd(":GS#"); lst = dups(ans, 1);
-    ans = write_cmd(":GUDT#");
+    ans = write_cmd(":GJD1#", ibuff); jd = dups(ans, 0);
+    ans = write_cmd(":GS#", ibuff); lst = dups(ans, 1);
+    ans = write_cmd(":GUDT#", ibuff);
     if(ans){
         char *comma = strchr(ans, ',');
         if(comma){
@@ -433,15 +461,15 @@ void wrhdr(){
             date = dups(ans, 1);
         }
     }
-    ans = write_cmd(":pS#"); pS = dups(ans, 1);
-    ans = write_cmd(":Gstat#");
+    ans = write_cmd(":pS#", ibuff); pS = dups(ans, 1);
+    ans = write_cmd(":Gstat#", ibuff);
     if(ans){
         mountstatus = atoi(ans);
         //DBG("Status: %d", mountstatus);
     }
 #define WRHDR(k, v, c)  do{if(printhdr(hdrfd, k, v, c)){close(hdrfd); return;}}while(0)
     char val[22];
-    if(unlink(hdname)){
+    if(unlink(hdname) && errno != ENOENT){ // can't unlink existng file
         WARN("unlink(%s)", hdname);
         FREE(jd); FREE(lst); FREE(date); FREE(pS);
         return;
@@ -486,4 +514,42 @@ void wrhdr(){
     close(hdrfd);
 }
 
-
+// terminal thread: allows to work with terminal through socket
+void *term_thread(void *sockd){
+    int sock = *(int*)sockd;
+    char buff[BUFLEN+1], ibuff[BUFLEN+2];
+    // get client IP from socket fd - for logging
+    struct sockaddr_in peer;
+    socklen_t peer_len = sizeof(peer);
+    char *peerIP = NULL;
+    if(getpeername(sock, (struct sockaddr*)&peer, &peer_len) == 0){
+        peerIP = inet_ntoa(peer.sin_addr);
+    }
+    while(!global_quit){ // blocking read
+        ssize_t rd = read(sock, buff, BUFLEN);
+        if(rd <= 0){ // error or disconnect
+            DBG("Nothing to read from fd %d (ret: %zd)", sock, rd);
+            break;
+        }
+        buff[rd] = 0;
+        char *ch = strchr(buff, '\n');
+        if(ch) *ch = 0;
+        if(!buff[0]) continue; // empty string
+        char *ans = write_cmd(buff, ibuff);
+        putlog("%s COMMAND %s ANSWER %s", peerIP, buff, ibuff);
+        DBG("%s COMMAND: %s ANSWER: %s", peerIP, buff, ibuff);
+        if(ans){
+            ssize_t l = (ssize_t)strlen(ans);
+            if(l++){
+                ans[l-1] = '\n';
+                ans[l] = 0;
+                if(l != write(sock, ans, l)){
+                    WARN("term_thread, write()");
+                    break;
+                }
+            }
+        }
+    }
+    close(sock);
+    return NULL;
+}

@@ -40,31 +40,30 @@
 extern void check4running(char *self, char *pidfilename, void (*iffound)(pid_t pid));
 
 // Max amount of connections
-#define BACKLOG     (1)
+#define BACKLOG     (10)
 #define BUFLEN      (1024)
 // pause for incoming message waiting (out coordinates sent after that timeout)
 #define SOCK_TMOUT  (1)
 
-static uint8_t buff[BUFLEN+1];
 // global parameters
 static glob_pars *GP = NULL;
 
 static pid_t childpid = 1; // PID of child process
-static volatile int global_quit = 0;
+volatile int global_quit = 0;
 // quit by signal
 void signals(int sig){
     signal(sig, SIG_IGN);
     unlink(GP->crdsfile); // remove header file
-    unlink(GP->pidfile);  // and remove pidfile
     if(childpid){ // parent process
         restore_console();
         restore_tty();
+        unlink(GP->pidfile);  // and remove pidfile
     }
     DBG("Get signal %d, quit.\n", sig);
     global_quit = 1;
     sleep(1);
     if(childpid) putlog("PID %d exit with status %d after child's %d death", getpid(), sig, childpid);
-    else WARN("Child %d died with %d", getpid(), sig);
+    else WARNX("Child %d died with %d", getpid(), sig);
     exit(sig);
 }
 
@@ -260,7 +259,6 @@ int proc_data(uint8_t *data, ssize_t len){
 void *handle_socket(void *sockd){
     FNAME();
     if(global_quit) return NULL;
-    ssize_t rd;
     outdata dout;
     int sock = *(int*)sockd;
     dout.len = htole16(sizeof(outdata));
@@ -294,7 +292,8 @@ void *handle_socket(void *sockd){
         }
         if(!(FD_ISSET(sock, &readfds))) continue;
         // fill incoming buffer
-        rd = read(sock, buff, BUFLEN);
+        uint8_t buff[BUFLEN+1];
+        ssize_t rd = read(sock, buff, BUFLEN);
         buff[rd] = 0;
         DBG("read %zd (%s)", rd, buff);
         if(rd <= 0){ // error or disconnect
@@ -311,64 +310,74 @@ void *handle_socket(void *sockd){
     return NULL;
 }
 
+// thread writing FITS-header file
 static void *hdrthread(_U_ void *buf){
     // write FITS-header at most once per second
-    do{
+    while(!global_quit){
         wrhdr();
         usleep(1000); // give a chanse to write/read for others
-    }while(1);
+    }
     return NULL;
 }
 
-static inline void main_proc(){
-    int sock;
+/**
+ * @brief opensocket - open socket to port `port`
+ * @return socket fd or <0 if failed
+ */
+static int opensocket(char *port){
+    if(!port) return -1;
     int reuseaddr = 1;
-    pthread_t hthrd;
-    // connect to telescope
-    if(!GP->emulation){
-        if(!connect_telescope(GP->device, GP->crdsfile)){
-            ERRX(_("Can't connect to telescope device"));
-        }
-        if(pthread_create(&hthrd, NULL, hdrthread, NULL))
-            ERR(_("Can't create writing thread"));
-    }
-    // open socket
+    int sock;
     struct addrinfo hints, *res, *p;
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_INET;
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_PASSIVE;
-    DBG("try to open port %s", GP->port);
-    if(getaddrinfo(NULL, GP->port, &hints, &res) != 0){
-        ERR("getaddrinfo");
+    DBG("try to open port %s", port);
+    if(getaddrinfo(NULL, port, &hints, &res) != 0){
+        WARN("getaddrinfo()");
+        return 0;
     }
+    /*
     struct sockaddr_in *ia = (struct sockaddr_in*)res->ai_addr;
     char str[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &(ia->sin_addr), str, INET_ADDRSTRLEN);
+    */
     // loop through all the results and bind to the first we can
     for(p = res; p != NULL; p = p->ai_next){
         if((sock = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1){
-            WARN("socket");
+            WARN("socket()");
             continue;
         }
         if(setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &reuseaddr, sizeof(int)) == -1){
-            ERR("setsockopt");
+            WARN("setsockopt()");
+            close(sock);
+            continue;
         }
         if(bind(sock, p->ai_addr, p->ai_addrlen) == -1){
+            WARN("bind()");
             close(sock);
-            WARN("bind");
             continue;
         }
         break; // if we get here, we must have connected successfully
     }
+    freeaddrinfo(res);
     // Listen
     if(listen(sock, BACKLOG) == -1){
+        WARN("listen");
         putlog("listen() error");
-        ERR("listen");
     }
-    DBG("listen at %s", GP->port);
-    putlog("listen at %s", GP->port);
-    //freeaddrinfo(res);
+    DBG("listen at %s", port);
+    putlog("listen at %s", port);
+    return sock;
+}
+
+/**
+ * @brief waitconn
+ * @param sock       - socket fd to accept()
+ * @param connthread - thread which to run when connection accepted (it's parameter - socket fd)
+ */
+static void waitconn(int sock, void *(*connthread)(void*)){
     // Main loop
     while(!global_quit){
         socklen_t size = sizeof(struct sockaddr_in);
@@ -377,45 +386,81 @@ static inline void main_proc(){
         newsock = accept(sock, (struct sockaddr*)&myaddr, &size);
         if(newsock <= 0){
             WARN("accept()");
+            sleep(1);
             continue;
         }
         struct sockaddr_in peer;
         socklen_t peer_len = sizeof(peer);
-        if (getpeername(newsock, &peer, &peer_len) == -1) {
+        if(getpeername(newsock, (struct sockaddr*)&peer, &peer_len) == -1){
             WARN("getpeername()");
             close(newsock);
             continue;
         }
+        int sockport = -1;
+        if(getsockname(newsock, (struct sockaddr*)&peer, &peer_len) == 0){
+            sockport = ntohs(peer.sin_port);
+        }
         char *peerIP = inet_ntoa(peer.sin_addr);
-        putlog("Got connection from %s", peerIP);
-        DBG("Peer's IP address is: %s\n", peerIP);
+        putlog("Got connection from %s @ %d", peerIP, sockport);
+        DBG("Peer's IP address is: %s (@port %d)\n", peerIP, sockport);
         /*if(strcmp(peerIP, ACCEPT_IP) && strcmp(peerIP, "127.0.0.1")){
             WARNX("Wrong IP");
             close(newsock);
             continue;
         }*/
-        //handle_socket(newsock);
         pthread_t rthrd;
-        if(pthread_create(&rthrd, NULL, handle_socket, (void*)&newsock)){
+        if(pthread_create(&rthrd, NULL, connthread, (void*)&newsock)){
             putlog("Error creating listen thread");
             ERR(_("Can't create socket thread"));
         }else{
             DBG("Thread created, detouch");
             pthread_detach(rthrd); // don't care about thread state
-
         }
     }
-    pthread_cancel(hthrd); // cancel reading thread
-    pthread_join(hthrd, NULL);
     close(sock);
+}
+
+// thread working with terminal
+static void *termthread(_U_ void *buf){
+    int sock = opensocket(GP->dbgport);
+    if(sock < 0){
+        putlog("Can't open debugging socket @ port %s", GP->dbgport);
+        ERRX("Can't open debug socket");
+    }
+    waitconn(sock, term_thread);
+    return NULL;
+}
+
+static inline void main_proc(){
+    pthread_t hthrd, termthrd;
+    // connect to telescope
+    if(!GP->emulation){
+        if(!connect_telescope(GP->device, GP->crdsfile)){
+            ERRX(_("Can't connect to telescope device"));
+        }
+        if(pthread_create(&hthrd, NULL, hdrthread, NULL))
+            ERR(_("Can't create writing thread"));
+        if(pthread_create(&termthrd, NULL, termthread, NULL))
+            ERR(_("Can't create terminal thread"));
+    }
+    // open socket
+    int sock = opensocket(GP->port);
+    if(sock < 0){
+        putlog("Can't open socket @ port %s", GP->port);
+        ERRX("Can't open stellarium socket");
+    }
+    waitconn(sock, handle_socket);
+    usleep(10000);
+    pthread_cancel(hthrd); // cancel reading thread
+    pthread_cancel(termthrd);
+    pthread_join(hthrd, NULL);
+    pthread_join(termthrd, NULL);
 }
 
 int main(int argc, char **argv){
     char *self = strdup(argv[0]);
     GP = parse_args(argc, argv);
     initial_setup();
-    check4running(self, GP->pidfile, NULL);
-    if(GP->logfile) openlogfile(GP->logfile);
 
     signal(SIGTERM, signals); // kill (-15) - quit
     signal(SIGKILL, signals); // kill (-9) - quit
@@ -429,14 +474,16 @@ int main(int argc, char **argv){
         ERR(_("Can't open %s for writing"), GP->crdsfile);
     close(fd);
 
-    printf(_("Start socket\n"));
-    putlog("Starting, master PID=%d", getpid());
+    printf("Daemonize\n");
 #ifndef EBUG // daemonize only in release mode
     if(daemon(1, 0)){
         putlog("Err: daemon()");
         ERR("daemon()");
     }
 #endif // EBUG
+    check4running(self, GP->pidfile, NULL);
+    if(GP->logfile) openlogfile(GP->logfile);
+    putlog("Starting, master PID=%d", getpid());
 
     while(1){
         childpid = fork();

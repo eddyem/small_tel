@@ -38,5 +38,6 @@
 
 // global parameters
 extern glob_pars *Global_parameters;
-
+// global quit flag
+extern volatile int global_quit;
 #endif // __MAIN_H__

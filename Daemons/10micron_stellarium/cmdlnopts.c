@@ -35,6 +35,7 @@ glob_pars  G;
 #define DEFAULT_COMDEV  "/dev/ttyUSB0"
 // port for connections
 #define DEFAULT_PORT "10000"
+#define DEFAULT_DBGPORT "10001"
 // accept only local connections
 //#define ACCEPT_IP  "192.168.3.225"
 // default PID filename:
@@ -47,6 +48,7 @@ glob_pars  G;
 glob_pars const Gdefault = {
     .device = DEFAULT_COMDEV,
     .port = DEFAULT_PORT,
+    .dbgport = DEFAULT_DBGPORT,
     .pidfile = DEFAULT_PIDFILE,
     .crdsfile = DEFAULT_FITSHDR,
     .emulation = 0,
@@ -67,6 +69,7 @@ myoption cmdlnopts[] = {
     {"hdrfile", NEED_ARG,   NULL,   'o',    arg_string, APTR(&G.crdsfile),  _("file to save FITS-header with coordinates and time")},
     {"pidfile", NEED_ARG,   NULL,   'P',    arg_string, APTR(&G.pidfile),   _("pidfile (default: " DEFAULT_PIDFILE ")")},
     {"port",    NEED_ARG,   NULL,   'p',    arg_string, APTR(&G.port),      _("port to connect (default: " DEFAULT_PORT ")")},
+    {"dbgport", NEED_ARG,   NULL,   'D',    arg_string, APTR(&G.dbgport),   _("port to connect for debug console (default: " DEFAULT_DBGPORT ")")},
    end_option
 };
 

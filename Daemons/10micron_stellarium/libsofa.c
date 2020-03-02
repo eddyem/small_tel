@@ -62,8 +62,8 @@ int getPlace(placeData *p){
 int getWeath(placeWeather *w){
     if(!w) return 0;
     w->relhum = 0.7;
-    w->tc = 0.;
-    w->php = 780.;
+    w->tc = 1.;
+    w->php = 78.; // temporary, to fix bug of firmware
     return 0;
 }
 int getDUT(almDut *a){

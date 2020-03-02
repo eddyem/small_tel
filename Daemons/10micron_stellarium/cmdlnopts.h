@@ -31,6 +31,7 @@
 typedef struct{
     char *device;           // serial device name
     char *port;             // port to connect
+    char *dbgport;          // port for debug console
     char *pidfile;          // name of PID file
     char *logfile;          // logging to this file
     char *crdsfile;         // file where FITS-header should be written

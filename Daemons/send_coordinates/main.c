@@ -36,9 +36,6 @@ void signals(int sig){
         signal(sig, SIG_IGN);
         DBG("Get signal %d, quit.\n", sig);
     }
-    WARNX("Exit with status %d", sig);
-    if(GP->pidfile) // remove unnesessary PID file
-        unlink(GP->pidfile);
     restore_console();
     exit(sig);
 }
@@ -51,20 +48,24 @@ int main(int argc, char *argv[]){
     initial_setup();
     char *self = strdup(argv[0]);
     GP = parse_args(argc, argv);
+    DBG("here");
     if(GP->rest_pars_num){
         printf("%d extra options:\n", GP->rest_pars_num);
         for(int i = 0; i < GP->rest_pars_num; ++i)
             printf("%s\n", GP->rest_pars[i]);
     }
+    DBG("here");
     if((GP->ra && !GP->dec) || (!GP->ra && GP->dec))
         ERRX("You should point both coordinates");
-    check4running(self, GP->pidfile);
+    DBG("here");
     free(self);
+    DBG("here");
     signal(SIGTERM, signals); // kill (-15) - quit
     signal(SIGHUP, SIG_IGN);  // hup - ignore
     signal(SIGINT, signals);  // ctrl+C - quit
     signal(SIGQUIT, signals); // ctrl+\ - quit
     signal(SIGTSTP, SIG_IGN); // ignore ctrl+Z
+    DBG("here");
     setup_con();
     /*
     if(GP->rest_pars_num){
