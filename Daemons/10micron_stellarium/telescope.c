@@ -141,7 +141,11 @@ static int makecorr(){
         ret = 1;
     }
     DBG("curtime: %s", write_cmd(":GUDT#", ibuff));
-    placeWeather w;
+    sprintf(buf, ":SREF0#"); // turn off 2-coord guiding & refraction
+    write_cmd(buf, ibuff);
+    sprintf(buf, ":Sdat0#"); // turn off dual-axis tracking
+    write_cmd(buf, ibuff);
+    /*placeWeather w;
     if(getWeath(&w)) putlog("Can't determine weather data");
     else{ // set refraction model data
         snprintf(buf, 64, ":SRPRS%.1f#", w.php);
@@ -152,7 +156,7 @@ static int makecorr(){
         ans = write_cmd(buf, ibuff);
         if(!ans || *ans != '1') putlog("Can't set temperature data of refraction model");
         else putlog("Correct temperature to %g", w.tc);
-    }
+    }*/
     return ret;
 }
 
@@ -388,7 +392,7 @@ static void getplace(){
 
 static const char *statuses[12] = {
     [0] = "'Tracking'",
-    [1] = "'Stoped or homing'",
+    [1] = "'Stopped or homing'",
     [2] = "'Slewing to park'",
     [3] = "'Unparking'",
     [4] = "'Slewing to home'",
@@ -446,6 +450,7 @@ void wrhdr(){
     }
     failcounter = 0;
     tlast = time(NULL);
+    // check it here, not in the beginning of function - to check connection with mount first
     if(!hdname){
         DBG("hdname not given!");
         return;
@@ -467,19 +472,19 @@ void wrhdr(){
         mountstatus = atoi(ans);
         //DBG("Status: %d", mountstatus);
     }
-#define WRHDR(k, v, c)  do{if(printhdr(hdrfd, k, v, c)){close(hdrfd); return;}}while(0)
+    int l = strlen(hdname) + 7;
+    char *aname = MALLOC(char, l);
+    snprintf(aname, l, "%sXXXXXX", hdname);
+    int fd = mkstemp(aname);
+    if(fd < 0){
+        WARN("Can't write header file: mkstemp()");
+        FREE(aname);
+        FREE(jd); FREE(lst); FREE(date); FREE(pS);
+        return;
+    }
+    fchmod(fd, 0644);
     char val[22];
-    if(unlink(hdname) && errno != ENOENT){ // can't unlink existng file
-        WARN("unlink(%s)", hdname);
-        FREE(jd); FREE(lst); FREE(date); FREE(pS);
-        return;
-    }
-    int hdrfd = open(hdname, O_WRONLY | O_TRUNC | O_CREAT, 0644);
-    if(hdrfd < 0){
-        WARN("Can't open %s", hdname);
-        FREE(jd); FREE(lst); FREE(date); FREE(pS);
-        return;
-    }
+#define WRHDR(k, v, c)  do{if(printhdr(fd, k, v, c)){goto returning;}}while(0)
     WRHDR("TIMESYS", "'UTC'", "Time system");
     WRHDR("ORIGIN", "'SAO RAS'", "Organization responsible for the data");
     WRHDR("TELESCOP", "'Astrosib-500'", "Telescope name");
@@ -508,10 +513,13 @@ void wrhdr(){
     if(latitude) WRHDR("LATITUDE", latitude, "Geo latitude of site (south negative)");
     if(lst) WRHDR("LSTEND", lst, "Local sidereal time of observations end");
     if(date) WRHDR("DATE-END", date, "Date (UTC) of observations end");
-    FREE(jd); FREE(lst); FREE(date); FREE(pS);
-        // WRHDR("", , "");
+    // WRHDR("", , "");
 #undef WRHDR
-    close(hdrfd);
+returning:
+    FREE(jd); FREE(lst); FREE(date); FREE(pS);
+    close(fd);
+    rename(aname, hdname);
+    FREE(aname);
 }
 
 // terminal thread: allows to work with terminal through socket

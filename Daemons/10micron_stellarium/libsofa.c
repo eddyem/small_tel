@@ -45,7 +45,7 @@ void radtodeg(double r){
 #define REP(a,b,c)
 #endif
 
-// temporal stubs for weather/place data; return 0 if all OK
+// temporal stubs for weather/place/DUT1 data; return 0 if all OK
 int getPlace(placeData *p){
     if(!p) return 0;
     /* Site longitude, latitude (radians) and height above the geoid (m). */
@@ -63,7 +63,7 @@ int getWeath(placeWeather *w){
     if(!w) return 0;
     w->relhum = 0.7;
     w->tc = 1.;
-    w->php = 78.; // temporary, to fix bug of firmware
+    w->php = 780.;
     return 0;
 }
 int getDUT(almDut *a){
@@ -75,7 +75,7 @@ int getDUT(almDut *a){
 /**
  * @brief get_MJDt - calculate MJD of date from argument
  * @param tval (i) - given date (or NULL for current)
- * @param MJD  (o) - time
+ * @param MJD  (o) - time (or NULL just to check)
  * @return 0 if all OK
  */
 int get_MJDt(struct timeval *tval, sMJD *MJD){
@@ -113,7 +113,7 @@ int get_MJDt(struct timeval *tval, sMJD *MJD){
 /**
  * @brief get_ObsPlace - calculate observed place (without PM etc) for given date @550nm
  * @param tval  (i) - time
- * @param p2000 (i) - polar coordinates for J2000 (only ra/dec used)
+ * @param p2000 (i) - polar coordinates for J2000 (only ra/dec used), ICRS (catalog)
  * @param pnow  (o) - polar coordinates for given epoch (or NULL)
  * @param hnow  (o) - horizontal coordinates for given epoch (or NULL)
  * @return 0 if all OK
@@ -171,3 +171,96 @@ int get_ObsPlace(struct timeval *tval, polarCrds *p2000, polarCrds *pnow, horizC
 #endif
     return 0;
 }
+
+// azimuth: north=zero, east=90deg
+
+// parallactic angle: iauHd2pa ( ha, dec, phi );
+
+// refraction coefficients: iauRefco
+
+// iauAe2hd ( az, el, phi, &ha, &dec ); A,H -> HA,DEC; phi - site latitude
+// iauHd2ae ( ha, dec, phi, &az, &el ); HA,DEC -> A,H
+
+// iauAtoc13 - obs->ICRS(catalog)
+// iauAtoi13 - obs->CIRS
+
+// iauAtio13 - CIRS->observed
+
+#if 0
+/**
+ * convert geocentric coordinates (nowadays, CIRS) to mean (JD2000, ICRS)
+ * appRA, appDecl in seconds
+ * r, d in seconds
+ */
+void JnowtoJ2000(double appRA, double appDecl, double *r, double *dc){
+    double ra=0., dec=0., utc1, utc2, tai1, tai2, tt1, tt2, fd, eo, ri;
+    int y, m, d, H, M;
+    DBG("appRa: %g'', appDecl'': %g", appRA, appDecl);
+    appRA *= DS2R;
+    appDecl *= DAS2R;
+#define SOFA(f, ...) do{if(f(__VA_ARGS__)){WARNX("Error in " #f); goto rtn;}}while(0)
+    // 1. convert system JDate to UTC
+    SOFA(iauJd2cal, JDate, 0., &y, &m, &d, &fd);
+    fd *= 24.;
+    H = (int)fd;
+    fd = (fd - H)*60.;
+    M = (int)fd;
+    fd = (fd - M)*60.;
+    SOFA(iauDtf2d, "UTC", y, m, d, H, M, fd, &utc1, &utc2);
+    SOFA(iauUtctai, utc1, utc2, &tai1, &tai2);
+    SOFA(iauTaitt, tai1, tai2, &tt1, &tt2);
+    iauAtic13(appRA, appDecl, tt1, tt2, &ri, &dec, &eo);
+    ra = iauAnp(ri + eo);
+    ra *= DR2S;
+    dec *= DR2AS;
+    DBG("SOFA: r=%g'', d=%g''", ra, dec);
+#undef SOFA
+rtn:
+    if(r) *r = ra;
+    if(dc) *dc = dec;
+}
+
+/**
+ * @brief J2000toJnow - convert ra/dec between epochs
+ * @param in  - J2000 (degrees)
+ * @param out - Jnow  (degrees)
+ * @return
+ */
+int J2000toJnow(const polar *in, polar *out){
+    if(!out) return 1;
+    double utc1, utc2;
+    time_t tsec;
+    struct tm *ts;
+    tsec = time(0); // number of seconds since the Epoch, 1970-01-01 00:00:00 +0000 (UTC)
+    ts = gmtime(&tsec);
+    int result = 0;
+    result = iauDtf2d ( "UTC", ts->tm_year+1900, ts->tm_mon+1, ts->tm_mday, ts->tm_hour, ts->tm_min, ts->tm_sec, &utc1, &utc2 );
+    if (result != 0) {
+        fprintf(stderr, "iauDtf2d call failed\n");
+        return 1;
+    }
+    // Make TT julian date for Atci13 call
+    double tai1, tai2;
+    double tt1, tt2;
+    result = iauUtctai(utc1, utc2, &tai1, &tai2);
+    if(result){
+        fprintf(stderr, "iauUtctai call failed\n");
+        return 1;
+    }
+    result = iauTaitt(tai1, tai2, &tt1, &tt2);
+    if(result){
+        fprintf(stderr, "iauTaitt call failed\n");
+        return 1;
+    }
+    double pr = 0.0;     // RA proper motion (radians/year; Note 2)
+    double pd = 0.0;     // Dec proper motion (radians/year)
+    double px = 0.0;     // parallax (arcsec)
+    double rv = 0.0;     // radial velocity (km/s, positive if receding)
+    double rc = DD2R * in->ra, dc = DD2R * in->dec; // convert into radians
+    double ri, di, eo;
+    iauAtci13(rc, dc, pr, pd, px, rv, tt1, tt2, &ri, &di, &eo);
+    out->ra  = iauAnp(ri - eo) * DR2D;
+    out->dec = di * DR2D;
+    return 0;
+}
+#endif

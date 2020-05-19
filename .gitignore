@@ -19,7 +19,15 @@
 *.la
 *.lo
 
-# Shared objects (inc. Windows DLLs)
+# Shared objects
 *.so
 *.so.*
+
+# qt-creator
+*.config
+*.cflags
+*.cxxflags
+*.creator*
+*.files
+*.includes
 

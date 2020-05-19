@@ -22,17 +22,20 @@
 #include <signal.h>
 #include <sys/wait.h> // wait
 #include <sys/prctl.h> //prctl
+#include <time.h>
 #include "cmdlnopts.h"
 #include "socket.h"
 
 // dome @ /dev/ttyS2
 
 glob_pars *GP;
+static pid_t childpid = 0;
 
 void signals(int signo){
-    restore_console();
-    restore_tty();
-    putlog("exit with status %d", signo);
+    if(childpid){ // parent process
+        restore_tty();
+        putlog("exit with status %d", signo);
+    }
     exit(signo);
 }
 
@@ -56,13 +59,16 @@ int main(int argc, char **argv){
     if(daemon(1, 0)){
         ERR("daemon()");
     }
+    time_t lastd = 0;
     while(1){ // guard for dead processes
-        pid_t childpid = fork();
+        childpid = fork();
         if(childpid){
-            putlog("create child with PID %d\n", childpid);
             DBG("Created child with PID %d\n", childpid);
             wait(NULL);
-            putlog("child %d died\n", childpid);
+            time_t t = time(NULL);
+            if(t - lastd > 600) // at least 10 minutes of work
+                putlog("child %d died\n", childpid);
+            lastd = t;
             WARNX("Child %d died\n", childpid);
             sleep(1);
         }else{
@@ -74,9 +80,9 @@ int main(int argc, char **argv){
 
     if(GP->device) try_connect(GP->device);
     if(ping()){
-        putlog("Can't write command PING");
         ERRX(_("Can't write command PING"));
     }
+    putlog("Child %d connected to %s", getpid(), GP->device);
     daemonize(GP->port);
     signals(0); // newer reached
     return 0;

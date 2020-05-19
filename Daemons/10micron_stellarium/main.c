@@ -53,10 +53,8 @@ volatile int global_quit = 0;
 // quit by signal
 void signals(int sig){
     signal(sig, SIG_IGN);
-    unlink(GP->crdsfile); // remove header file
     if(childpid){ // parent process
-        restore_console();
-        restore_tty();
+        restore_tty(); // restore all parameters
         unlink(GP->pidfile);  // and remove pidfile
     }
     DBG("Get signal %d, quit.\n", sig);
@@ -190,7 +188,12 @@ int setCoords(double ra, double dec){
     return pointfunction(ra, dec);
 }
 
-// return 1 if all OK
+/**
+ * @brief proc_data - process data received from Stellarium
+ * @param data - raw data
+ * @param len  - its length
+ * @return 1 if all OK
+ */
 int proc_data(uint8_t *data, ssize_t len){
     FNAME();
     if(len != sizeof(indata)){
@@ -315,7 +318,7 @@ static void *hdrthread(_U_ void *buf){
     // write FITS-header at most once per second
     while(!global_quit){
         wrhdr();
-        usleep(1000); // give a chanse to write/read for others
+        usleep(1000); // give a chance to write/read for others
     }
     return NULL;
 }

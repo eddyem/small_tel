@@ -75,7 +75,6 @@ void try_connect(char *device){
     fflush(stdout);
     tty_init(device);
     read_tty(tmpbuf, 4096); // clear rbuf
-    putlog("Connected to %s", device);
     DBG("connected");
 }
 

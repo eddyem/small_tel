@@ -393,9 +393,9 @@ int str2double(double *num, const char *str){
     return TRUE;
 }
 
-FILE *Flog = NULL; // log file descriptor
-char *logname = NULL;
-time_t log_open_time = 0;
+static FILE *Flog = NULL; // log file descriptor
+static char *logname = NULL;
+// static time_t log_open_time = 0;
 /**
  * Try to open log file
  * if failed show warning message
@@ -411,8 +411,7 @@ void openlogfile(char *name){
         WARN(_("Can't open log file"));
         return;
     }
-    DBG("here");
-    log_open_time = time(NULL);
+//    log_open_time = time(NULL);
     logname = name;
 }
 
@@ -422,7 +421,7 @@ void openlogfile(char *name){
 int putlog(const char *fmt, ...){
     if(!Flog) return 0;
     time_t t_now = time(NULL);
-    if(t_now - log_open_time > 86400){ // rotate log
+    /*if(t_now - log_open_time > 86400){ // rotate log
         fprintf(Flog, "\n\t\t%sRotate log\n", ctime(&t_now));
         fclose(Flog);
         char newname[PATH_MAX];
@@ -430,7 +429,7 @@ int putlog(const char *fmt, ...){
         if(rename(logname, newname)) WARN("rename()");
         openlogfile(logname);
         if(!Flog) return 0;
-    }
+    }*/
     int i = fprintf(Flog, "\n\t\t%s", ctime(&t_now));
     va_list ar;
     va_start(ar, fmt);
