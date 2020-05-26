@@ -15,22 +15,23 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include "cmdlnopts.h"
+#include "sofatools.h"
+
 #include <fitsio.h>
+#include <libgen.h>
 #include <math.h>
-#include <sofa.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/time.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <time.h>
 #include <unistd.h>
+#include <usefull_macros.h>
 
+static const double hpa2mm = 760. / 1013.25; // hPa->mmHg
 
-int status = 0;
+static glob_pars *G = NULL;
+static int status = 0;
 // check fits error status
-int chkstatus(){
+static int chkstatus(){
     int os = status;
     status = 0;
     if(os) fits_report_error(stderr, os);
@@ -44,11 +45,10 @@ int chkstatus(){
  * @param key (i) - keyword
  * @return value (static char) or NULL
  */
-char *getFITSkeyval(fitsfile *fptr, const char *key){
-    char card[FLEN_CARD], newcard[FLEN_CARD], comment[FLEN_COMMENT];
+static char *getFITSkeyval(fitsfile *fptr, const char *key){
+    char card[FLEN_CARD], comment[FLEN_COMMENT];
     static char value[FLEN_VALUE];
     int status = 0;
-    int keytype;
     if(fits_read_card(fptr, key, card, &status) || !*card){
         fprintf(stderr, "Keyword %s does not exist or empty\n", key);
         return NULL;
@@ -58,17 +58,15 @@ char *getFITSkeyval(fitsfile *fptr, const char *key){
     return value;
 }
 
-// safely convert string to double (@return 0 if all OK)
-int getdouble(double *d, const char *str){
+// safely convert string to double (@return NULL if bad or return pointer to next non-digit)
+static char *getdouble(double *d, const char *str){
     double res = -1.;
     char *endptr;
-    if(!str) return 1;
+    if(!str || *str == 0) return NULL;
     res = strtod(str, &endptr);
-    if(endptr == str || *str == '\0'){ // || *endptr != '\0'){
-        return 1;
-    }
+    if(endptr == str) return NULL;
     if(d) *d = res;
-    return 0;
+    return endptr;
 }
 /*
 // convert string like DD:MM:SS or HH:MM:SS into double, ishours==1 if HH
@@ -86,70 +84,29 @@ int hd2d(double *dbl, const char *str, int ishours){
     return 0;
 }
 */
-char *d2s(double dbl, int ishours){
+/**
+ * @brief d2s     - convert angle to string
+ * @param dbl     - angle value
+ * @param ishours - ==0 if angle is in degrees
+ * @return formed string
+ */
+static char *d2s(double dbl, int ishours){
     int d, m;
     char *s = "";
     if(ishours) dbl /= 15.;
     if(dbl < 0.){
         s = "-";
         dbl = -dbl;
-    }
+    }else if(!ishours) s = "+";
     d = (int)dbl;
     dbl = (dbl-d)*60.;
     m = (int)dbl;
     dbl = (dbl-m)*60.;
     static char res[32];
-    snprintf(res, 32, "%s%02d:%02d:%04.1f", s, d, m, dbl);
+    // no digits after decimal point in degrees
+    if(ishours) snprintf(res, 32, "%s%02d:%02d:%04.1f", s, d, m, dbl);
+    else snprintf(res, 32, "%s%02d:%02d:%02.0f", s, d, m, dbl);
     return res;
-}
-
-typedef struct{
-    double ra;
-    double dec;
-} polar;
-
-/**
- * @brief J2000toJnow - convert ra/dec between epochs
- * @param in  - J2000 (degrees)
- * @param out - Jnow  (degrees)
- * @return
- */
-int J2000toJnow(const polar *in, polar *out){
-    if(!out) return 1;
-    double utc1, utc2;
-    time_t tsec;
-    struct tm *ts;
-    tsec = time(0); // number of seconds since the Epoch, 1970-01-01 00:00:00 +0000 (UTC)
-    ts = gmtime(&tsec);
-    int result = 0;
-    result = iauDtf2d ( "UTC", ts->tm_year+1900, ts->tm_mon+1, ts->tm_mday, ts->tm_hour, ts->tm_min, ts->tm_sec, &utc1, &utc2 );
-    if (result != 0) {
-        fprintf(stderr, "iauDtf2d call failed\n");
-        return 1;
-    }
-    // Make TT julian date for Atci13 call
-    double tai1, tai2;
-    double tt1, tt2;
-    result = iauUtctai(utc1, utc2, &tai1, &tai2);
-    if(result){
-        fprintf(stderr, "iauUtctai call failed\n");
-        return 1;
-    }
-    result = iauTaitt(tai1, tai2, &tt1, &tt2);
-    if(result){
-        fprintf(stderr, "iauTaitt call failed\n");
-        return 1;
-    }
-    double pr = 0.0;     // RA proper motion (radians/year; Note 2)
-    double pd = 0.0;     // Dec proper motion (radians/year)
-    double px = 0.0;     // parallax (arcsec)
-    double rv = 0.0;     // radial velocity (km/s, positive if receding)
-    double rc = DD2R * in->ra, dc = DD2R * in->dec; // convert into radians
-    double ri, di, eo;
-    iauAtci13(rc, dc, pr, pd, px, rv, tt1, tt2, &ri, &di, &eo);
-    out->ra  = iauAnp(ri - eo) * DR2D;
-    out->dec = di * DR2D;
-    return 0;
 }
 
 /**
@@ -159,11 +116,11 @@ int J2000toJnow(const polar *in, polar *out){
  * @param key   - keyword to search
  * @return 0 if found and converted
  */
-int getDval(double *ret, fitsfile *fptr, const char *key){
+static int getDval(double *ret, fitsfile *fptr, const char *key){
     if(!ret || !key) return 2;
     char *val = getFITSkeyval(fptr, key);
     if(!val) return 1;
-    if(getdouble(ret, val)){
+    if(!getdouble(ret, val)){
         fprintf(stderr, "Wrong %s value\n", key);
         return 1;
     }
@@ -171,7 +128,7 @@ int getDval(double *ret, fitsfile *fptr, const char *key){
 }
 
 // run command xy2sky @fname and return stdout (up to 1024 bytes)
-char *exe(char *fname){
+static char *exe(char *fname){
 #define die(text)  do{fprintf(stderr, "%s\n", text); return NULL; }while(0)
     int link[2];
     pid_t pid;
@@ -190,6 +147,7 @@ char *exe(char *fname){
         char *ptr = ret;
         while(0 != (r = read(link[0], ptr, nleave))){
             ptr += r;
+            nleave -= r;
             *ptr = 0;
         }
         wait(NULL);
@@ -198,58 +156,158 @@ char *exe(char *fname){
 #undef die
 }
 
-int main(int argc, char **argv) {
-    if(argc != 2){
-        fprintf(stderr, "USAGE: %s fitsfile\n\tCalculate data :newalpt by given plate-recognized file\n", argv[0]);
-        return 1;
-    }
-    double ra_center = 12., dec_center = 21., ra_scope, dec_scope;
+static int parse_fits_file(char *name){
+    double ra_center = 400., dec_center = 400., ra_scope, dec_scope;
     // get CENTER:
-    char *val = exe(argv[1]);
+    char *val = exe(name);
     if(!val) return 1;
-    char *p = strchr(val, ' ');
-    if(!p) return 1;
-    getdouble(&ra_center, val);
-    getdouble(&dec_center, p);
+    DBG("EXE gives: %s", val);
+//    char *p = strchr(val, ' ');
+//    if(!p) return 1;
+    val = getdouble(&ra_center, val);
+    if(!val) return 1;
+    if(!getdouble(&dec_center, val)) return 1;
+    DBG("J2000=%g/%g", ra_center, dec_center);
     // get FITS keywords
     fitsfile *fptr;
     int iomode = READONLY;
-    fits_open_file(&fptr, argv[1], iomode, &status);
+    fits_open_file(&fptr, name, iomode, &status);
     iomode = chkstatus();
     if(iomode) return iomode;
     if(getDval(&ra_scope, fptr, "RA")) return 4;
     if(getDval(&dec_scope, fptr, "DEC")) return 5;
+    double uxt;
+    if(getDval(&uxt, fptr, "UNIXTIME")) return 55;
+    struct timeval tv;
+    tv.tv_sec = (time_t) uxt;
+    tv.tv_usec = 0;
     val = getFITSkeyval(fptr, "PIERSIDE");
     if(!val) return 6;
     char pierside = 'W';
     if(strstr(val, "East")) pierside = 'E';
-    val = getFITSkeyval(fptr, "LSTEND");
-    if(!val) return 7;
-    char *s = strchr(val, '\'');
-    if(!s) return 8;
-    char *sidtm = strdup(++s);
-    s = strchr(sidtm, '\'');
-    if(!s) return 9;
-    *s = 0;
     fits_close_file(fptr, &status);
     chkstatus();
 
-    polar J2000 = {.ra = ra_center, .dec = dec_center}, Jnow;
-    if(J2000toJnow(&J2000, &Jnow)) return 1;
+    polarCrds J2000 = {.ra = DD2R * ra_center, .dec = DD2R * dec_center}, Jnow;
+    DBG("J2000=%g/%g", ra_center, dec_center);
+    DBG("J2000=%g/%g", J2000.ra/DD2R, J2000.dec/DD2R);
+    if(get_ObsPlace(&tv, &J2000, &Jnow, NULL)) return 1;
+    DBG("JNOW: RA=%g, DEC=%g, EO=%g", Jnow.ra/DD2R, Jnow.dec/DD2R, Jnow.eo/DD2R);
+    sMJD mjd;
+    if(get_MJDt(&tv, &mjd)) return 1;
+    double ST;
+    almDut adut;
+    if(getDUT(&adut)) return 1;
+    placeData *place = getPlace();
+    if(!place) return 1;
+    if(get_LST(&mjd, adut.DUT1, place->slong, &ST)) return 1;
+    ST /= DD2R; // convert radians to degrees
 
-    char    *sra_scope  = strdup(d2s(ra_scope, 1)),
-            *sdec_scope = strdup(d2s(dec_scope, 0)),
-            *sra_center = strdup(d2s(Jnow.ra, 1)),
-            *sdec_center= strdup(d2s(Jnow.dec, 0));
+    double ra_now = (Jnow.ra - Jnow.eo)/DD2R, dec_now = Jnow.dec/DD2R;
+    DBG("RA_now=%g, DEC_now=%g", ra_now, dec_now);
+    if(G->ha){ // print HA instead of RA
+        ra_scope = ST - ra_scope;
+        if(ra_scope < 0.) ra_scope += D2PI;
+        ra_now = ST - ra_now;
+        if(ra_now < 0.) ra_now += D2PI;
+    }
+    if(G->delta){
+        ra_now -= ra_scope;
+        dec_now -= dec_scope;
+    }
+    int rainhrs = !G->raindeg;
+    char *sidtm = NULL, *sra_scope  = NULL, *sdec_scope = NULL, *sra_center = NULL, *sdec_center= NULL;
+    if(G->crdstrings){ // string form
+        sidtm = strdup(d2s(ST, G->stindegr ? 0 : 1));
+        sra_scope  = strdup(d2s(ra_scope, rainhrs));
+        sdec_scope = strdup(d2s(dec_scope, 0));
+        sra_center = strdup(d2s(ra_now, rainhrs));
+        sdec_center= strdup(d2s(dec_now, 0));
+    }
 
-    // create line like
+    // for 10-micron output create line like
     // :newalpt10:10:34.8,-12:21:14,E,10:10:3.6,-12:12:56,11:15:12.04#
     //         MRA          MDEC   MSIDE  PRA    PDEC      SIDTIME
-    printf(":newalpt%s,%s,%c,%s,%s,%s#\n", sra_scope, sdec_scope, pierside, sra_center, sdec_center, sidtm);
-    free(sra_scope); free(sdec_scope);
-    free(sra_center); free(sdec_center);
-    //free(sidtm);
+    // MRA: HH.MM.SS.S - mount-reported RA
+    // MDEC: sDD:MM:SS - mount-reported DEC
+    // MSIDE: 'E'/'W'  - pier-side
+    // PRA: HH:MM:SS.S - plate-solved RA
+    // PDEC: sDD:MM:SS - plate-solved DEC
+    // SIDTIME: HH:MM:SS.S - local sid.time
+    if(G->for10m){
+        printf(":newalpt%s,%s,%c,%s,%s,%s#\n", sra_scope, sdec_scope, pierside, sra_center, sdec_center, sidtm);
+    }else{
+        if(G->crdstrings){
+            printf("%-16s%-16s   %c   %-18s%-19s", sra_scope, sdec_scope, pierside, sra_center, sdec_center);
+            if(!G->ha) printf("%-15s", sidtm);
+        }else{
+            if(!G->raindeg){ ra_scope /= 15.; ra_now /= 15.; }
+            printf("%-16.8f%-16.8f   %c   %-18.8f%-19.8f", ra_scope, dec_scope, pierside, ra_now,  dec_now);
+            if(!G->ha) printf("%-15.8f", G->stindegr ? ST : ST/15.);
+        }
+        printf("%-15s\n", basename(name));
+    }
+    FREE(sra_scope); FREE(sdec_scope);
+    FREE(sra_center); FREE(sdec_center);
+    FREE(sidtm);
+    return 0;
+}
 
-    return(0);
+static void printheader(){
+    printf("# Pointing data @ p=%.f %s, T=%.1f degrC\n", G->pressure*(G->pmm ? hpa2mm : 1.), G->pmm ? "mmHg" : "hPa", G->temperature);
+    const char *raha = G->ha ? "HA" : "RA";
+    const char *raunits, *decunits;
+    if(G->crdstrings){
+        raunits = G->raindeg ? "dms" : "hms";
+        decunits = "dms";
+    }else{
+        raunits = G->raindeg ? "deg" : "hrs";
+        decunits = "deg";
+    }
+    const char *apparent = G->delta ? "(app-enc)" : "Apparent";
+    char a[4][32];
+    snprintf(a[0], 32, "Encoder %s,%s", raha, raunits);
+    snprintf(a[1], 32, "Encoder DEC,%s", decunits);
+    snprintf(a[2], 32, "%s %s,%s", apparent, raha, raunits);
+    snprintf(a[3], 32, "%s DEC,%s", apparent, decunits);
+    printf("%-16s%-16s Pier  %-18s%-19s", a[0], a[1], a[2], a[3]);
+    if(!G->ha){
+        printf("Sid. time,");
+        if(G->crdstrings){
+            if(G->stindegr) printf("dms");
+            else printf("hms");
+        }else{
+            if(G->stindegr) printf("deg");
+            else printf("hrs");
+        }
+        printf("  ");
+    }
+    printf("Filename\n");
+}
+
+int main(int argc, char **argv) {
+    initial_setup();
+    G = parse_args(argc, argv);
+    if(G->pressure < 0.) ERRX("Pressure should be greater than zero");
+    if(G->temperature < -100. || G->temperature > 100.) ERRX("Temperature over the range -100..+100");
+    if(G->pmm) G->pressure /= hpa2mm;
+    setWeath(G->pressure, G->temperature, 0.5);
+    if(G->for10m){
+        G->crdstrings = 1;
+        G->raindeg = 0;
+        G->ha = 0;
+        G->stindegr = 0;
+    }
+    if(G->printhdr){
+        printheader();
+        if(G->nfiles < 1) return 0;
+    }
+    if(G->nfiles < 1){
+        WARNX("Need at least one FITS filename");
+        return 1;
+    }
+    for(int i = 0; i < G->nfiles; ++i)
+        if(parse_fits_file(G->infiles[i])) WARNX("Can't parse file %s", G->infiles[i]);
+    return 0;
 }
 
