@@ -80,7 +80,7 @@ int get_MJDt(struct timeval *tval, sMJD *MJD);
 int get_LST(sMJD *mjd, double dUT1, double slong, double *LST);
 void hor2eq(horizCrds *h, polarCrds *pc, double sidTime);
 void eq2horH(polarCrds *pc, horizCrds *h);
-void eq2hor(polarCrds *pc, horizCrds *h, double sidTime);;
+void eq2hor(polarCrds *pc, horizCrds *h, double sidTime);
 int get_ObsPlace(struct timeval *tval, polarCrds *p2000, polarCrds *pnow, horizCrds *hnow);
 
 #endif // SOFA_H__

@@ -29,6 +29,7 @@ typedef struct{
     int raindeg;            // RA in degrees
     int crdstrings;         // coordinates in string form
     int ha;                 // print HA instead of RA
+    int horcoords;          // show horizontal coordinates instead of equatorial
     int stindegr;           // sidereal time in degrees instead of hours
     int delta;              // show delta: apparent-encoder instead of apparent coordinates
     double pressure;        // atmospheric pressure (HPa or mmHg if pmm==1)

@@ -201,11 +201,20 @@ static int parse_fits_file(char *name){
     placeData *place = getPlace();
     if(!place) return 1;
     if(get_LST(&mjd, adut.DUT1, place->slong, &ST)) return 1;
-    ST /= DD2R; // convert radians to degrees
 
     double ra_now = (Jnow.ra - Jnow.eo)/DD2R, dec_now = Jnow.dec/DD2R;
     DBG("RA_now=%g, DEC_now=%g", ra_now, dec_now);
-    if(G->ha){ // print HA instead of RA
+
+    if(G->horcoords){ // horizontal coordinates: change ra->AZ, dec->ZD
+        horizCrds h_s, h_now;
+        polarCrds p_s = {.ra = DD2R * ra_scope, .dec = DD2R * dec_scope};
+        eq2hor(&p_s, &h_s, ST);
+        eq2hor(&Jnow, &h_now, ST);
+        ra_scope = h_s.az/DD2R; dec_scope = h_s.zd/DD2R;
+        ra_now = h_now.az/DD2R; dec_now = h_now.zd/DD2R;
+    }
+    ST /= DD2R; // convert radians to degrees
+    if(G->ha && !G->horcoords){ // print HA instead of RA
         ra_scope = ST - ra_scope;
         if(ra_scope < 0.) ra_scope += D2PI;
         ra_now = ST - ra_now;
@@ -254,8 +263,15 @@ static int parse_fits_file(char *name){
 }
 
 static void printheader(){
-    printf("# Pointing data @ p=%.f %s, T=%.1f degrC\n", G->pressure*(G->pmm ? hpa2mm : 1.), G->pmm ? "mmHg" : "hPa", G->temperature);
+    printf("# Pointing data @ p=%.f %s, T=%.1f degrC", G->pressure*(G->pmm ? hpa2mm : 1.), G->pmm ? "mmHg" : "hPa", G->temperature);
     const char *raha = G->ha ? "HA" : "RA";
+    const char *deczd = "DEC";
+    if(G->horcoords){
+        raha = "AZ";
+        deczd = " ZD";
+        printf(", AZ from north clockwise");
+    }
+    printf("\n");
     const char *raunits, *decunits;
     if(G->crdstrings){
         raunits = G->raindeg ? "dms" : "hms";
@@ -267,9 +283,9 @@ static void printheader(){
     const char *apparent = G->delta ? "(app-enc)" : "Apparent";
     char a[4][32];
     snprintf(a[0], 32, "Encoder %s,%s", raha, raunits);
-    snprintf(a[1], 32, "Encoder DEC,%s", decunits);
+    snprintf(a[1], 32, "Encoder %s,%s", deczd, decunits);
     snprintf(a[2], 32, "%s %s,%s", apparent, raha, raunits);
-    snprintf(a[3], 32, "%s DEC,%s", apparent, decunits);
+    snprintf(a[3], 32, "%s %s,%s", apparent, deczd, decunits);
     printf("%-16s%-16s Pier  %-18s%-19s", a[0], a[1], a[2], a[3]);
     if(!G->ha){
         printf("Sid. time,");
@@ -293,10 +309,14 @@ int main(int argc, char **argv) {
     if(G->pmm) G->pressure /= hpa2mm;
     setWeath(G->pressure, G->temperature, 0.5);
     if(G->for10m){
+        G->horcoords = 0;
         G->crdstrings = 1;
         G->raindeg = 0;
         G->ha = 0;
         G->stindegr = 0;
+    }else if(G->horcoords){
+        G->ha = 1; // omit Hour Angle output
+        G->raindeg = 1; // both coordinates are in degrees
     }
     if(G->printhdr){
         printheader();
