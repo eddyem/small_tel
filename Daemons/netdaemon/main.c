@@ -30,7 +30,7 @@ glob_pars *GP;
 void signals(int signo){
     restore_console();
     restore_tty();
-    putlog("exit with status %d", signo);
+    LOG("exit with status %d", signo);
     exit(signo);
 }
 
@@ -49,7 +49,7 @@ int main(int argc, char **argv){
         signals(0); // never reached!
     }
     if(GP->logfile)
-        openlogfile(GP->logfile);
+        Cl_createlog(GP->logfile);
     #ifndef EBUG
     if(daemon(1, 0)){
         ERR("daemon()");
@@ -57,10 +57,9 @@ int main(int argc, char **argv){
     while(1){ // guard for dead processes
         pid_t childpid = fork();
         if(childpid){
-            putlog("create child with PID %d\n", childpid);
+            LOG("create child with PID %d\n", childpid);
             DBG("Created child with PID %d\n", childpid);
             wait(NULL);
-            putlog("child %d died\n", childpid);
             WARNX("Child %d died\n", childpid);
             sleep(1);
         }else{
@@ -75,7 +74,6 @@ int main(int argc, char **argv){
      * INSERT CODE HERE
      * connection check & device validation
      */
-    //if(!G->terminal) signals(15); // there's not main controller connected to given terminal
     daemonize(GP->port);
     return 0;
 }

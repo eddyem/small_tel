@@ -72,8 +72,8 @@ void try_connect(char *device){
     char tmpbuf[4096];
     fflush(stdout);
     tty_init(device);
-    read_tty(tmpbuf, 4096); // clear rbuf
-    putlog("Connected to %s", device);
+    while(read_tty(tmpbuf, 4096)); // clear rbuf
+    LOG("Connected to %s", device);
 }
 
 /**

@@ -45,6 +45,7 @@
 #define _(String)               (String)
 #define N_(String)              (String)
 #endif
+#include <pthread.h>
 #include <stdlib.h>
 #include <termios.h>
 #include <termio.h>
@@ -76,10 +77,11 @@
  */
 extern int globErr;
 extern void signals(int sig);
-#define ERR(...) do{globErr=errno; _WARN(__VA_ARGS__); signals(9);}while(0)
-#define ERRX(...) do{globErr=0; _WARN(__VA_ARGS__); signals(9);}while(0)
-#define WARN(...) do{globErr=errno; _WARN(__VA_ARGS__);}while(0)
-#define WARNX(...) do{globErr=0; _WARN(__VA_ARGS__);}while(0)
+#define ERR(...) do{globErr=errno; Cl_putlogt(__VA_ARGS__); _WARN(__VA_ARGS__); signals(9);}while(0)
+#define ERRX(...) do{globErr=0; Cl_putlogt(__VA_ARGS__); _WARN(__VA_ARGS__); signals(9);}while(0)
+#define WARN(...) do{globErr=errno; Cl_putlogt(__VA_ARGS__); _WARN(__VA_ARGS__);}while(0)
+#define WARNX(...) do{globErr=0; Cl_putlogt(__VA_ARGS__); _WARN(__VA_ARGS__);}while(0)
+#define LOG(...)    do{Cl_putlogt(__VA_ARGS__); }while(0)
 
 /*
  * print function name, debug messages
@@ -135,6 +137,12 @@ int write_tty(char *buff, size_t length);
 
 int str2double(double *num, const char *str);
 
-void openlogfile(char *name);
-int putlog(const char *fmt, ...);
+typedef struct{
+    char *logpath;          // full path to logfile
+    pthread_mutex_t mutex;  // log mutex
+} Cl_log;
+
+int Cl_createlog(char *logname);
+int Cl_putlogt(const char *fmt, ...);
+
 #endif // __USEFULL_MACROS_H__
