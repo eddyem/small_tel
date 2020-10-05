@@ -1,5 +1,5 @@
 /*
- * This file is part of the ttyterm project.
+ * This file is part of the weatherchk project.
  * Copyright 2020 Edward V. Emelianov <edward.emelianoff@gmail.com>.
  *
  * This program is free software: you can redistribute it and/or modify
@@ -33,7 +33,7 @@ static glob_pars  G;
 // default global parameters
 glob_pars const Gdefault = {
     .speed = 9600,
-    .ttyname = "/dev/ttyUSB0",
+    .ttyname = "/dev/ttyS3",
 };
 
 /*
@@ -45,6 +45,7 @@ static myoption cmdlnopts[] = {
     {"help",    NO_ARGS,    NULL,   'h',    arg_int,    APTR(&help),        _("show this help")},
     {"speed",   NEED_ARG,   NULL,   's',    arg_int,    APTR(&G.speed),     _("baudrate (default: 9600)")},
     {"devname", NEED_ARG,   NULL,   'd',    arg_string, APTR(&G.ttyname),   _("serial device name")},
+    {"raw",     NO_ARGS,    NULL,   'r',    arg_int,    APTR(&G.showraw),   _("show raw information from meteostation")},
     end_option
 };
 

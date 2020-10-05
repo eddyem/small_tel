@@ -1,5 +1,5 @@
 /*
- * This file is part of the ttyterm project.
+ * This file is part of the weatherchk project.
  * Copyright 2020 Edward V. Emelianov <edward.emelianoff@gmail.com>.
  *
  * This program is free software: you can redistribute it and/or modify
@@ -80,10 +80,11 @@ int main(int argc, char **argv){
     char *eol = strchr(ptr, '\n');
     if(eol) *eol = 0;
     DBG("Now: %s\n", ptr);
+    if(G->showraw) green("%s\n", ptr);
     double rain = 1., clouds = 1.;
     if(!getpar(ptr, &rain, "RT")) printf("Rain=%g\n", rain);
-    if(!getpar(ptr, &clouds, "WK")) printf("Clouds=%g\n", clouds);
+    if(!getpar(ptr, &clouds, "WU")) printf("Clouds=%g\n", clouds);
     close_tty(&dev);
-    if(rain > 0.1) return 1;
+    if(rain > 0.1 || clouds < 1800.) return 1;
     return 0;
 }

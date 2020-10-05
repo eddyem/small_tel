@@ -1,5 +1,5 @@
 /*
- * This file is part of the ttyterm project.
+ * This file is part of the weatherchk project.
  * Copyright 2020 Edward V. Emelianov <edward.emelianoff@gmail.com>.
  *
  * This program is free software: you can redistribute it and/or modify
@@ -26,6 +26,7 @@
 typedef struct{
     int speed;          // baudrate
     char *ttyname;      // device name
+    int showraw;        // show raw information
 } glob_pars;
 
 
