@@ -54,24 +54,39 @@ int main(int argc, char **argv){
     G = parse_args(argc, argv);
     TTY_descr *dev = new_tty(G->ttyname, G->speed, 64);
     if(!dev || !(dev = tty_open(dev, 1))) return 1; // open exclusively
-    while(read_tty(dev)); // clear buffer
-    if(write_tty(dev->comfd, "?U\r\n", 3)) ERR("write_tty()");
     size_t got, L = 0;
     char buff[BUFLEN], *ptr = buff;
-    double t0 = dtime();
-    while(dtime() - t0 < 1.){ // timeout - 1s
-        got = read_tty(dev);
-        if(got == 0) continue;
-        t0 = dtime();
-        L += got;
-        if(BUFLEN > L){
-            strncpy(ptr, dev->buf, dev->buflen);
-            ptr += got;
+    int errctr = 0;
+    for(errctr = 0; errctr < 5; ++errctr){
+        while(read_tty(dev)); // clear buffer
+        if(write_tty(dev->comfd, "?U\r\n", 3)){
+            WARNX("write_tty()");
+            continue;
+        }
+        double t0 = dtime();
+        while(dtime() - t0 < 1.){ // timeout - 1s
+            got = read_tty(dev);
+            if(got == 0) continue;
+            t0 = dtime();
+            L += got;
+            if(BUFLEN > L){
+                strncpy(ptr, dev->buf, dev->buflen);
+                ptr += got;
+            }else break;
+        }
+        buff[L] = 0;
+        if(L == 0){
+            WARNX("Got nothing from TTY");
+            continue;
+        }else if(strncmp(buff, "<?U>", 4)){
+            WARNX("Wrong answer: %s", buff);
+            continue;
         }else break;
     }
-    buff[L] = 0;
-    if(L == 0) ERRX("Got nothing from TTY");
-    if(strncmp(buff, "<?U>", 4)) ERRX("Wrong answer: %s", buff);
+    if(errctr == 5){
+        close_tty(&dev);
+        ERRX("No connection to meteostation");
+    }
     ptr = &buff[4];
     for(size_t i = 4; i < L; ++i){
         char c = *ptr;
