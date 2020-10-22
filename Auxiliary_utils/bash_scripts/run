@@ -1,0 +1,52 @@
+#!/bin/bash
+RA="00:12:15"
+DEC="50:25:21"
+OBJ="EGGR381"
+OBS="Emelianov E.V."
+
+last=$(date -d "Oct 23 05:30" +%s)
+echo "Time diff: $(($last-$(date +%s)))"
+if [ $(($last-$(date +%s))) -lt 3600 ]; then
+	echo "There's less an hour for observation!"
+	exit 2
+fi
+export http_proxy=""
+
+echo "GoTo object: ${RA} ${DEC}"
+send_coords -r${RA} -d${DEC}
+echo "Start taking object"
+
+badweatger=0
+while true; do
+	now=$(date +%s)
+	chkweather -r -d /dev/ttyS3 > lastweather && badweather=0 || badweather=$((badweather+1))
+	#echo "badweather: $badweather"
+	[ $badweather -gt 5 ] && break
+	#continue
+	if [ "$now" -lt "$last" ]; then
+		ST=$(send_coords | awk '{print $4}')
+		if [ $ST -ne "0" ]; then
+			touch lastpointing
+			send_coords -r${RA} -d${DEC}
+		else
+			preflash
+			/usr/bin/fli_control -r /tmp/10micron.fitsheader -x 60000 -N "${OBS}" -O "${OBJ}" "$OBJ"
+		fi
+	else
+		break
+	fi
+done
+#exit 0
+
+echo "closed" > closed
+curl localhost:4444/close
+curl localhost:55555/close
+
+for x in $(seq 1 10); do
+	preflash
+	/usr/bin/fli_control -x60000 -d dark
+	preflash
+	/usr/bin/fli_control -x1 -d bias
+done
+
+STOPobs
