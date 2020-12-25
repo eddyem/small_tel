@@ -4,7 +4,19 @@ DEC="50:25:21"
 OBJ="EGGR381"
 OBS="Emelianov E.V."
 
-last=$(date -d "Oct 23 05:30" +%s)
+function sendcmd(){
+    echo $1 | nc localhost 10001 -q10
+}
+
+function point_tel(){
+	touch lastpointing
+	send_coords -r $1 -d $2
+}
+
+# set lower limit to 0
+send_command2mount ":So0#"
+
+last=$(date -d "Nov 30 05:45" +%s)
 echo "Time diff: $(($last-$(date +%s)))"
 if [ $(($last-$(date +%s))) -lt 3600 ]; then
 	echo "There's less an hour for observation!"
@@ -16,18 +28,30 @@ echo "GoTo object: ${RA} ${DEC}"
 send_coords -r${RA} -d${DEC}
 echo "Start taking object"
 
-badweatger=0
+badweather=0
 while true; do
 	now=$(date +%s)
+	ANS=$(curl localhost:55555/status 2>/dev/null)
+	echo "Dome status: $ANS"
+	if [ $ANS != "opened" ]; then
+		echo "Closed"
+		curl localhost:55555/weather 2>/dev/null > DomeClosed
+		break;
+	fi
 	chkweather -r -d /dev/ttyS3 > lastweather && badweather=0 || badweather=$((badweather+1))
-	#echo "badweather: $badweather"
 	[ $badweather -gt 5 ] && break
-	#continue
 	if [ "$now" -lt "$last" ]; then
+		est=$(sendcmd ":Gmte#"|sed -e 's/^0*//' -e 's/#//')
+		echo -e "\n\n\n\n\nEstimated time to flip: $est minutes"
+		if [[ ("x$est" == "x") || ($est -lt 3) ]]; then
+			point_tel "${RA}" "${DEC}"
+			continue
+		fi
 		ST=$(send_coords | awk '{print $4}')
+		[ "x$ST" == "x" ] && break
 		if [ $ST -ne "0" ]; then
-			touch lastpointing
-			send_coords -r${RA} -d${DEC}
+			point_tel "${RA}" "${DEC}"
+			continue
 		else
 			preflash
 			/usr/bin/fli_control -r /tmp/10micron.fitsheader -x 60000 -N "${OBS}" -O "${OBJ}" "$OBJ"
@@ -36,11 +60,12 @@ while true; do
 		break
 	fi
 done
-#exit 0
 
-echo "closed" > closed
+
 curl localhost:4444/close
 curl localhost:55555/close
+echo "closed" > closed
+../../park_tel.sh
 
 for x in $(seq 1 10); do
 	preflash
