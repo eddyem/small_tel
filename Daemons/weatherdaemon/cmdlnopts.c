@@ -1,11 +1,10 @@
-/*                                                                                                  geany_encoding=koi8-r
- * cmdlnopts.c - the only function that parse cmdln args and returns glob parameters
+/*
+ * This file is part of the weatherdaemon project.
+ * Copyright 2021 Edward V. Emelianov <edward.emelianoff@gmail.com>.
  *
- * Copyright 2018 Edward V. Emelianoff <eddy@sao.ru>
- *
- * This program is free software; you can redistribute it and/or modify
+ * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
@@ -14,10 +13,9 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
- * MA 02110-1301, USA.
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -41,13 +39,12 @@ static glob_pars  G;
 glob_pars const Gdefault = {
     .device = NULL,
     .port = DEFAULT_PORT,
-    .terminal = 0,
-    .echo = 0,
     .logfile = NULL,
     .verb = 0,
     .tty_speed = 115200,
     .rest_pars = NULL,
-    .rest_pars_num = 0
+    .rest_pars_num = 0,
+    .emul = 0
 };
 
 /*
@@ -60,10 +57,9 @@ myoption cmdlnopts[] = {
     {"device",  NEED_ARG,   NULL,   'i',    arg_string, APTR(&G.device),    _("serial device name (default: none)")},
     {"port",    NEED_ARG,   NULL,   'p',    arg_string, APTR(&G.port),      _("network port to connect (default: " DEFAULT_PORT ")")},
     {"logfile", NEED_ARG,   NULL,   'l',    arg_string, APTR(&G.logfile),   _("save logs to file (default: none)")},
-    {"terminal",NO_ARGS,    NULL,   't',    arg_int,    APTR(&G.terminal),  _("run as terminal")},
-    {"echo",    NO_ARGS,    NULL,   'e',    arg_int,    APTR(&G.echo),      _("echo users commands back")},
     {"verb",    NO_ARGS,    NULL,   'v',    arg_none,   APTR(&G.verb),      _("logfile verbocity level (each -v increase it)")},
     {"baudrate",NEED_ARG,   NULL,   'b',    arg_int,    APTR(&G.tty_speed), _("serial terminal baudrate (default: 115200)")},
+    {"emulation",NO_ARGS,   NULL,   'e',    arg_int,    APTR(&G.emul),      _("emulate serial device")},
     end_option
 };
 

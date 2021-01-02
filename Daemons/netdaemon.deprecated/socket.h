@@ -1,7 +1,8 @@
-/*                                                                                                  geany_encoding=koi8-r
- * term.h
+/*
+ *                                                                                                  geany_encoding=koi8-r
+ * socket.h
  *
- * Copyright 2018 Edward V. Emelianov <eddy@sao.ru, edward.emelianoff@gmail.com>
+ * Copyright 2017 Edward V. Emelianov <eddy@sao.ru, edward.emelianoff@gmail.com>
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,23 +18,17 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
  * MA 02110-1301, USA.
+ *
  */
 #pragma once
-#ifndef __TERM_H__
-#define __TERM_H__
+#ifndef __SOCKET_H__
+#define __SOCKET_H__
 
-#include <usefull_macros.h>
+// timeout for socket closing
+#define SOCKET_TIMEOUT  (5.0)
+// time interval for data polling (seconds)
+#define T_INTERVAL      (10.)
 
-#define FRAME_MAX_LENGTH        (300)
-#define MAX_MEMORY_DUMP_SIZE    (0x800 * 4)
-// Terminal timeout (seconds)
-#define     WAIT_TMOUT          (0.5)
-// Terminal polling timeout - 1 second
-#define     T_POLLING_TMOUT     (1.0)
+void daemonize(char *port);
 
-extern TTY_descr *ttydescr;
-void run_terminal();
-int try_connect(char *device, int baudrate);
-char *poll_device();
-
-#endif // __TERM_H__
+#endif // __SOCKET_H__

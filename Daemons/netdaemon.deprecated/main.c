@@ -18,21 +18,19 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
  * MA 02110-1301, USA.
  */
+#include "usefull_macros.h"
 #include <signal.h>
-#include <stdio.h>
 #include <sys/wait.h> // wait
 #include <sys/prctl.h> //prctl
-#include <usefull_macros.h>
 #include "cmdlnopts.h"
 #include "socket.h"
-#include "term.h"
 
 glob_pars *GP;
 
 void signals(int signo){
     restore_console();
-    if(ttydescr) close_tty(&ttydescr);
-    LOGERR("exit with status %d", signo);
+    restore_tty();
+    LOG("exit with status %d", signo);
     exit(signo);
 }
 
@@ -46,18 +44,12 @@ int main(int argc, char **argv){
     GP = parse_args(argc, argv);
     if(GP->terminal){
         if(!GP->device) ERRX(_("Point serial device name"));
-        if(!try_connect(GP->device, GP->tty_speed))
-            ERRX("Can't connect to device");
+        try_connect(GP->device);
         run_terminal();
         signals(0); // never reached!
     }
-    if(GP->logfile){
-        sl_loglevel lvl = LOGLEVEL_ERR;
-        for(; GP->verb && lvl < LOGLEVEL_ANY; --GP->verb) ++lvl;
-        DBG("Loglevel: %d", lvl);
-        if(!OPENLOG(GP->logfile, lvl, 1)) ERRX("Can't open log file");
-        LOGERR("Started");
-    }
+    if(GP->logfile)
+        Cl_createlog(GP->logfile);
     #ifndef EBUG
     if(daemon(1, 0)){
         ERR("daemon()");
@@ -65,11 +57,10 @@ int main(int argc, char **argv){
     while(1){ // guard for dead processes
         pid_t childpid = fork();
         if(childpid){
-            LOGDBG("create child with PID %d\n", childpid);
+            LOG("create child with PID %d\n", childpid);
             DBG("Created child with PID %d\n", childpid);
             wait(NULL);
             WARNX("Child %d died\n", childpid);
-            LOGWARN("Child %d died\n", childpid);
             sleep(1);
         }else{
             prctl(PR_SET_PDEATHSIG, SIGTERM); // send SIGTERM to child when parent dies
@@ -78,8 +69,7 @@ int main(int argc, char **argv){
     }
     #endif
 
-    if(GP->device) if(!try_connect(GP->device, GP->tty_speed))
-        ERRX("Can't connect to device");;
+    if(GP->device) try_connect(GP->device);
     /*
      * INSERT CODE HERE
      * connection check & device validation

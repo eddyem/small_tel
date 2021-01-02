@@ -23,9 +23,8 @@
 #include <string.h>
 #include <strings.h>
 #include <math.h>
-#include <usefull_macros.h>
 #include "cmdlnopts.h"
-#include "term.h"
+#include "usefull_macros.h"
 
 /*
  * here are global parameters initialisation
@@ -44,8 +43,6 @@ glob_pars const Gdefault = {
     .terminal = 0,
     .echo = 0,
     .logfile = NULL,
-    .verb = 0,
-    .tty_speed = 115200,
     .rest_pars = NULL,
     .rest_pars_num = 0
 };
@@ -62,8 +59,6 @@ myoption cmdlnopts[] = {
     {"logfile", NEED_ARG,   NULL,   'l',    arg_string, APTR(&G.logfile),   _("save logs to file (default: none)")},
     {"terminal",NO_ARGS,    NULL,   't',    arg_int,    APTR(&G.terminal),  _("run as terminal")},
     {"echo",    NO_ARGS,    NULL,   'e',    arg_int,    APTR(&G.echo),      _("echo users commands back")},
-    {"verb",    NO_ARGS,    NULL,   'v',    arg_none,   APTR(&G.verb),      _("logfile verbocity level (each -v increase it)")},
-    {"baudrate",NEED_ARG,   NULL,   'b',    arg_int,    APTR(&G.tty_speed), _("serial terminal baudrate (default: 115200)")},
     end_option
 };
 

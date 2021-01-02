@@ -1,11 +1,10 @@
-/*                                                                                                  geany_encoding=koi8-r
- * main.c
+/*
+ * This file is part of the weatherdaemon project.
+ * Copyright 2021 Edward V. Emelianov <edward.emelianoff@gmail.com>.
  *
- * Copyright 2018 Edward V. Emelianov <eddy@sao.ru, edward.emelianoff@gmail.com>
- *
- * This program is free software; you can redistribute it and/or modify
+ * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
@@ -14,10 +13,9 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
- * MA 02110-1301, USA.
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+
 #include <signal.h>
 #include <stdio.h>
 #include <sys/wait.h> // wait
@@ -44,13 +42,6 @@ int main(int argc, char **argv){
     signal(SIGQUIT, signals); // ctrl+\ - quit
     signal(SIGTSTP, SIG_IGN); // ignore ctrl+Z
     GP = parse_args(argc, argv);
-    if(GP->terminal){
-        if(!GP->device) ERRX(_("Point serial device name"));
-        if(!try_connect(GP->device, GP->tty_speed))
-            ERRX("Can't connect to device");
-        run_terminal();
-        signals(0); // never reached!
-    }
     if(GP->logfile){
         sl_loglevel lvl = LOGLEVEL_ERR;
         for(; GP->verb && lvl < LOGLEVEL_ANY; --GP->verb) ++lvl;
@@ -78,12 +69,14 @@ int main(int argc, char **argv){
     }
     #endif
 
-    if(GP->device) if(!try_connect(GP->device, GP->tty_speed))
-        ERRX("Can't connect to device");;
-    /*
-     * INSERT CODE HERE
-     * connection check & device validation
-     */
+    if(GP->device) if(!try_connect(GP->device, GP->tty_speed)){
+        LOGERR("Can't connect to device");
+        ERRX("Can't connect to device");
+    }
+    if(!GP->device && !GP->emul){
+        LOGERR("Need serial device name or emulation flag");
+        ERRX("Need serial device name or emulation flag");
+    }
     daemonize(GP->port);
     return 0;
 }

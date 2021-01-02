@@ -1,12 +1,10 @@
 /*
- *                                                                                                  geany_encoding=koi8-r
- * socket.c - socket IO
+ * This file is part of the weatherdaemon project.
+ * Copyright 2021 Edward V. Emelianov <edward.emelianoff@gmail.com>.
  *
- * Copyright 2018 Edward V. Emelianov <eddy@sao.ru, edward.emelianoff@gmail.com>
- *
- * This program is free software; you can redistribute it and/or modify
+ * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
@@ -15,11 +13,9 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
- * MA 02110-1301, USA.
- *
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+
 #include <netdb.h>      // addrinfo
 #include <arpa/inet.h>  // inet_ntop
 #include <limits.h>     // INT_xxx
@@ -43,9 +39,9 @@
 
 extern glob_pars *GP;
 
-/*
- * Define global data buffers here
- */
+static char *answer = NULL;
+static int freshdata = 0;
+static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
 /**************** SERVER FUNCTIONS ****************/
 /**
@@ -160,13 +156,8 @@ static int handle_socket(int sock, int notchkhdr){
             return 1;
         }
     }
-    /*
-    *
-     * INSERT CODE HERE
-     * Process user commands here & send him an answer
-     * remove trailing break if socket shouldn't be closed after server sent data
-     *
-    */
+    if(answer) send_data(sock, webquery, answer);
+    else send_data(sock, webquery, "No data\n");
     if(webquery) return 1; // close web query after message processing
     return 0;
 }
@@ -187,6 +178,7 @@ static void *server(void *asock){
     memset(notchkhdr, 0, sizeof(notchkhdr));
     poll_set[0].fd = sock;
     poll_set[0].events = POLLIN;
+    double lastdatat = dtime();
     while(1){
         poll(poll_set, nfd, 1); // poll for 1ms
         for(int fdidx = 0; fdidx < nfd; ++fdidx){ // poll opened FDs
@@ -229,23 +221,54 @@ static void *server(void *asock){
                     notchkhdr[nfd] = 0;
                     ++nfd;
                 }
-
             }
         } // endfor
-        /*
-         * INSERT CODE HERE
-         * Send broadcast messages
-         */
+        if(freshdata && answer){ // send new data to all
+            freshdata = 0;
+            lastdatat = dtime();
+            for(int fdidx = 1; fdidx < nfd; ++fdidx){
+                if(notchkhdr[fdidx])
+                    send_data(poll_set[fdidx].fd, 0, answer);
+            }
+        }
+        if(dtime() - lastdatat > NODATA_TMOUT){
+            LOGERR("No data timeout");
+            ERRX("No data timeout");
+        }
     }
     LOGERR("server(): UNREACHABLE CODE REACHED!");
+}
+
+static void *ttyparser(_U_ void *notused){
+    double tlast = 0;
+    while(1){
+        if(dtime() - tlast > T_INTERVAL){
+            char *got = poll_device();
+            if(got){
+                if (0 == pthread_mutex_lock(&mutex)){
+                    FREE(answer);
+                    answer = strdup(got);
+                    freshdata = 1;
+                    pthread_mutex_unlock(&mutex);
+                }
+                tlast = dtime();
+            }
+        }
+        sleep(1);
+    }
+    return NULL;
 }
 
 // data gathering & socket management
 static void daemon_(int sock){
     if(sock < 0) return;
-    pthread_t sock_thread;
+    pthread_t sock_thread, parser_thread;
     if(pthread_create(&sock_thread, NULL, server, (void*) &sock)){
-        LOGERR("daemon_(): pthread_create() failed");
+        LOGERR("daemon_(): pthread_create(sock_thread) failed");
+        ERR("pthread_create()");
+    }
+    if(pthread_create(&parser_thread, NULL, ttyparser, NULL)){
+        LOGERR("daemon_(): pthread_create(parser_thread) failed");
         ERR("pthread_create()");
     }
     do{
@@ -258,11 +281,16 @@ static void daemon_(int sock){
                 ERR("pthread_create()");
             }
         }
+        if(pthread_kill(parser_thread, 0) == ESRCH){ // died
+            WARNX("TTY thread died");
+            LOGWARN("TTY thread died");
+            pthread_join(parser_thread, NULL);
+            if(pthread_create(&parser_thread, NULL, ttyparser, NULL)){
+                LOGERR("daemon_(): new pthread_create(parser_thread) failed");
+                ERR("pthread_create()");
+            }
+        }
         usleep(1000); // sleep a little
-        /*
-         * INSERT CODE HERE
-         * Gather data (poll_device)
-         */
     }while(1);
     LOGERR("daemon_(): UNREACHABLE CODE REACHED!");
 }

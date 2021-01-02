@@ -1,5 +1,5 @@
 # run `make DEF=...` to add extra defines
-PROGRAM := netdaemon
+PROGRAM := weatherdaemon
 LDFLAGS := -fdata-sections -ffunction-sections -Wl,--gc-sections -Wl,--discard-all -pthread
 LDFLAGS += -lusefull_macros
 SRCS := $(wildcard *.c)

@@ -18,17 +18,13 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
  * MA 02110-1301, USA.
  */
-
-#include <stdio.h>
-#include <string.h>
+#include "usefull_macros.h"
+#include "term.h"
 #include <strings.h> // strncasecmp
 #include <time.h>    // time(NULL)
 #include <limits.h>  // INT_MAX, INT_MIN
-#include "term.h"
 
 #define BUFLEN 1024
-
-TTY_descr *ttydescr = NULL;
 
 static char buf[BUFLEN];
 
@@ -37,7 +33,6 @@ static char buf[BUFLEN];
  * @return NULL if nothing was read or pointer to static buffer
  */
 static char *read_string(){
-    if(!ttydescr) ERRX("Serial device not initialized");
     size_t r = 0, l;
     int LL = BUFLEN - 1;
     char *ptr = NULL;
@@ -52,7 +47,7 @@ static char *read_string(){
     ptr = buf;
     double d0 = dtime();
     do{
-        if((l = read_tty(ttydescr))){
+        if((l = read_tty(ptr, LL))){
             r += l; LL -= l; ptr += l;
             if(ptr[-1] == '\n') break;
             d0 = dtime();
@@ -69,36 +64,35 @@ static char *read_string(){
 }
 
 /**
- * Try to connect to `device` at baudrate speed
- * @return 1 if OK
+ * Try to connect to `device` at BAUD_RATE speed
+ * @return connection speed if success or 0
  */
-int try_connect(char *device, int baudrate){
-    if(!device) return 0;
+void try_connect(char *device){
+    if(!device) return;
+    char tmpbuf[4096];
     fflush(stdout);
-    ttydescr = new_tty(device, baudrate, 1024);
-    if(ttydescr) ttydescr = tty_open(ttydescr, 1); // exclusive open
-    if(!ttydescr) return 0;
-    while(read_tty(ttydescr)); // clear rbuf
-    LOGMSG("Connected to %s", device);
-    return 1;
+    tty_init(device);
+    while(read_tty(tmpbuf, 4096)); // clear rbuf
+    LOG("Connected to %s", device);
 }
 
 /**
  * run terminal emulation: send user's commands and show answers
  */
 void run_terminal(){
-    if(!ttydescr) ERRX("Terminal not connected");
     green(_("Work in terminal mode without echo\n"));
     int rb;
+    char buf[BUFLEN];
     size_t l;
     setup_con();
     while(1){
-        if((l = read_tty(ttydescr))){
-            printf("%s", ttydescr->buf);
+        if((l = read_tty(buf, BUFLEN - 1))){
+            buf[l] = 0;
+            printf("%s", buf);
         }
         if((rb = read_console())){
-            char c = (char) rb;
-            write_tty(ttydescr->comfd, &c, 1);
+            buf[0] = (char) rb;
+            write_tty(buf, 1);
         }
     }
 }

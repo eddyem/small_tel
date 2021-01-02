@@ -1,11 +1,11 @@
 # run `make DEF=...` to add extra defines
 PROGRAM := netdaemon
 LDFLAGS := -fdata-sections -ffunction-sections -Wl,--gc-sections -Wl,--discard-all -pthread
-LDFLAGS += -lusefull_macros
 SRCS := $(wildcard *.c)
 DEFINES := $(DEF) -D_GNU_SOURCE -D_XOPEN_SOURCE=1111
 DEFINES += -DEBUG
 # baudrate for USB<->UART converter
+DEFINES += -DBAUD_RATE=B115200
 OBJDIR := mk
 CFLAGS += -O2 -Wall -Werror -Wextra -Wno-trampolines
 OBJS := $(addprefix $(OBJDIR)/, $(SRCS:%.c=%.o))

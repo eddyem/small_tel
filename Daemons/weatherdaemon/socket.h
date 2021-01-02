@@ -1,12 +1,10 @@
 /*
- *                                                                                                  geany_encoding=koi8-r
- * socket.h
+ * This file is part of the weatherdaemon project.
+ * Copyright 2021 Edward V. Emelianov <edward.emelianoff@gmail.com>.
  *
- * Copyright 2017 Edward V. Emelianov <eddy@sao.ru, edward.emelianoff@gmail.com>
- *
- * This program is free software; you can redistribute it and/or modify
+ * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
+ * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
@@ -15,11 +13,9 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
- * MA 02110-1301, USA.
- *
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+
 #pragma once
 #ifndef __SOCKET_H__
 #define __SOCKET_H__
@@ -27,7 +23,9 @@
 // time interval for data polling (seconds)
 #define T_INTERVAL      (10.)
 // max amount of opened fd (+1 for server socket)
-#define MAX_FDS (11)
+#define MAX_FDS         (11)
+// no data timeout
+#define NODATA_TMOUT    (90.)
 
 void daemonize(char *port);
 
