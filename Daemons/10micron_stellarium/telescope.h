@@ -29,6 +29,25 @@
 // make datetime/pressure/temperature corrections each CORRECTIONS_TIMEDIFF seconds
 #define CORRECTIONS_TIMEDIFF    (3600)
 
+#define TELESCOPE_NAME      "'Astrosib-500 (1)'"
+
+// telescope statuses
+typedef enum{
+    TEL_TRACKING = 0,
+    TEL_STOPHOM = 1,
+    TEL_PARKING = 2,
+    TEL_UNPARKING = 3,
+    TEL_HOMING = 4,
+    TEL_PARKED = 5,
+    TEL_SLEWING = 6,
+    TEL_STOPPED = 7,
+    TEL_INHIBITED = 8,
+    TEL_OUTLIMIT = 9,
+    TEL_FOLSAT = 10,
+    TEL_DATINCOSIST = 11,
+    TEL_MAXSTATUS = 12 // number of statuses
+} tel_status;
+
 int connect_telescope(char *dev, char *hdrname);
 int point_telescope(double ra, double decl);
 int get_telescope_coords(double *ra, double *decl);

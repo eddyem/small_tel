@@ -19,7 +19,8 @@
 #include <time.h>
 
 #include "libsofa.h"
-#include "usefull_macros.h"
+#include "socket.h"
+#include "usefull_macro.h"
 
 #ifdef EBUG
 void reprd(char* s, double ra, double dc){
@@ -45,31 +46,73 @@ void radtodeg(double r){
 #define REP(a,b,c)
 #endif
 
-// temporal stubs for weather/place/DUT1 data; return 0 if all OK
-int getPlace(placeData *p){
-    if(!p) return 0;
-    /* Site longitude, latitude (radians) and height above the geoid (m). */
-    p->slong = 0.7232763200;
-    p->slat  = 0.7618977414;
-/*
-    iauAf2a('+', 41, 26, 26.45, &p->slong); // longitude
-    iauAf2a('+', 43, 39, 12.69, &p->slat); // latitude
-                        */
-    p->salt = 2070.0; // altitude
-    //DBG("long: %.10f, lat: %.10f", p->slong, p->slat);
-    return 0;
+// temporal stubs for weather/place/DUT1 data; user can change values of these variables
+static placeData place = {.slong = 0.7232763200, .slat = 0.7618977414, .salt = 2070.};
+placeData *getPlace(){
+    return &place;
 }
-int getWeath(placeWeather *w){
-    if(!w) return 0;
-    w->relhum = 0.7;
-    w->tc = 1.;
-    w->php = 780.;
-    return 0;
+
+static localWeather weather = {0};
+typedef struct{
+    const char *name;
+    double *valptr;
+} weathpars;
+#define WPCOUNT     (7)
+static weathpars WPars[WPCOUNT] = {
+    {"BTAHumid", &weather.relhum},
+    {"BTAPres", &weather.pres},
+    {"Exttemp", &weather.tc},
+    {"Rain", &weather.rain},
+    {"Clouds", &weather.clouds},
+    {"Wind", &weather.wind},
+    {"Time", &weather.time}
+};
+
+localWeather *getWeath(){
+    //DBG("DT=%zd", time(NULL) - (time_t)weather.time);
+    char *w = getweathbuffer();
+    //DBG("w=%s", w);
+    if(w){ // get new data - check it
+        int ctr = 0;
+        for(int i = 0; i < WPCOUNT; ++i){
+            if(getparval(WPars[i].name, w, WPars[i].valptr)) ++ctr;
+        }
+        if(ctr != WPCOUNT) WARN("Not full set of parameters in %s", w);
+        FREE(w);
+    }
+    if((time_t)weather.time == 0 || time(NULL) - (time_t)weather.time > 3600) return NULL;
+    return &weather;
 }
-int getDUT(almDut *a){
-    if(!a) return 0;
-    a->px = a->py = a->DUT1 = 0.;
-    return 0;
+static almDut dut1 = {0};
+almDut *getDUT(){
+    // check DUT1 data HERE once per some time
+    return &dut1;
+}
+
+/**
+ * @brief r2sHMS  - convert angle in radians into string "'HH:MM:SS.SS'"
+ * @param radians - angle
+ * @param hms (o) - string
+ * @param len     - length of hms
+ */
+void r2sHMS(double radians, char *hms, int len){
+    char pm;
+    int i[4];
+    iauA2tf(2, radians, &pm, i);
+    snprintf(hms, len, "'%c%02d:%02d:%02d.%02d'", pm, i[0],i[1],i[2],i[3]);
+}
+
+/**
+ * @brief r2sDMS  - convert angle in radians into string "'DD:MM:SS.S'"
+ * @param radians - angle
+ * @param dms (o) - string
+ * @param len     - length of hms
+ */
+void r2sDMS(double radians, char *dms, int len){
+    char pm;
+    int i[4];
+    iauA2af(1, radians, &pm, i);
+    snprintf(dms, len, "'%c%02d:%02d:%02d.%d'", pm, i[0],i[1],i[2],i[3]);
 }
 
 /**
@@ -111,14 +154,88 @@ int get_MJDt(struct timeval *tval, sMJD *MJD){
 }
 
 /**
+ * @brief get_LST - calculate local siderial time
+ * @param mjd (i) - date/time for LST (utc1 & tt used)
+ * @param dUT1    - (UT1-UTC)
+ * @param slong   - site longitude (radians)
+ * @param LST (o) - local sidereal time (radians)
+ * @return 0 if all OK
+ */
+int get_LST(sMJD *mjd, double dUT1, double slong, double *LST){
+    double ut11, ut12;
+    sMJD Mjd;
+    if(!mjd){
+        if(get_MJDt(NULL, &Mjd)) return 1;
+    }else memcpy(&Mjd, mjd, sizeof(sMJD));
+    if(iauUtcut1(Mjd.utc1, Mjd.utc2, dUT1, &ut11, &ut12)) return 2;
+    /*double era = iauEra00(ut11, ut12) + slong;
+    double eo = iauEe06a(mjd->tt1, mjd->tt2);
+    printf("ERA = %s; ", radtohrs(era));
+    printf("ERA-eo = %s\n", radtohrs(era-eo));*/
+    if(!LST) return 0;
+    double ST = iauGst06a(ut11, ut12, Mjd.tt1, Mjd.tt2);
+    ST += slong;
+    if(ST > D2PI) ST -= D2PI;
+    else if(ST < 0.) ST += D2PI;
+    *LST = ST;
+    return 0;
+}
+
+
+/**
+ * @brief hor2eq  - convert horizontal coordinates to polar
+ * @param h (i)   - horizontal coordinates
+ * @param pc (o)  - polar coordinates
+ * @param sidTime - sidereal time
+ */
+void hor2eq(horizCrds *h, polarCrds *pc, double sidTime){
+    if(!h || !pc) return;
+    placeData *p = getPlace();
+    iauAe2hd(h->az, DPI/2. - h->zd, p->slat, &pc->ha, &pc->dec); // A,H -> HA,DEC; phi - site latitude
+    pc->ra = sidTime - pc->ha;
+    pc->eo = 0.;
+}
+
+/**
+ * @brief eq2horH - convert polar coordinates to horizontal
+ * @param pc (i)  - polar coordinates (only HA used)
+ * @param h (o)   - horizontal coordinates
+ * @param sidTime - sidereal time
+ */
+void eq2horH(polarCrds *pc, horizCrds *h){
+    if(!h || !pc) return;
+    placeData *p = getPlace();
+    double alt;
+    iauHd2ae(pc->ha, pc->dec, p->slat, &h->az, &alt);
+    h->zd = DPI/2. - alt;
+}
+
+/**
+ * @brief eq2hor  - convert polar coordinates to horizontal
+ * @param pc (i)  - polar coordinates (only RA used)
+ * @param h (o)   - horizontal coordinates
+ * @param sidTime - sidereal time
+ */
+void eq2hor(polarCrds *pc, horizCrds *h, double sidTime){
+    if(!h || !pc) return;
+    double ha = sidTime - pc->ra + pc->eo;
+    placeData *p = getPlace();
+    double alt;
+    iauHd2ae(ha, pc->dec, p->slat, &h->az, &alt);
+    h->zd = DPI/2. - alt;
+}
+
+
+/**
  * @brief get_ObsPlace - calculate observed place (without PM etc) for given date @550nm
  * @param tval  (i) - time
  * @param p2000 (i) - polar coordinates for J2000 (only ra/dec used), ICRS (catalog)
+ * @param weath (i) - weather data (relhum, temp, press) or NULL if none
  * @param pnow  (o) - polar coordinates for given epoch (or NULL)
  * @param hnow  (o) - horizontal coordinates for given epoch (or NULL)
  * @return 0 if all OK
  */
-int get_ObsPlace(struct timeval *tval, polarCrds *p2000, polarCrds *pnow, horizCrds *hnow){
+int get_ObsPlace(struct timeval *tval, polarCrds *p2000, localWeather *weath, polarCrds *pnow, horizCrds *hnow){
     double pr = 0.0;     // RA proper motion (radians/year; Note 2)
     double pd = 0.0;     // Dec proper motion (radians/year)
     double px = 0.0;     // parallax (arcsec)
@@ -126,28 +243,26 @@ int get_ObsPlace(struct timeval *tval, polarCrds *p2000, polarCrds *pnow, horizC
     sMJD MJD;
     if(get_MJDt(tval, &MJD)) return -1;
     if(!p2000) return -1;
-    placeData p;
-    placeWeather w;
-    almDut d;
-    if(getPlace(&p)) return -1;
-    if(getWeath(&w)) return -1;
-    if(getDUT(&d)) return -1;
     /* Effective wavelength (microns) */
     double wl = 0.55;
     /* ICRS to observed. */
     double aob, zob, hob, dob, rob, eo;
-/*
-    DBG("iauAtco13(%g, %g, %g, %g, %g, %g, %g, %g, %g, %g, %g, %g, %g, %g, %g, %g, %g, %g)",
-        p2000->ra, p2000->dec, pr, pd, px, rv, MJD.utc1, MJD.utc2, d.DUT1, p.slong, p.slat, p.salt,
-                         d.px, d.py, w.php, w.tc, w.relhum, wl);
-*/
+    double p = 0., t = 0., h = 0.;
+    if(weath){
+        p = weath->pres; t = weath->tc; h = weath->relhum;
+    }
+    /*
+        DBG("iauAtco13(%g, %g, %g, %g, %g, %g, %g, %g, %g, %g, %g, %g, %g, %g, %g, %g, %g, %g)",
+            p2000->ra, p2000->dec, pr, pd, px, rv, MJD.utc1, MJD.utc2, d.DUT1, p.slong, p.slat, p.salt,
+                             d.px, d.py, p, t, h, wl);
+    */
     if(iauAtco13(p2000->ra, p2000->dec,
                  pr, pd, px, rv,
                  MJD.utc1, MJD.utc2,
-                 d.DUT1,
-                 p.slong, p.slat, p.salt,
-                 d.px, d.py,
-                 w.php, w.tc, w.relhum,
+                 dut1.DUT1,
+                 place.slong, place.slat, place.salt,
+                 dut1.px, dut1.py,
+                 p, t, h,
                  wl,
                  &aob, &zob,
                  &hob, &dob, &rob, &eo)) return -1;

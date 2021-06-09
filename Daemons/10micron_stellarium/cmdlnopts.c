@@ -24,20 +24,23 @@
 #include <strings.h>
 #include <math.h>
 #include "cmdlnopts.h"
-#include "usefull_macros.h"
+#include "parseargs.h"
+#include "usefull_macro.h"
 
 /*
  * here are global parameters initialisation
  */
 int help;
 glob_pars  G;
+glob_pars *GP = NULL;
 
 #define DEFAULT_COMDEV  "/dev/ttyUSB0"
 // port for connections
 #define DEFAULT_PORT "10000"
 #define DEFAULT_DBGPORT "10001"
-// accept only local connections
-//#define ACCEPT_IP  "192.168.3.225"
+// weather server port and name
+#define DEFAULT_WSPORT (12345)
+#define DEFAULT_WSNAME "robotel1.sao.ru"
 // default PID filename:
 #define DEFAULT_PIDFILE "/tmp/stellariumdaemon.pid"
 // default file with headers
@@ -52,6 +55,8 @@ glob_pars const Gdefault = {
     .pidfile = DEFAULT_PIDFILE,
     .crdsfile = DEFAULT_FITSHDR,
     .emulation = 0,
+    .weathserver = DEFAULT_WSNAME,
+    .weathport = DEFAULT_WSPORT,
     .logfile = NULL // don't save logs
 };
 
@@ -70,6 +75,8 @@ myoption cmdlnopts[] = {
     {"pidfile", NEED_ARG,   NULL,   'P',    arg_string, APTR(&G.pidfile),   _("pidfile (default: " DEFAULT_PIDFILE ")")},
     {"port",    NEED_ARG,   NULL,   'p',    arg_string, APTR(&G.port),      _("port to connect (default: " DEFAULT_PORT ")")},
     {"dbgport", NEED_ARG,   NULL,   'D',    arg_string, APTR(&G.dbgport),   _("port to connect for debug console (default: " DEFAULT_DBGPORT ")")},
+    {"wport",   NEED_ARG,   NULL,   'w',    arg_int,    APTR(&G.weathport), _("weather server port")},
+    {"wname",   NEED_ARG,   NULL,   'W',    arg_string, APTR(&G.weathserver),_("weather server address")},
    end_option
 };
 

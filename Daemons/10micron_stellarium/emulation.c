@@ -22,7 +22,7 @@
  */
 #include "math.h"
 #include "emulation.h"
-#include "usefull_macros.h"
+#include "usefull_macro.h"
 
 // emulation speed over RA & DEC (0.5 degr per sec)
 #define RA_SPEED    (0.033)

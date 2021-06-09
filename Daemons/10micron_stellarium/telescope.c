@@ -28,7 +28,7 @@
 #include "libsofa.h"
 #include "main.h" // global_quit
 #include "telescope.h"
-#include "usefull_macros.h"
+#include "usefull_macro.h"
 
 // polling timeout for answer from mount
 #ifndef T_POLLING_TMOUT
@@ -44,6 +44,12 @@
 static char *hdname = NULL;
 static double ptRAdeg, ptDECdeg; // target RA/DEC J2000
 static int Target = 0; // target coordinates entered
+
+static double r = 0., d = 0.; // RA/DEC from wrhdr
+static int mountstatus = 0; // return of :Gstat#
+static time_t tlast = 0; // last time coordinates were refreshed
+
+static int pause_communication = 0; // ==1 to prevent writing to port outside of terminal thread
 
 /**
  * read strings from terminal (ending with '\n') with timeout
@@ -96,7 +102,7 @@ static char *write_cmd(const char *cmd, char *buff){
     char *ans;
     while(dtime() - t0 < T_POLLING_TMOUT){ // read answer
         if((ans = read_string())){ // parse new data
-           // DBG("got answer: %s", ans);
+            //DBG("got answer: %s", ans);
             pthread_mutex_unlock(&mutex);
             if(!buff) return NULL;
             strncpy(buff, ans, BUFLEN-1);
@@ -108,22 +114,24 @@ static char *write_cmd(const char *cmd, char *buff){
 }
 
 // write to telescope mount corrections: datetime, pressure and temperature
-// @return 1 if time was corrected
+// @return 1 if time and weather was corrected
 static int makecorr(){
-    int ret = 0;
+    if(pause_communication) return 0;
+    int ret = 1;
     // write current date&time
     char buf[64], ibuff[BUFLEN], *ans;
     DBG("curtime: %s", write_cmd(":GUDT#", ibuff));
     ans = write_cmd(":Gstat#", ibuff);
+    if(ans){
+        mountstatus = atoi(ans);
+        // if system is in tracking or unknown state - don't update data!
+        if(mountstatus == TEL_SLEWING || mountstatus == TEL_TRACKING) return 0;
+    }
     /*
      * there's no GPS on this mount and there's no need for it!
     write_cmd(":gT#", NULL); // correct time by GPS
     ans = write_cmd(":gtg#", ibuff);
     */
-
-    if(!ans || *ans == '0'){ // system is in tracking or unknown state - don't update data!
-        return 0;
-    }
     WARNX("Refresh datetime");
     time_t t = time(NULL);
     struct tm *stm = localtime(&t);
@@ -136,27 +144,33 @@ static int makecorr(){
     if(!ans || *ans != '1'){
         WARNX("Can't write current date/time");
         putlog("Can't set system time");
+        ret = 0;
     }else{
         putlog("Set system time by command %s", buf);
-        ret = 1;
     }
     DBG("curtime: %s", write_cmd(":GUDT#", ibuff));
-    sprintf(buf, ":SREF0#"); // turn off 2-coord guiding & refraction
-    write_cmd(buf, ibuff);
-    sprintf(buf, ":Sdat0#"); // turn off dual-axis tracking
-    write_cmd(buf, ibuff);
-    /*placeWeather w;
-    if(getWeath(&w)) putlog("Can't determine weather data");
-    else{ // set refraction model data
-        snprintf(buf, 64, ":SRPRS%.1f#", w.php);
+    localWeather *w = getWeath();
+    if(!w){
+        ret = 0;
+        putlog("Can't determine weather data");
+    }else{ // set refraction model data
+        snprintf(buf, 64, ":SRPRS%.1f#", w->pres*1013./760.);
         ans = write_cmd(buf, ibuff);
-        if(!ans || *ans != '1') putlog("Can't set pressure data of refraction model");
-        else putlog("Correct pressure to %g", w.php);
-        snprintf(buf, 64, ":SRTMP%.1f#", w.tc);
+        if(!ans || *ans != '1'){
+            ret = 0;
+            putlog("Can't set pressure data of refraction model");
+        }else putlog("Correct pressure to %gmmHg", w->pres);
+        snprintf(buf, 64, ":SRTMP%.1f#", w->tc);
         ans = write_cmd(buf, ibuff);
-        if(!ans || *ans != '1') putlog("Can't set temperature data of refraction model");
-        else putlog("Correct temperature to %g", w.tc);
-    }*/
+        if(!ans || *ans != '1'){
+            ret = 0;
+            putlog("Can't set temperature data of refraction model");
+        }else putlog("Correct temperature to %g", w->tc);
+    }
+    sprintf(buf, ":SREF1#"); // turn on refraction correction
+    write_cmd(buf, ibuff);
+    sprintf(buf, ":Sdat1#"); // turn on dual-axis tracking
+    write_cmd(buf, ibuff);
     return ret;
 }
 
@@ -201,7 +215,8 @@ int connect_telescope(char *dev, char *hdrname){
     hdname = strdup(hdrname);
     DBG("connected");
     Target = 0;
-    write_cmd(":gT#", NULL); // correct time by GPS
+    getWeath(); getPlace(); getDUT(); // determine starting values
+    //write_cmd(":gT#", NULL); // correct time by GPS
     return 1;
 }
 
@@ -212,11 +227,15 @@ int connect_telescope(char *dev, char *hdrname){
 */
 /**
  * send coordinates to telescope
- * @param ra - right ascention (hours)
- * @param dec - declination (degrees)
+ * @param ra - right ascention (hours), Jnow without refraction
+ * @param dec - declination (degrees), Jnow without refraction
  * @return 1 if all OK
  */
 int point_telescope(double ra, double dec){
+    if(pause_communication){
+        putlog("Can't point telescope in paused mode");
+        return 0;
+    }
     DBG("try to send ra=%g, decl=%g", ra, dec);
     ptRAdeg = ra * 15.;
     ptDECdeg = dec;
@@ -322,10 +341,6 @@ static int printhdr(int fd, const char *key, const char *val, const char *cmnt){
     return 0;
 }
 
-
-static double r = 0., d = 0.; // RA/DEC from wrhdr
-static int mountstatus = 0; // return of :Gstat#
-static time_t tlast = 0; // last time coordinates were refreshed
 /**
  * get coordinates
  * @param ra (o)   - right ascension (hours)
@@ -340,11 +355,15 @@ int get_telescope_coords(double *ra, double *decl){
     return mountstatus;
 }
 
-void stop_telescope(){
+void stop_telescope(){ // work even in paused mode if moving!
+    Target = 0;
+    if(pause_communication){
+        if(mountstatus == TEL_PARKED || mountstatus == TEL_STOPPED || mountstatus == TEL_INHIBITED
+                || mountstatus ==  TEL_OUTLIMIT) return;
+    }
     write_cmd(":RT9#", NULL);  // stop tracking
     write_cmd(":AL#", NULL);   // stop tracking
     write_cmd(":STOP#", NULL); // halt moving
-    Target = 0;
 }
 
 // site characteristics
@@ -391,18 +410,18 @@ static void getplace(){
 }
 
 static const char *statuses[12] = {
-    [0] = "'Tracking'",
-    [1] = "'Stopped or homing'",
-    [2] = "'Slewing to park'",
-    [3] = "'Unparking'",
-    [4] = "'Slewing to home'",
-    [5] = "'Parked'",
-    [6] = "'Slewing or going to stop'",
-    [7] = "'Stopped'",
-    [8] = "'Motors inhibited, T too low'",
-    [9] = "'Outside tracking limit'",
-    [10]= "'Following satellite'",
-    [11]= "'Data inconsistency'"
+    [TEL_TRACKING] = "'Tracking'",
+    [TEL_STOPHOM] = "'Stopped or homing'",
+    [TEL_PARKING] = "'Slewing to park'",
+    [TEL_UNPARKING] = "'Unparking'",
+    [TEL_HOMING] = "'Slewing to home'",
+    [TEL_PARKED] = "'Parked'",
+    [TEL_SLEWING] = "'Slewing or going to stop'",
+    [TEL_STOPPED] = "'Stopped'",
+    [TEL_INHIBITED] = "'Motors inhibited, T too low'",
+    [TEL_OUTLIMIT] = "'Outside tracking limit'",
+    [TEL_FOLSAT]= "'Following satellite'",
+    [TEL_DATINCOSIST]= "'Data inconsistency'"
 };
 
 /**
@@ -412,7 +431,7 @@ static const char *statuses[12] = {
  */
 static const char* strstatus(int status){
     if(status < 0) return "'Signal lost'";
-    if(status < (int)(sizeof(statuses)/sizeof(char*)-1)) return statuses[status];
+    if(status < TEL_MAXSTATUS) return statuses[status];
     if(status == 99) return "'Error'";
     return "'Unknown status'";
 }
@@ -421,9 +440,21 @@ static const char* strstatus(int status){
  * @brief wrhdr - try to write into header file
  */
 void wrhdr(){
+    static time_t commWasPaused = 0;
+    if(pause_communication){ // don't allow pauses more for 15 minutes!
+        if(commWasPaused == 0){
+            commWasPaused = time(NULL);
+            return;
+        }else{
+            if(time(NULL) - commWasPaused > 15*60){
+                putlog("Clear communication pause after 15 minutes");
+                pause_communication = 0;
+            }else return;
+        }
+    }
     static int failcounter = 0;
     static time_t lastcorr = 0; // last time of corrections made
-    if(time(NULL) - lastcorr > CORRECTIONS_TIMEDIFF){
+    if(time(NULL) - lastcorr > CORRECTIONS_TIMEDIFF){ // make correction once per hour
         if(makecorr()) lastcorr = time(NULL);
         else lastcorr += 30; // failed -> check 30s later
     }
@@ -437,6 +468,7 @@ void wrhdr(){
             DBG("Can't get RA!");
             signals(9);
         }
+        DBG("Failed");
         return;
     }
     ans = write_cmd(":GD#", ibuff);
@@ -446,8 +478,43 @@ void wrhdr(){
             DBG("Can't get DEC!");
             signals(9);
         }
+        DBG("Failed");
         return;
     }
+    almDut *dut = getDUT();
+    localWeather *weather = getWeath();
+    double LST = 0; // local sidereal time IN RADIANS!
+
+    placeData *place = getPlace();
+    if(get_LST(NULL, dut->DUT1, place->slong, &LST)){
+        DBG("Can't calculate coordinates, get from mount");
+        ans = write_cmd(":GS#", ibuff);
+        lst = dups(ans, 1);
+        if(!str2coord(ans, &LST)){
+            if(++failcounter == 10){
+                putlog("Lost connection with mount");
+                DBG("Can't get LST!");
+                signals(9);
+            }
+            DBG("Failed");
+            return;
+        }
+        LST *= 15.*DD2R; // convert hours to radians
+    }else{
+        lst = MALLOC(char, 32);
+        r2sHMS(LST, lst, 32);
+    }
+    sMJD mjd;
+    if(get_MJDt(NULL, &mjd)){
+        ans = write_cmd(":GJD1#", ibuff);
+        jd = dups(ans, 0);
+    }else{
+        jd = MALLOC(char, 32);
+        snprintf(jd, 32, "%.10f", mjd.MJD);
+    }
+    polarCrds pNow = {.ra = r*15.*DD2R, .dec = d*DD2R}; // coordinates now
+    horizCrds hNow;
+    eq2hor(&pNow, &hNow, LST);
     failcounter = 0;
     tlast = time(NULL);
     // check it here, not in the beginning of function - to check connection with mount first
@@ -456,8 +523,6 @@ void wrhdr(){
         return;
     }
     if(!elevation || !longitude || !latitude) getplace();
-    ans = write_cmd(":GJD1#", ibuff); jd = dups(ans, 0);
-    ans = write_cmd(":GS#", ibuff); lst = dups(ans, 1);
     ans = write_cmd(":GUDT#", ibuff);
     if(ans){
         char *comma = strchr(ans, ',');
@@ -487,7 +552,13 @@ void wrhdr(){
 #define WRHDR(k, v, c)  do{if(printhdr(fd, k, v, c)){goto returning;}}while(0)
     WRHDR("TIMESYS", "'UTC'", "Time system");
     WRHDR("ORIGIN", "'SAO RAS'", "Organization responsible for the data");
-    WRHDR("TELESCOP", "'Astrosib-500'", "Telescope name");
+    WRHDR("TELESCOP", TELESCOPE_NAME, "Telescope name");
+    snprintf(val, 22, "%.10f", dut->px);
+    WRHDR("POLARX", val, "IERS pole X coordinate, arcsec");
+    snprintf(val, 22, "%.10f", dut->py);
+    WRHDR("POLARY", val, "IERS pole Y coordinate, arcsec");
+    snprintf(val, 22, "%.10f", dut->py);
+    WRHDR("DUT1", val, "IERS `UT1-UTC`, sec");
     if(Target){ // target coordinates entered - store them @header
         snprintf(val, 22, "%.10f", ptRAdeg);
         WRHDR("TAGRA", val, "Target RA (J2000), degrees");
@@ -495,24 +566,47 @@ void wrhdr(){
         WRHDR("TAGDEC", val, "Target DEC (J2000), degrees");
     }
     snprintf(val, 22, "%.10f", r*15.); // convert RA to degrees
-    WRHDR("RA", val, "Telescope right ascension, current epoch");
+    WRHDR("RA", val, "Telescope right ascension, current epoch, deg");
     snprintf(val, 22, "%.10f", d);
-    WRHDR("DEC", val, "Telescope declination, current epoch");
+    WRHDR("DEC", val, "Telescope declination, current epoch, deg");
+    snprintf(val, 22, "%.10f", hNow.az * DR2D);
+    WRHDR("AZ", val, "Telescope azimuth, current epoch, deg");
+    snprintf(val, 22, "%.10f", hNow.zd * DR2D);
+    WRHDR("ZD", val, "Telescope zenith distance, current epoch, deg");
     WRHDR("TELSTAT", strstatus(mountstatus), "Telescope mount status");
-    sMJD mjd;
     if(!get_MJDt(NULL, &mjd)){
-        snprintf(val, 22, "%.10f", 2000.+(mjd.MJD-MJD2000)/365.25); // calculate EPOCH/EQUINOX
-        WRHDR("EQUINOX", val, "Equinox of celestial coordinate system");
-        snprintf(val, 22, "%.10f", mjd.MJD);
-        WRHDR("MJD-END", val, "Modified julian date of observations end");
+           snprintf(val, 22, "%.10f", 2000.+(mjd.MJD-MJD2000)/365.25); // calculate EPOCH/EQUINOX
+           WRHDR("EQUINOX", val, "Equinox of celestial coordinate system");
+           if(!jd){
+               snprintf(val, 22, "%.10f", mjd.MJD);
+               WRHDR("MJD-END", val, "Modified julian date of observations end");
+           }
+       }
+    if(jd){
+        WRHDR("MJD-END", jd, "Modified julian date of observations end");
     }
-    if(jd) WRHDR("JD-END", jd, "Julian date of observations end");
     if(pS) WRHDR("PIERSIDE", pS, "Pier side of telescope mount");
     if(elevation) WRHDR("ELEVAT", elevation, "Elevation of site over the sea level");
     if(longitude) WRHDR("LONGITUD", longitude, "Geo longitude of site (east negative)");
     if(latitude) WRHDR("LATITUDE", latitude, "Geo latitude of site (south negative)");
     if(lst) WRHDR("LSTEND", lst, "Local sidereal time of observations end");
     if(date) WRHDR("DATE-END", date, "Date (UTC) of observations end");
+    if(weather){
+        snprintf(val, 22, "%.1f", weather->relhum);
+        WRHDR("HUMIDITY", val, "Relative humidity, %%");
+        snprintf(val, 22, "%.1f", weather->pres);
+        WRHDR("PRESSURE", val, "Atmospheric pressure, mmHg");
+        snprintf(val, 22, "%.1f", weather->tc);
+        WRHDR("EXTTEMP", val, "External temperature, degrC");
+        snprintf(val, 22, "%.0f", weather->rain);
+        WRHDR("RAIN", val, "Rain conditions");
+        snprintf(val, 22, "%.1f", weather->clouds);
+        WRHDR("SKYQUAL", val, "Sky quality (0 - wery bad, >2500 - good)");
+        snprintf(val, 22, "%.1f", weather->wind);
+        WRHDR("WINDSPD", val, "Wind speed (m/s)");
+        snprintf(val, 22, "%.0f", weather->time);
+        WRHDR("WEATTIME", val, "Unix time of weather measurements");
+    }
     // WRHDR("", , "");
 #undef WRHDR
 returning:
@@ -543,9 +637,22 @@ void *term_thread(void *sockd){
         char *ch = strchr(buff, '\n');
         if(ch) *ch = 0;
         if(!buff[0]) continue; // empty string
+        DBG("%s COMMAND: %s", peerIP, buff);
+        if(strcasecmp(buff, "pause") == 0){
+            DBG("PAUSED");
+            putlog("Port writing outside terminal thread is paused");
+            pause_communication = 1;
+            continue;
+        }
+        if(strcasecmp(buff, "continue") == 0){
+            DBG("CONTINUED");
+            putlog("Port writing outside terminal thread is restored by user");
+            pause_communication = 0;
+            continue;
+        }
         char *ans = write_cmd(buff, ibuff);
         putlog("%s COMMAND %s ANSWER %s", peerIP, buff, ibuff);
-        DBG("%s COMMAND: %s ANSWER: %s", peerIP, buff, ibuff);
+        DBG("ANSWER: %s", ibuff);
         if(ans){
             ssize_t l = (ssize_t)strlen(ans);
             if(l++){

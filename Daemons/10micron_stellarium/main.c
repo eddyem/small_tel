@@ -34,6 +34,7 @@
 #include "emulation.h"
 #include "libsofa.h"
 #include "main.h"
+#include "socket.h"
 #include "telescope.h"
 
 // daemon.c
@@ -45,9 +46,6 @@ extern void check4running(char *self, char *pidfilename, void (*iffound)(pid_t p
 // pause for incoming message waiting (out coordinates sent after that timeout)
 #define SOCK_TMOUT  (1)
 
-// global parameters
-static glob_pars *GP = NULL;
-
 static pid_t childpid = 1; // PID of child process
 volatile int global_quit = 0;
 // quit by signal
@@ -56,12 +54,13 @@ void signals(int sig){
     if(childpid){ // parent process
         restore_tty(); // restore all parameters
         unlink(GP->pidfile);  // and remove pidfile
-    }
+        weatherserver_disconnect();
+    }    
     DBG("Get signal %d, quit.\n", sig);
     global_quit = 1;
-    sleep(1);
     if(childpid) putlog("PID %d exit with status %d after child's %d death", getpid(), sig, childpid);
     else WARNX("Child %d died with %d", getpid(), sig);
+    sleep(1);
     exit(sig);
 }
 
@@ -228,30 +227,33 @@ int proc_data(uint8_t *data, ssize_t len){
     double tagRA = RA2HRS(ra), tagDec = DEC2DEG(dec);
     DBG("RA: %u (%g), DEC: %d (%g)", ra, tagRA, dec, tagDec);
     // check RA/DEC
-    horizCrds h;
-    polarCrds p;
-    p.ra = tagRA/12. * M_PI;
-    p.dec = tagDec * DD2R;
-    if(get_ObsPlace(NULL, &p, NULL, &h)){
-        WARNX("Can't convert coordinates to horiz");
+    horizCrds hnow; // without refraction
+    polarCrds p2000, pnow;
+    p2000.ra = tagRA/12. * M_PI;
+    p2000.dec = tagDec * DD2R;
+    //             now     J2000  obs    Jnow
+    if(get_ObsPlace(NULL, &p2000, NULL, &pnow, &hnow)){
+        WARNX("Can't convert coordinates to Jnow");
         return 0;
     }
 #ifdef EBUG
     int i[4], j[4]; char pm, pm1;
-    iauA2af(2, h.az, &pm, i);
-    iauA2af(2, h.zd, &pm1, j);
+    iauA2af(2, hnow.az, &pm, i);
+    iauA2af(2, hnow.zd, &pm1, j);
     DBG("az: %c%02d %02d %02d.%2.d, zd: %c%02d %02d %02d.%2.d",
         pm, i[0],i[1],i[2],i[3],
         pm1,j[0],j[1],j[2],j[3]);
-    iauA2af(2, M_PI_2 - h.zd, &pm, i);
+    iauA2af(2, M_PI_2 - hnow.zd, &pm, i);
     DBG("h: %c%02d %02d %02d.%2.d", pm, i[0],i[1],i[2],i[3]);
 #endif
-    if(h.zd > 80.*DD2R){
+    if(hnow.zd > 80.*DD2R){
         WARNX("Z > 80degr, stop telescope");
         putlog("Z>80 - stop!");
         stop_telescope();
         return 0;
     }
+    tagRA = (pnow.ra - pnow.eo) / M_PI * 12.;
+    tagDec = pnow.dec / DD2R;
     if(!setCoords(tagRA, tagDec)) return 0;
     return 1;
 }
@@ -318,7 +320,7 @@ static void *hdrthread(_U_ void *buf){
     // write FITS-header at most once per second
     while(!global_quit){
         wrhdr();
-        usleep(1000); // give a chance to write/read for others
+        usleep(100000); // give a chance to write/read for others
     }
     return NULL;
 }
@@ -446,6 +448,10 @@ static inline void main_proc(){
         if(pthread_create(&termthrd, NULL, termthread, NULL))
             ERR(_("Can't create terminal thread"));
     }
+    // connect to weather daemon
+    if(!weatherserver_connect()){
+        DBG("Can't connect to weather server, will try later");
+    }
     // open socket
     int sock = opensocket(GP->port);
     if(sock < 0){
@@ -488,6 +494,7 @@ int main(int argc, char **argv){
     if(GP->logfile) openlogfile(GP->logfile);
     putlog("Starting, master PID=%d", getpid());
 
+#ifndef EBUG
     while(1){
         childpid = fork();
         if(childpid < 0){
@@ -506,6 +513,9 @@ int main(int argc, char **argv){
             return 0;
         }
     }
+#else
+    main_proc();
+#endif
 
     return 0;
 }

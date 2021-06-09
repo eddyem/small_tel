@@ -29,7 +29,7 @@
 #include <libintl.h>// gettext
 #include <ctype.h>  // isalpha
 #include "parseargs.h"
-#include "usefull_macros.h"
+#include "usefull_macro.h"
 
 char *helpstring = "%s\n";
 

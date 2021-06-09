@@ -9,7 +9,9 @@ main.c
 main.h
 parseargs.c
 parseargs.h
+socket.c
+socket.h
 telescope.c
 telescope.h
-usefull_macros.c
-usefull_macros.h
+usefull_macro.c
+usefull_macro.h

@@ -34,7 +34,7 @@
 #include <unistd.h>
 
 #include "cmdlnopts.h"
-#include "usefull_macros.h"
+#include "usefull_macro.h"
 
 // global parameters
 extern glob_pars *Global_parameters;

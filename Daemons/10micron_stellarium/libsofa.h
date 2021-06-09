@@ -56,10 +56,14 @@ typedef struct{
 
 // place weather data
 typedef struct{
-    double relhum;  // rel. humidity, 0..1
-    double php;     // atm. pressure (hectopascales)
+    double relhum;  // rel. humidity, 0..100%
+    double pres;    // atm. pressure (mmHg)
     double tc;      // temperature, degrC
-} placeWeather;
+    double rain;    // rain value (0..1)
+    double clouds;  // clouds (0 - bad, >2500 - good)
+    double wind;    // wind speed, m/s
+    double time;    // measurements time
+} localWeather;
 
 // DUT/polar almanach data
 typedef struct{
@@ -68,9 +72,15 @@ typedef struct{
     double py;
 } almDut;
 
+void r2sHMS(double radians, char *hms, int len);
+void r2sDMS(double radians, char *hms, int len);
+void hor2eq(horizCrds *h, polarCrds *pc, double sidTime);
+void eq2horH(polarCrds *pc, horizCrds *h);
+void eq2hor(polarCrds *pc, horizCrds *h, double sidTime);
 int get_MJDt(struct timeval *tval, sMJD *MJD);
-int get_ObsPlace(struct timeval *tval, polarCrds *p2000, polarCrds *pnow, horizCrds *hnow);
-int getDUT(almDut *a);
-int getWeath(placeWeather *w);
-int getPlace(placeData *p);
+int get_LST(sMJD *mjd, double dUT1, double slong, double *LST);
+int get_ObsPlace(struct timeval *tval, polarCrds *p2000, localWeather *weath, polarCrds *pnow, horizCrds *hnow);
+almDut *getDUT();
+localWeather *getWeath();
+placeData *getPlace();
 #endif // LIBSOFA_H__

@@ -23,8 +23,6 @@
 #ifndef __CMDLNOPTS_H__
 #define __CMDLNOPTS_H__
 
-#include "parseargs.h"
-
 /*
  * here are some typedef's for global data
  */
@@ -35,11 +33,15 @@ typedef struct{
     char *pidfile;          // name of PID file
     char *logfile;          // logging to this file
     char *crdsfile;         // file where FITS-header should be written
+    char *weathserver;      // weather server name
     int emulation;          // run in emulation mode
     int rest_pars_num;      // number of rest parameters
+    int weathport;          // weather server port
     char** rest_pars;       // the rest parameters: array of char*
 } glob_pars;
 
+// global parameters
+extern glob_pars *GP;
 
 glob_pars *parse_args(int argc, char **argv);
 #endif // __CMDLNOPTS_H__
