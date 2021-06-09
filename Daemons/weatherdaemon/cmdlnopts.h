@@ -34,6 +34,7 @@ typedef struct{
     int verb;               // verbocity level
     int tty_speed;          // serial terminal baudrate
     int emul;               // emulation of serial device
+    char *pidfile;          // pidfile name
     int rest_pars_num;      // number of rest parameters
     char** rest_pars;       // the rest parameters: array of char* (path to logfile and thrash)
 } glob_pars;

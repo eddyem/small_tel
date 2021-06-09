@@ -4,7 +4,7 @@ LDFLAGS := -fdata-sections -ffunction-sections -Wl,--gc-sections -Wl,--discard-a
 LDFLAGS += -lusefull_macros
 SRCS := $(wildcard *.c)
 DEFINES := $(DEF) -D_GNU_SOURCE -D_XOPEN_SOURCE=1111
-DEFINES += -DEBUG
+#DEFINES += -DEBUG
 # baudrate for USB<->UART converter
 OBJDIR := mk
 CFLAGS += -O2 -Wall -Werror -Wextra -Wno-trampolines

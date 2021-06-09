@@ -22,10 +22,12 @@
 #include <strings.h> // strncasecmp
 #include <time.h>    // time(NULL)
 #include <limits.h>  // INT_MAX, INT_MIN
-#include "term.h"
-#include "cmdlnopts.h"
 
-#define BUFLEN 1024
+#include "bta_shdata.h"
+#include "cmdlnopts.h"
+#include "term.h"
+
+#define BUFLEN (4096)
 
 TTY_descr *ttydescr = NULL;
 extern glob_pars *GP;
@@ -52,12 +54,15 @@ static char *read_string(){
     double d0 = dtime();
     do{
         if((l = read_tty(ttydescr))){
+            strncpy(ptr, ttydescr->buf, LL);
             r += l; LL -= l; ptr += l;
+            DBG("l=%zd, r=%zd, LL=%d", l, r, LL);
             d0 = dtime();
         }
     }while(dtime() - d0 < WAIT_TMOUT && LL);
     if(r){
-        buf[r] = 0;
+        //buf[r] = 0;
+        DBG("buf: %s", buf);
         return buf;
     }
     return NULL;
@@ -83,22 +88,22 @@ int try_connect(char *device, int baudrate){
  * @param string (i) - string where to search
  * @param Val (o)    - value found
  * @param Name       - parameter name
- * @return 0 if found
+ * @return TRUE if found
  */
 static int getpar(char *string, double *Val, char *Name){
+    if(!string || !Val || !Name) return FALSE;
     char *p = strstr(string, Name);
-    if(!p) return 1;
+    if(!p) return FALSE;
     p += strlen(Name);
     DBG("search %s", Name);
-    if(!Val) return 0;
     char *endptr;
     *Val = strtod(p, &endptr);
     DBG("eptr=%s, val=%g", endptr, *Val);
     if(endptr == string){
         WARNX("Double value not found");
-        return 2;
+        return FALSE;
     }
-    return 0;
+    return TRUE;
 }
 
 
@@ -107,6 +112,7 @@ static int getpar(char *string, double *Val, char *Name){
  * @return: NULL if no data received, pointer to string if valid data received
  */
 char *poll_device(){
+    FNAME();
     static char ans[BUFLEN];
     char *ptr = ans, *r = NULL;
     if(!GP->emul){
@@ -130,34 +136,19 @@ char *poll_device(){
             if(eol) *eol = 0;
             double d;
             size_t L = BUFLEN, l;
-            if(!getpar(r, &d, "RT")){
-                l = snprintf(ptr, L, "Rain=%g\n", d);
-                if(l > 0){
-                    L -= l;
-                    ptr += l;
-                }
+#define PRINT(...)  do{l = snprintf(ptr, L, __VA_ARGS__); if(l > 0){ L -= l; ptr += l;}}while(0)
+            if(getpar(r, &d, "RT")) PRINT("Rain=%g\n", d);
+            if(getpar(r, &d, "WU")) PRINT("Clouds=%.1f\n", d);
+            if(getpar(r, &d, "TE")) PRINT("Exttemp=%.1f\n", d);
+            if(getpar(r, &d, "WG")) PRINT("Wind=%.1f\n", d/3.6);
+            // now get BTA parameters
+            if(check_shm_block(&sdat)){
+                PRINT("BTAExttemp=%.1f\n", val_T1);
+                PRINT("BTAPres=%.1f\n", val_B);
+                PRINT("BTAWind=%.1f\n", val_Wnd);
+                PRINT("BTAHumid=%.1f\n", val_Hmd);
             }
-            if(!getpar(r, &d, "WU")){
-                l = snprintf(ptr, L, "Clouds=%g\n", d);
-                if(l > 0){
-                    L -= l;
-                    ptr += l;
-                }
-            }
-            if(!getpar(r, &d, "TE")){
-                l = snprintf(ptr, L, "Exttemp=%g\n", d);
-                if(l > 0){
-                    L -= l;
-                    ptr += l;
-                }
-            }
-            if(!getpar(r, &d, "WG")){
-                l = snprintf(ptr, L, "Wind=%g\n", d/3.6);
-                if(l > 0){
-                    L -= l;
-                    ptr += l;
-                }
-            }
+#undef PRINT
             snprintf(ptr, L, "Time=%lld\n", (long long)time(NULL));
             DBG("Buffer: %s", ans);
             return ans;

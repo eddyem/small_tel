@@ -1,0 +1,13 @@
+#!/bin/bash
+LOGDIR=/var/log/telescope
+
+killall teldaemon
+killall domedaemon
+killall stellariumdaemon
+killall -9 teldaemon
+killall -9 domedaemon
+killall -9 stellariumdaemon
+
+~/bin/teldaemon -d /dev/ttyS0 -l ${LOGDIR}/teldaemon.log
+~/bin/domedaemon -d /dev/ttyS2 -l  ${LOGDIR}/domedaemon.log
+~/bin/stellariumdaemon -d /dev/ttyS1 -l  ${LOGDIR}/stellariumdaemon.log

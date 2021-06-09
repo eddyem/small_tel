@@ -1,0 +1,3 @@
+Создать директорию /var/log/telescopes (хозяин - eddy)
+В local.d запускать netdaemons_start
+Ротация логов - robotel -> /etc/logrotate.d

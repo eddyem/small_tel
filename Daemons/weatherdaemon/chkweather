@@ -1,0 +1,24 @@
+#!/bin/bash
+
+badsky=1700
+[ $# = 1 ] && badsky=$1
+
+export http_proxy=""
+
+Q="192.168.70.33:12345"
+ANS=$(curl $Q 2>/dev/null)
+retval=$?
+[ $retval -ne "0" ] && exit $retval
+[ "$ANS" = "No data" ] && exit 2
+Rain=1
+Clouds=0
+Wind=100
+eval $ANS
+retval=0
+clouds=$(echo "$Clouds" | sed 's/\..*//g')
+wind=$(echo "$Wind" | sed 's/\..*//g')
+[ $Rain -ne "0" ] && retval=1
+[ $clouds -lt "$badsky" ] && retval=1
+[ $wind -gt "15" ] && retval=1
+echo "$ANS"
+exit $retval

@@ -81,7 +81,7 @@ static int send_data(int sock, int webquery, char *textbuf){
         LOGERR("send_data(): write() failed");
         return 0;
     }
-    LOGDBG("fd %d, write %s", textbuf);
+    //LOGDBG("fd %d, write %s", sock, textbuf);
     return 1;
 }
 
@@ -109,7 +109,7 @@ static int handle_socket(int sock, int notchkhdr){
     char buff[BUFLEN];
     ssize_t rd;
     if(!(rd = read(sock, buff, BUFLEN-1))){
-        LOGMSG("Client %d closed", sock);
+        //LOGMSG("Client %d closed", sock);
         return 1;
     }
     //LOG("client send %zd bytes", rd);

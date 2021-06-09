@@ -1,8 +1,9 @@
-Different daemons @ tools
+Different daemons & tools
 =========================
 
 - *10micron_stellarium* - simple daemon for 10-micron mount management from stellarium interface
-- *domedaemon* - open/close dome by network query
+- *domedaemon* - open/close Baaden dome by network query
+- *domedaemon-astrosib* - open/close Astrosib dome by network query
 - *netdaemon* - template for net-daemons
 - *netsocket* - scripts for management of network 220V-socket
 - *send_coordinates* - get/send coordinates to 10-micron mount through stellarium daemon

@@ -18,9 +18,12 @@
 
 #include <signal.h>
 #include <stdio.h>
+#include <string.h>
 #include <sys/wait.h> // wait
 #include <sys/prctl.h> //prctl
 #include <usefull_macros.h>
+
+#include "bta_shdata.h"
 #include "cmdlnopts.h"
 #include "socket.h"
 #include "term.h"
@@ -41,6 +44,9 @@ int main(int argc, char **argv){
     signal(SIGINT, signals);  // ctrl+C - quit
     signal(SIGQUIT, signals); // ctrl+\ - quit
     signal(SIGTSTP, SIG_IGN); // ignore ctrl+Z
+#ifndef EBUG
+    char *self = strdup(argv[0]);
+#endif
     GP = parse_args(argc, argv);
     if(GP->logfile){
         sl_loglevel lvl = LOGLEVEL_ERR;
@@ -53,6 +59,7 @@ int main(int argc, char **argv){
     if(daemon(1, 0)){
         ERR("daemon()");
     }
+    check4running(self, GP->pidfile);
     while(1){ // guard for dead processes
         pid_t childpid = fork();
         if(childpid){
@@ -69,6 +76,7 @@ int main(int argc, char **argv){
     }
     #endif
 
+    if(!get_shm_block( &sdat, ClientSide)) WARNX("Can't get BTA shared memory block");
     if(GP->device) if(!try_connect(GP->device, GP->tty_speed)){
         LOGERR("Can't connect to device");
         ERRX("Can't connect to device");

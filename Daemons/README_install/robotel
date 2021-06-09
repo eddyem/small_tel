@@ -1,0 +1,7 @@
+/var/log/telescope/*.log {
+    size 1M
+    rotate 10
+    compress
+    notifempty
+    missingok
+}

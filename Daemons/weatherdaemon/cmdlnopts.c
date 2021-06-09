@@ -32,7 +32,8 @@ int help;
 static glob_pars  G;
 
 // default values for Gdefault & help
-#define DEFAULT_PORT    "4444"
+#define DEFAULT_PORT    "12345"
+#define DEFAULT_PID		"/tmp/weatherdaemon.pid"
 
 //            DEFAULTS
 // default global parameters
@@ -41,10 +42,11 @@ glob_pars const Gdefault = {
     .port = DEFAULT_PORT,
     .logfile = NULL,
     .verb = 0,
-    .tty_speed = 115200,
+    .tty_speed = 9600,
     .rest_pars = NULL,
     .rest_pars_num = 0,
-    .emul = 0
+    .emul = 0,
+    .pidfile = DEFAULT_PID
 };
 
 /*
@@ -54,12 +56,13 @@ glob_pars const Gdefault = {
 myoption cmdlnopts[] = {
 // common options
     {"help",    NO_ARGS,    NULL,   'h',    arg_int,    APTR(&help),        _("show this help")},
-    {"device",  NEED_ARG,   NULL,   'i',    arg_string, APTR(&G.device),    _("serial device name (default: none)")},
+    {"device",  NEED_ARG,   NULL,   'd',    arg_string, APTR(&G.device),    _("serial device name (default: none)")},
     {"port",    NEED_ARG,   NULL,   'p',    arg_string, APTR(&G.port),      _("network port to connect (default: " DEFAULT_PORT ")")},
     {"logfile", NEED_ARG,   NULL,   'l',    arg_string, APTR(&G.logfile),   _("save logs to file (default: none)")},
     {"verb",    NO_ARGS,    NULL,   'v',    arg_none,   APTR(&G.verb),      _("logfile verbocity level (each -v increase it)")},
-    {"baudrate",NEED_ARG,   NULL,   'b',    arg_int,    APTR(&G.tty_speed), _("serial terminal baudrate (default: 115200)")},
+    {"baudrate",NEED_ARG,   NULL,   'b',    arg_int,    APTR(&G.tty_speed), _("serial terminal baudrate (default: 9600)")},
     {"emulation",NO_ARGS,   NULL,   'e',    arg_int,    APTR(&G.emul),      _("emulate serial device")},
+    {"pidfile", NEED_ARG,   NULL,   'P',    arg_string, APTR(&G.pidfile),   _("pidfile name (default: " DEFAULT_PID ")")},
     end_option
 };
 
