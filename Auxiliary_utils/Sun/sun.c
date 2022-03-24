@@ -21,6 +21,7 @@ A simple example showing some solar calculations.
 */
 
 #include <ctype.h>
+#include <errno.h>
 #include <libgen.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -53,7 +54,7 @@ int main (int argc, char **argv){
         }
     }else if(argc > 2){
         fprintf(stderr, "Usage: %s [positive angle in degr] OR %s [\"standard\"|\"civil\"|\"nautic\"|\"astro\"]\n",
-                argv[0], argv[0]);
+                program_invocation_short_name, program_invocation_short_name);
         return 1;
     }
 
@@ -62,9 +63,9 @@ int main (int argc, char **argv){
     JD = ln_get_julian_from_sys();
     ln_get_solar_equ_coords (JD, &equ);
     if(ln_get_solar_rst_horizon(JD, &observer, angle, &rst) == 1) return 1;
-    if(strcasecmp(basename(argv[0]), "sunrise") == 0)
+    if(strcasecmp(program_invocation_short_name, "sunrise") == 0)
         ln_get_timet_from_julian(rst.rise, &t);
-    else if(strcasecmp(basename(argv[0]), "sunset") == 0)
+    else if(strcasecmp(program_invocation_short_name, "sunset") == 0)
         ln_get_timet_from_julian(rst.set, &t);
     else
         ln_get_timet_from_julian(rst.transit, &t);
