@@ -1,0 +1,9 @@
+#!/bin/bash
+
+TTY=/dev/ttyS1
+stty -F $TTY -hupcl -opost -onlcr -isig -iexten -echo -echoe -echok -echoctl -echoke -icanon min 0 time 5
+
+echo -n "RA: "
+echo ":GR#" > /dev/ttyS1 && cat /dev/ttyS1
+echo -n "Dec: "
+echo ":GD#" > /dev/ttyS1 && cat /dev/ttyS1

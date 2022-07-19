@@ -1,11 +1,15 @@
 #!/bin/bash
-RA="00:12:15"
-DEC="50:25:21"
-OBJ="EGGR381"
+RA="19:00:10"
+DEC="70:39:51"
+OBJ="GRW+708247"
+EXPTIME=40000
+FLATTIME=40000
 OBS="Emelianov E.V."
+BADWEATHER=1400
+DATEEND=$(sunrise 12)
 
 function sendcmd(){
-    echo $1 | nc localhost 10001 -q10
+    echo $1 | nc 192.168.70.33 10001 -q10
 }
 
 function point_tel(){
@@ -13,16 +17,21 @@ function point_tel(){
 	send_coords -r $1 -d $2
 }
 
-# set lower limit to 0
-send_command2mount ":So0#"
+export http_proxy=""
 
-last=$(date -d "Nov 30 05:45" +%s)
-echo "Time diff: $(($last-$(date +%s)))"
-if [ $(($last-$(date +%s))) -lt 3600 ]; then
+# set lower limit to 5degr
+send_command2mount ":So5#"
+
+echo "Time diff: $(($DATEEND-$(date +%s)))"
+if [ $(($DATEEND-$(date +%s))) -lt 3600 ]; then
 	echo "There's less an hour for observation!"
 	exit 2
 fi
-export http_proxy=""
+
+if [ $(($DATEEND-$(date +%s))) -gt 53200 ]; then
+	echo "There's more than 12 hours till closing, check script data!"
+	exit 3
+fi
 
 echo "GoTo object: ${RA} ${DEC}"
 send_coords -r${RA} -d${DEC}
@@ -38,9 +47,11 @@ while true; do
 		curl localhost:55555/weather 2>/dev/null > DomeClosed
 		break;
 	fi
-	chkweather -r -d /dev/ttyS3 > lastweather && badweather=0 || badweather=$((badweather+1))
+	chkweather ${BADWEATHER} > lastweather && badweather=0 || badweather=$((badweather+1))
 	[ $badweather -gt 5 ] && break
-	if [ "$now" -lt "$last" ]; then
+	[ -f stopobs ] && break
+	[ -f exitjob ] && exit 0
+	if [ "$now" -lt "$DATEEND" ]; then
 		est=$(sendcmd ":Gmte#"|sed -e 's/^0*//' -e 's/#//')
 		echo -e "\n\n\n\n\nEstimated time to flip: $est minutes"
 		if [[ ("x$est" == "x") || ($est -lt 3) ]]; then
@@ -54,24 +65,31 @@ while true; do
 			continue
 		else
 			preflash
-			/usr/bin/fli_control -r /tmp/10micron.fitsheader -x 60000 -N "${OBS}" -O "${OBJ}" "$OBJ"
+			fli_control -r /tmp/10micron.fitsheader -x $EXPTIME -N "${OBS}" -O "${OBJ}" "$OBJ"
 		fi
 	else
 		break
 	fi
 done
 
-
-curl localhost:4444/close
+echo "Dome closed @ $(date)" >> closed
 curl localhost:55555/close
-echo "closed" > closed
-../../park_tel.sh
+
+relay_manage -s1
+park_telescope
 
 for x in $(seq 1 10); do
 	preflash
-	/usr/bin/fli_control -x60000 -d dark
+	fli_control -r /tmp/10micron.fitsheader -x1 -O "bias" -d bias
 	preflash
-	/usr/bin/fli_control -x1 -d bias
+	fli_control -r /tmp/10micron.fitsheader -x $EXPTIME -O "dark" -d dark
+#	preflash
+#	fli_control -r /tmp/10micron.fitsheader -x $FLATTIME -O "dark" -d darkf
+	preflash
+	fli_control -r /tmp/10micron.fitsheader -n5 -x $FLATTIME -O "flat" flat
 done
+
+relay_manage -r1
+echo "Closed @ $(date)" >> closed
 
 STOPobs

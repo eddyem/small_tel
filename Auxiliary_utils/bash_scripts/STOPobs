@@ -2,27 +2,25 @@
 # stop observation: close everything, turn of power etc
 export http_proxy=""
 echo "Turn OFF mount"
-ssh obs@192.168.70.36 ~/bin/MOUNTpoweronoff
+ssh obs@192.168.70.34 ~/bin/MOUNTpoweronoff
 echo "Turn off camera TEC"
 fli_control -t25
-
 echo "Close telescope doors"
-COMDEV=/dev/ttyS0
-stty -F $COMDEV -hupcl -opost -onlcr -isig -iexten -echo -echoe -echok -echoctl -echoke -icanon min 0 time 5
-
-echo -ne "SHUTTERCLOSE?1,1,1,1,1\r" > $COMDEV
-cat $COMDEV
-echo -e "\n"
-
+curl localhost:4444/close
 echo "Close dome"
 curl localhost:55555/close
 while true; do
 	ANS=$(curl localhost:55555/status 2>/dev/null)
 	echo "Status: $ANS"
-	[ $ANS = "3,3,0,0" ] && break
+	[ $ANS = "closed" ] && break
 	sleep 1
 done
 echo "Dome closed!"
-
+while true; do
+	ANS=$(curl localhost:4444/status 2>/dev/null)
+	echo "Status: $ANS"
+	[ $ANS = "closed" ] && break
+	sleep 1
+done
 echo "Turn OFF hardware power"
-ssh obs@192.168.70.36 ~/bin/HWpoweroff
+ssh obs@192.168.70.34 ~/bin/HWpoweroff

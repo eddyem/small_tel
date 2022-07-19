@@ -3,24 +3,24 @@
 export http_proxy=""
 
 echo "Turn ON hardware power"
-ssh obs@192.168.70.34 ~/bin/HWpoweron
+ssh obs@192.168.70.36 ~/bin/HWpoweron
 echo "Open dome"
 curl localhost:55555/open
+sleep 5
+echo "set camera temperature to -35degrC"
+fli_control -t-35
+echo "Turn ON mount"
+ssh obs@192.168.70.36 ~/bin/MOUNTpoweronoff
 while true; do
 	ANS=$(curl localhost:55555/status 2>/dev/null)
 	echo "Status: $ANS"
-	[ $ANS = "opened" ] && break
+	[ $ANS = "2,2,90,90" ] && break
 	sleep 1
 done
-echo "Turn ON mount"
-ssh obs@192.168.70.34 ~/bin/MOUNTpoweronoff
-echo "set camera temperature to -25degrC"
-fli_control -t-25
+
 echo "Open telescope doors"
-curl localhost:4444/open
-while true; do
-	ANS=$(curl localhost:4444/status 2>/dev/null)
-	echo "Status: $ANS"
-	[ $ANS = "opened" ] && break
-	sleep 1
-done
+COMDEV=/dev/ttyS0
+stty -F $COMDEV -hupcl -opost -onlcr -isig -iexten -echo -echoe -echok -echoctl -echoke -icanon min 0 time 5
+echo -ne "SHUTTEROPEN?1,1,1,1,1\r" > $COMDEV
+cat $COMDEV
+echo -e "\n"

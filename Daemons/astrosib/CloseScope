@@ -1,0 +1,8 @@
+#!/bin/bash
+
+COMDEV=/dev/ttyS0
+stty -F $COMDEV -hupcl -opost -onlcr -isig -iexten -echo -echoe -echok -echoctl -echoke -icanon min 0 time 5
+
+echo -ne "SHUTTERCLOSE?1,1,1,1,1\r" > $COMDEV
+cat $COMDEV
+echo -e "\n"

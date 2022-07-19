@@ -1,0 +1,28 @@
+#!/bin/bash
+
+if [ $# != 1 ]; then 
+	echo "USAGE: $0 fval (fval: 0..65000)  OR $0 -g (get current focuser position)"
+	exit 1
+fi
+
+if [[ $1 -lt 0 || $1 -gt 65000 && $1 != "-g" ]]; then
+	echo "Focus value: from 0 to 65000"
+	exit 2
+fi
+
+COMDEV=/dev/ttyS0
+stty -F $COMDEV -hupcl -opost -onlcr -isig -iexten -echo -echoe -echok -echoctl -echoke -icanon min 0 time 5
+
+
+if [ "$1" != "-g" ]; then
+	echo "Set focus to $1"
+	echo -en "FOCUSERGO?$1" > $COMDEV
+	cat $COMDEV
+	echo -e "\n"
+fi
+
+echo -ne "FOCUSERGPOS?\r" > $COMDEV
+ans=$(cat $COMDEV | sed 's/.*?//' | tr -d '\r')
+echo "$ans"
+printf "FOCUS   =                %5s / Current focuser position, steps\n" $ans > FOCUS.hdr
+

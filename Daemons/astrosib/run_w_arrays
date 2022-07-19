@@ -1,0 +1,94 @@
+#!/bin/bash
+# Change this variables
+RA="HH:MM:SS"
+DEC="DD:MM:SS"
+OBJ="Object name"
+OBS="A.U. Thor"
+# the date and time of closing
+last=$(date -d "Jan 22 06:20" +%s)
+# array with filter positions (0 - hole, 1 - B, 2 - V, 3 - R, 4 - r')
+POSITIONS=( 1 2 3 )
+# array with expositions (in milliseconds!!!) for each position from POSITIONS
+EXPTIME=( 600000 300000 400000 )
+# array with focus (mm*10000) for each position
+FOCUS=( 45000 45500 45300 )
+
+# DON'T CHANGE ANYTHING BELOW THIS LINE
+##################################################################################################
+
+echo "Time diff: $(($last-$(date +%s)))"
+if [ $(($last-$(date +%s))) -lt 3600 ]; then
+	echo "There's less an hour for observation!"
+	exit 2
+fi
+
+len=${#POSITIONS[@]}
+export http_proxy=""
+
+function sendcmd(){
+    echo $1 | nc localhost 10001 -q10
+}
+
+function point_tel(){
+	touch lastpointing
+	send_coords -r $1 -d $2
+}
+
+function take_image(){
+	for (( i=0; i<$len; i++ )); do
+		fli_control -w ${POSITIONS[i]} -g ${FOCUS[i]}
+		preflash
+		fli_control -r /tmp/10micron.fitsheader -x ${EXPTIME[i]} -N "${OBS}" -O "${OBJ}" "$OBJ"
+	done
+}
+
+#function send_coords(){
+#	echo "1 2 3 0"
+#}
+#function chkweather(){
+#	echo "OK"
+#}
+
+
+echo "GoTo object: ${RA} ${DEC}"
+echo send_coords -r${RA} -d${DEC}
+echo "Start taking object"
+
+badweather=0
+while true; do
+	now=$(date +%s)
+	chkweather > lastweather && badweather=0 || badweather=$((badweather+1))
+	[ $badweather -gt 5 ] && break
+	if [ "$now" -lt "$last" ]; then
+		est=$(sendcmd ":Gmte#"|sed -e 's/^0*//' -e 's/#//')
+		echo -e "\n\n\n\n\nEstimated time to flip: $est minutes"
+		if [[ ("x$est" == "x") || ($est -lt 3) ]]; then
+			point_tel "${RA}" "${DEC}"
+			continue
+		fi
+		ST=$(send_coords | awk '{print $4}')
+		[ "x$ST" == "x" ] && break
+		if [ $ST -ne "0" ]; then
+			point_tel "${RA}" "${DEC}"
+			continue
+		else
+		    take_image
+		fi
+	else
+		break
+	fi
+done
+
+curl localhost:4444/close
+curl localhost:55555/close
+echo "closed" > closed
+park_telescope
+
+for x in $(seq 1 5); do
+	preflash
+	fli_control -x300000 -d dark
+	preflash
+	fli_control -x1 -d bias
+done
+
+STOPobs

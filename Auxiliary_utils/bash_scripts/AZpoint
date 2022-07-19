@@ -1,0 +1,19 @@
+#!/bin/bash
+
+A="90:00:00"
+H="45:00:00"
+
+function sendcmd(){
+	echo $1 | nc 192.168.70.33 10001 -q10
+}
+
+sendcmd ":Sz${A}#"
+sendcmd ":Sa${H}#"
+sendcmd ":MS#"
+while true; do
+	ANS=$(sendcmd ":Gstat#")
+	echo $ANS
+	[ $ANS == "0#" ] && break
+	sleep 2
+done
+

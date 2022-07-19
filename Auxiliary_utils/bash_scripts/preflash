@@ -1,0 +1,11 @@
+#!/bin/bash
+
+echo "Wait, pre-flashing is in process"
+fli_control -c8 >/dev/null
+fli_control -s0 >/dev/null
+fli_control -x2000 -d -F
+fli_control -s8 >/dev/null
+fli_control -c0 >/dev/null
+fli_control -F -x1 -v32 -h32 -n2 -d  >/dev/null
+fli_control -x1 -v32 -h32 -d  >/dev/null
+fli_control -x1 -v2 -h2 -d

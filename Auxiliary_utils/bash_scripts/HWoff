@@ -1,0 +1,9 @@
+#!/bin/bash
+# start observation: open everything, turn on power etc
+export http_proxy=""
+
+echo "Turn OFF mount"
+ssh obs@192.168.70.34 ~/bin/MOUNTpoweronoff
+sleep 30
+echo "Turn OFF hardware power"
+ssh obs@192.168.70.34 ~/bin/HWpoweroff

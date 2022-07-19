@@ -1,0 +1,14 @@
+#!/bin/bash
+
+TTY=/dev/ttyS1
+
+if [ $# -ne 2 ]; then
+	echo "USAGE: $0 hh:mm:ss.s +dd:mm:ss.s"
+	exit 1
+fi
+
+stty -F $TTY -hupcl -opost -onlcr -isig -iexten -echo -echoe -echok -echoctl -echoke -icanon min 0 time 5
+
+echo ":Sr${1}#" > /dev/ttyS1 && cat /dev/ttyS1
+echo ":Sd${2}#" > /dev/ttyS1 && cat /dev/ttyS1
+echo ":MS#" > /dev/ttyS1 && cat /dev/ttyS1

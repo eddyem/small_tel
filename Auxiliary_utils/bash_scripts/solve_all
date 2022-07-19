@@ -1,0 +1,5 @@
+#!/bin/bash
+for f in *; do
+	solve-field --use-sextractor --no-remove-lines --uniformize 0 --radius 2 -p -L 1.3 -H 1.4 -u arcsecperpix $f # && rm -f $f
+done
+rm -f *.axy *.corr *.xyls *.match *.rdls *.solved *.wcs
