@@ -1,0 +1,11 @@
+\def\rmpt@#1.#2{#1#2}
+\def\put@pt#1#2.#3{\ifx#3\empty#2#1\else #2.\kern-.25em\relax#1\rmpt@#3\fi}
+% magnitude
+\def\m#1{\ensuremath{\put@pt{^m}#1.\empty}}
+% degrees
+\def\arcdeg#1{\ensuremath{\put@pt{^\circ}#1.\empty}}
+% arc minutes
+\def\arcmin#1{\ensuremath{\put@pt{'}#1.\empty}}
+% arc seconds
+\def\arcsec#1{\ensuremath{\put@pt{''}#1.\empty}}
+\def\Ang{\mbox{\,\AA}}
