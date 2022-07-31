@@ -1,0 +1,3 @@
+[MSG]	2022/07/30-21:16:04	Start application...
+[DBG]	2022/07/30-21:16:04	Try to open serial /dev/ttyUSB0 @19200
+[ERR]	2022/07/30-21:16:32	Exit with status 0

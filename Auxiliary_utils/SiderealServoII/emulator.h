@@ -17,23 +17,19 @@
  */
 
 #pragma once
-#ifndef CMDLNOPTS_H__
-#define CMDLNOPTS_H__
 
-/*
- * here are some typedef's for global data
- */
-typedef struct{
-    char *device;           // serial device name
-    char *pidfile;          // name of PID file
-    char *logfile;          // logging to this file
-    char *motorslog;        // log of motors' data
-    int speed;              // connection speed
-    int rest_pars_num;      // number of rest parameters
-    char** rest_pars;       // the rest parameters: array of char*
-} glob_pars;
+#include "sidservo.h"
+
+#define SECPERRAD   (206264.802)
+
+// convert angles
+#define ARCSEC2DEG(x)   (x/3600.)
+#define DEG2ARCSEC(x)   (x*3600.)
+#define ARCSEC2RAD(x)   (x/SECPERRAD)
+#define RAD2ARCSEC(x)   (x*SECPERRAD)
 
 
-glob_pars *parse_args(int argc, char **argv);
+void SSmotor_monitoring(SSstat *inistat);
+int SSlog_motor_data(SSstat *old, double *told);
 
-#endif // CMDLNOPTS_H__
+void SSstart_emulation(double ha_start, double dec_start);

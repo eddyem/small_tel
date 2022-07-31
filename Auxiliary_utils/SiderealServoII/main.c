@@ -21,35 +21,11 @@
 #include <stdlib.h>         // exit, free
 #include <string.h>         // strdup
 #include <unistd.h>         // sleep
-#include <usefull_macros.h>
 
 #include "cmdlnopts.h"
+#include "emulator.h"
+#include "motlog.h"
 #include "sidservo.h"
-
-/*
-#include <termios.h>		// tcsetattr
-#include <unistd.h>			// tcsetattr, close, read, write
-#include <sys/ioctl.h>		// ioctl
-#include <stdio.h>			// printf, getchar, fopen, perror
-#include <stdlib.h>			// exit
-#include <sys/stat.h>		// read
-#include <fcntl.h>			// read
-#include <signal.h>			// signal
-#include <time.h>			// time
-#include <string.h>			// memcpy
-#include <stdint.h>			// int types
-#include <sys/time.h>		// gettimeofday
-*/
-
-/**
- * This is an example of usage:
- *  - command line arguments,
- *  - log file,
- *  - check of another file version running,
- *  - signals management,
- *  - serial port reading/writing.
- * The `cmdlnopts.[hc]` are intrinsic files of this demo.
- */
 
 static glob_pars *GP = NULL;  // for GP->pidfile need in `signals`
 
@@ -57,14 +33,20 @@ static glob_pars *GP = NULL;  // for GP->pidfile need in `signals`
  * We REDEFINE the default WEAK function of signal processing
  */
 void signals(int sig){
+    DBG("Quit");
     if(sig > 0){
         signal(sig, SIG_IGN);
         DBG("Get signal %d, quit.\n", sig);
     }
     LOGERR("Exit with status %d", sig);
+    DBG("unlink");
     if(GP && GP->pidfile) // remove unnesessary PID file
         unlink(GP->pidfile);
+    SSwritecmd(CMD_STOPHA);
+    SSwritecmd(CMD_STOPDEC);
+    DBG("close");
     SSclose();
+    DBG("exit");
     exit(sig);
 }
 
@@ -76,22 +58,61 @@ int main(int argc, char *argv[]){
     initial_setup();
     char *self = strdup(argv[0]);
     GP = parse_args(argc, argv);
-/*    if(GP->rest_pars_num){
-        printf("%d extra options:\n", GP->rest_pars_num);
-        for(int i = 0; i < GP->rest_pars_num; ++i)
-            printf("%s\n", GP->rest_pars[i]);
-    }*/
     check4running(self, GP->pidfile);
-    red("%s started, snippets library version is %s\n", self, sl_libversion());
+    green("%s started, snippets library version is %s\n", self, sl_libversion());
     free(self);
+    if(GP->logfile){
+        if(!OPENLOG(GP->logfile, LOGLEVEL_ANY, 1)) ERRX("Can't open logfile %s", GP->logfile);
+    }
+    if(GP->motorslog){
+        if(!open_mot_log(GP->motorslog)) ERRX("Can't open motors' log file %s", GP->motorslog);
+        mot_log(0, "# Motor's data\n#time\tX\tXenc\tVx\tY\tYenc\tVy");
+    }
     signal(SIGTERM, signals); // kill (-15) - quit
     signal(SIGHUP, SIG_IGN);  // hup - ignore
     signal(SIGINT, signals);  // ctrl+C - quit
     signal(SIGQUIT, signals); // ctrl+\ - quit
     signal(SIGTSTP, SIG_IGN); // ignore ctrl+Z
-    if(GP->logfile) OPENLOG(GP->logfile, LOGLEVEL_ANY, 1);
     LOGMSG("Start application...");
     if(!SSinit(GP->device, GP->speed)) signals(-2);
+    mot_log(0, "Starting of emulation");
+    SSstart_emulation(0., 0.);
+    mot_log(0, "Return to zero");
+    SSgoto(0., 0.);
+    SSwaitmoving();
+    signals(0);
+    // try to move for 45 degrees by both axes
+    if(!SSgoto(45., 45.)) signals(-3);
+    SSwaitmoving();
+    signals(0);
+    DBG("Try to send short command");
+    SSscmd sc = {
+        .DECmot = 500000,
+        .DECspeed = 1000000,
+        .HAmot = 600000,
+        .HAspeed = 2000000
+    };
+    mot_log(0, "Send short command");
+    while(SScmds(&sc) != sizeof(SSstat)) WARNX("SSCMDshort bad answer!");
+    SSmotor_monitoring((SSstat*)SSread(NULL)); // monitor
+    SSlcmd lc = {
+        .DECmot = 0,
+        .DECspeed = 2000000, // steps per sec * 65536 / 1953
+        .HAmot = 0, //-427643
+        .HAspeed = 2000000,
+        .DECadder = 100,
+        .HAadder = 40,
+        .DECatime = 1953*3,
+        .HAatime = 1953*4
+    };
+    DBG("Try to send long command");
+    mot_log(0, "Send long command");
+    while(SScmdl(&lc) != sizeof(SSstat)) WARNX("SSCMDlong bad answer!");
+    SSmotor_monitoring((SSstat*)SSread(NULL)); // monitor
+    mot_log(0, "Stop motors");
+    SSwritecmd(CMD_STOPHA);
+    SSwritecmd(CMD_STOPDEC);
+    SSmotor_monitoring(NULL); // monitor stopping
     /*
     double t0 = dtime();
     while(1){ // read data from port and print in into terminal

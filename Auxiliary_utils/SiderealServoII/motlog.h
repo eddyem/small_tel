@@ -17,23 +17,9 @@
  */
 
 #pragma once
-#ifndef CMDLNOPTS_H__
-#define CMDLNOPTS_H__
+#include <usefull_macros.h>
 
-/*
- * here are some typedef's for global data
- */
-typedef struct{
-    char *device;           // serial device name
-    char *pidfile;          // name of PID file
-    char *logfile;          // logging to this file
-    char *motorslog;        // log of motors' data
-    int speed;              // connection speed
-    int rest_pars_num;      // number of rest parameters
-    char** rest_pars;       // the rest parameters: array of char*
-} glob_pars;
-
-
-glob_pars *parse_args(int argc, char **argv);
-
-#endif // CMDLNOPTS_H__
+int open_mot_log(const char *path);
+void close_mot_log();
+int mot_log(int timestamp, const char *fmt, ...);
+void refresh_t0();
