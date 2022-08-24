@@ -23,11 +23,3 @@
 *.so
 *.so.*
 
-# qt-creator
-*.config
-*.cflags
-*.cxxflags
-*.creator*
-*.files
-*.includes
-

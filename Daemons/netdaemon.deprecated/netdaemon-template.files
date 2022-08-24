@@ -1,0 +1,11 @@
+cmdlnopts.c
+cmdlnopts.h
+main.c
+parseargs.c
+parseargs.h
+socket.c
+socket.h
+term.c
+term.h
+usefull_macros.c
+usefull_macros.h

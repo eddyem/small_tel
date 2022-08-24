@@ -1,0 +1,9 @@
+cmdlnopts.c
+cmdlnopts.h
+emulator.c
+emulator.h
+main.c
+motlog.c
+motlog.h
+sidservo.c
+sidservo.h
