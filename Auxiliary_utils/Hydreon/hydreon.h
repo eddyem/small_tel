@@ -26,13 +26,21 @@
 #define SREGNUM     16
 
 // RGBits values:
+// raining too much (???)
 #define PkOverThr   (1<<0)
+// is raining (???)
 #define Raining     (1<<1)
+// outern relay is on (???)
 #define Out1On      (1<<2)
+// heater (???)
 #define HtrOn       (1<<3)
+// ambient light @0 -> night
 #define IsDark      (1<<4)
+// ???
 #define Cndnstn     (1<<5)
+// ???
 #define Freeze      (1<<6)
+// ???
 #define Storm       (1<<7)
 
 // minimal packet length (without slow registers)
@@ -42,15 +50,15 @@
 #define BUFLEN      (32)
 
 typedef struct{
-    uint8_t PeakRS;
-    uint8_t SPeakRS;
-    uint8_t RainAD8;
-    uint8_t LRA;
-    uint8_t TransRat;
-    uint8_t AmbLNoise;
-    uint8_t RGBits;
-    uint8_t SlowRegIngex;
-    uint8_t SlowRegValue;
+    uint8_t PeakRS;         // water intensity (255 - continuous) 0..5
+    uint8_t SPeakRS;        // 0..5
+    uint8_t RainAD8;        // power of rain (???) 64..192
+    uint8_t LRA;            // counter of rain activity (???)
+    uint8_t TransRat;       // amount of measurements per second (???) 60..170
+    uint8_t AmbLNoise;      // ambient noise RMS (???)
+    uint8_t RGBits;         // flags
+    uint8_t SlowRegIngex;   // slow register index
+    uint8_t SlowRegValue;   // slow register value
 } rg11;
 
 typedef struct{

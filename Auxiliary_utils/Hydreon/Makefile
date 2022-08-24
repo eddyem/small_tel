@@ -18,6 +18,10 @@ else
 	TARGET := RELEASE
 endif
 
+ifeq ($(TARGET), DEBUG)
+	.DEFAULT_GOAL := debug
+endif
+
 release: $(PROGRAM)
 
 debug: CFLAGS += -DEBUG -Werror
