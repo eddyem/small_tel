@@ -26,15 +26,15 @@
 #define SREGNUM     16
 
 // RGBits values:
-// raining too much (???)
+// PeakRS overflow (>255)
 #define PkOverThr   (1<<0)
-// is raining (???)
+// is raining (after several PKOverThr by fixed time)
 #define Raining     (1<<1)
-// outern relay is on (???)
+// outern relay is on (after bucket overflows from 18 to 0)
 #define Out1On      (1<<2)
-// heater (???)
+// heater is on
 #define HtrOn       (1<<3)
-// ambient light @0 -> night
+// ambient light @0 (murky, twilight)
 #define IsDark      (1<<4)
 // ???
 #define Cndnstn     (1<<5)
@@ -50,11 +50,11 @@
 #define BUFLEN      (32)
 
 typedef struct{
-    uint8_t PeakRS;         // water intensity (255 - continuous) 0..5
-    uint8_t SPeakRS;        // 0..5
-    uint8_t RainAD8;        // power of rain (???) 64..192
-    uint8_t LRA;            // counter of rain activity (???)
-    uint8_t TransRat;       // amount of measurements per second (???) 60..170
+    uint8_t PeakRS;         // water intensity (255 - continuous) 
+    uint8_t SPeakRS;        // most time == PeakRS
+    uint8_t RainAD8;        // (???) 
+    uint8_t LRA;            // average rain activity (~envelope of PeakRS)
+    uint8_t TransRat;       // amount of measurements per second (???) 
     uint8_t AmbLNoise;      // ambient noise RMS (???)
     uint8_t RGBits;         // flags
     uint8_t SlowRegIngex;   // slow register index
@@ -62,22 +62,22 @@ typedef struct{
 } rg11;
 
 typedef struct{
-    uint8_t RevLevel;     // 12
-    uint8_t EmLevel;      // 30..80
-    uint8_t RecEmStr;     // 60..66
-    uint8_t ABLevel;      // 10
-    uint8_t TmprtrF;      // 70..100
-    uint8_t PUGain;       // 34..39
-    uint8_t ClearTR;      // 60..170
-    uint8_t AmbLight;
-    uint8_t Bucket;
-    uint8_t Barrel;
-    uint8_t RGConfig;
-    uint8_t DwellT;
-    uint8_t SinceRn;
-    uint8_t MonoStb;
-    uint8_t LightAD;      // 120..136
-    uint8_t RainThr;
+    uint8_t RevLevel;     // (??? == 14)
+    uint8_t EmLevel;      // (???) seems correlated with RainAD8
+    uint8_t RecEmStr;     // (???) seems correlated with RainAD8
+    uint8_t ABLevel;      // (??? == 7..12)
+    uint8_t TmprtrF;      // (inner T)
+    uint8_t PUGain;       // (??? == 37)
+    uint8_t ClearTR;      // (??? almost constant == 121..149)
+    uint8_t AmbLight;     // ambient light
+    uint8_t Bucket;       // Intergal PeakRS. When no rain, decreased near 4 hours per 1 unit
+    uint8_t Barrel;       // Integral Bucket (increases when Bucket goes througt 12->14 after last overflow). Decreased near 2 hours per 1 unit
+    uint8_t RGConfig;     // (??? == 0)
+    uint8_t DwellT;       // 100 - no rain, 50 - low, 5 - max rain (like exponental function)
+    uint8_t SinceRn;      // (0..20) increases every minute after rain is over
+    uint8_t MonoStb;      // when Raining==1, MonoStb=15, then decrements when no rain (1 unit per ~1minute)
+    uint8_t LightAD;      // (???) seems correlated with RainAD8
+    uint8_t RainThr;      // (??? == 12)
 } slowregs;
 
 int hydreon_open(const char *devname);

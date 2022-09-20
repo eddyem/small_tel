@@ -42,7 +42,6 @@ static glob_pars  G;
 static glob_pars const Gdefault = {
     .device = DEFAULT_DEV,
     .pidfile = DEFAULT_PIDFILE,
-    .logfile = NULL,
     .timeout = 300, // 5 minute timeout
 };
 
@@ -55,6 +54,7 @@ static myoption cmdlnopts[] = {
     {"help",    NO_ARGS,    NULL,   'h',    arg_int,    APTR(&help),        _("show this help")},
     {"device",  NEED_ARG,   NULL,   'd',    arg_string, APTR(&G.device),    _("serial device name (default: )" DEFAULT_DEV ")")},
     {"logfile", NEED_ARG,   NULL,   'l',    arg_string, APTR(&G.logfile),   _("file to save logs")},
+    {"outfile", NEED_ARG,   NULL,   'o',    arg_string, APTR(&G.outfile),   _("put output data table into this file (delete existing)")},
     {"pidfile", NEED_ARG,   NULL,   'p',    arg_string, APTR(&G.pidfile),   _("pidfile (default: " DEFAULT_PIDFILE ")")},
     {"timeout", NEED_ARG,   NULL,   't',    arg_int,    APTR(&G.timeout),   _("timeout (seconds) to die if no data on input (default: 5min)")},
    end_option

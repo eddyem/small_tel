@@ -25,6 +25,7 @@ typedef struct{
     char *device;           // serial device name
     char *pidfile;          // name of PID file
     char *logfile;          // logging to this file
+    char *outfile;          // put output data table into this file
     int timeout;            // die on timeout (no data on input)
 } glob_pars;
 
