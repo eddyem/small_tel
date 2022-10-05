@@ -1,0 +1,19 @@
+Calculate coordinates of points equally distributed by hemisphere.
+
+Usage: calcpoints [args]
+
+        Where args are:
+
+  -1, --hideA           hide first column (A)
+  -2, --hideZ           hide second column (Z)
+  -3, --hideHA          hide third column (HA)
+  -4, --hideDec         hide fourth column (Dec)
+  -Z, --maxz=arg        maximal Z (degrees) (default: 75.)
+  -c, --scoord=arg      sort by this coordinate (A, Z, HA, Dec) (default: Z)
+  -d, --delimeter=arg   coordinates delimeter string (default: ':')
+  -h, --help            show this help
+  -n, --npts=arg        max amount of points (default: 100)
+  -o, --output=arg      output file name
+  -s, --sorting=arg     sorting order (none, positive, negative)
+  -z, --minz=arg        minimal Z (degrees) (default: 0.)
+
