@@ -27,18 +27,18 @@ void reprd(char* s, double ra, double dc){
     char pm;
     int i[4];
     printf ( "%s:", s );
-    iauA2tf ( 7, ra, &pm, i );
+    eraA2tf ( 7, ra, &pm, i );
     printf ( " %2.2d %2.2d %2.2d.%7.7d", i[0],i[1],i[2],i[3] );
-    iauA2af ( 6, dc, &pm, i );
+    eraA2af ( 6, dc, &pm, i );
     printf ( " %c%2.2d %2.2d %2.2d.%6.6d\n", pm, i[0],i[1],i[2],i[3] );
 }
 void radtodeg(double r){
     int i[4]; char pm;
-    int rem = (int)(r / D2PI);
-    if(rem) r -= D2PI * rem;
-    if(r > DPI) r -= D2PI;
-    else if(r < -DPI) r += D2PI;
-    iauA2af (2, r, &pm, i);
+    int rem = (int)(r / ERFA_D2PI);
+    if(rem) r -= ERFA_D2PI * rem;
+    if(r > ERFA_DPI) r -= ERFA_D2PI;
+    else if(r < -ERFA_DPI) r += ERFA_D2PI;
+    eraA2af (2, r, &pm, i);
     printf("%c%02d %02d %02d.%2.d", pm, i[0],i[1],i[2],i[3]);
 }
 #define REP(a,b,c) reprd(a,b,c)
@@ -98,7 +98,7 @@ almDut *getDUT(){
 void r2sHMS(double radians, char *hms, int len){
     char pm;
     int i[4];
-    iauA2tf(2, radians, &pm, i);
+    eraA2tf(2, radians, &pm, i);
     snprintf(hms, len, "'%c%02d:%02d:%02d.%02d'", pm, i[0],i[1],i[2],i[3]);
 }
 
@@ -111,7 +111,7 @@ void r2sHMS(double radians, char *hms, int len){
 void r2sDMS(double radians, char *dms, int len){
     char pm;
     int i[4];
-    iauA2af(1, radians, &pm, i);
+    eraA2af(1, radians, &pm, i);
     snprintf(dms, len, "'%c%02d:%02d:%02d.%d'", pm, i[0],i[1],i[2],i[3]);
 }
 
@@ -140,15 +140,15 @@ int get_MJDt(struct timeval *tval, sMJD *MJD){
     d = tms.tm_mday;
     double utc1, utc2;
     /* UTC date. */
-    if(iauDtf2d("UTC", y, m, d, tms.tm_hour, tms.tm_min, tSeconds, &utc1, &utc2) < 0) return -1;
+    if(eraDtf2d("UTC", y, m, d, tms.tm_hour, tms.tm_min, tSeconds, &utc1, &utc2) < 0) return -1;
     if(!MJD) return 0;
     MJD->MJD = utc1 - 2400000.5 + utc2;
     MJD->utc1 = utc1;
     MJD->utc2 = utc2;
     //DBG("UTC(m): %g, %.8f\n", utc1 - 2400000.5, utc2);
-    if(iauUtctai(utc1, utc2, &MJD->tai1, &MJD->tai2)) return -1;
+    if(eraUtctai(utc1, utc2, &MJD->tai1, &MJD->tai2)) return -1;
     //DBG("TAI");
-    if(iauTaitt(MJD->tai1, MJD->tai2, &MJD->tt1, &MJD->tt2)) return -1;
+    if(eraTaitt(MJD->tai1, MJD->tai2, &MJD->tt1, &MJD->tt2)) return -1;
     //DBG("TT");
     return 0;
 }
@@ -167,16 +167,16 @@ int get_LST(sMJD *mjd, double dUT1, double slong, double *LST){
     if(!mjd){
         if(get_MJDt(NULL, &Mjd)) return 1;
     }else memcpy(&Mjd, mjd, sizeof(sMJD));
-    if(iauUtcut1(Mjd.utc1, Mjd.utc2, dUT1, &ut11, &ut12)) return 2;
+    if(eraUtcut1(Mjd.utc1, Mjd.utc2, dUT1, &ut11, &ut12)) return 2;
     /*double era = iauEra00(ut11, ut12) + slong;
     double eo = iauEe06a(mjd->tt1, mjd->tt2);
     printf("ERA = %s; ", radtohrs(era));
     printf("ERA-eo = %s\n", radtohrs(era-eo));*/
     if(!LST) return 0;
-    double ST = iauGst06a(ut11, ut12, Mjd.tt1, Mjd.tt2);
+    double ST = eraGst06a(ut11, ut12, Mjd.tt1, Mjd.tt2);
     ST += slong;
-    if(ST > D2PI) ST -= D2PI;
-    else if(ST < 0.) ST += D2PI;
+    if(ST > ERFA_D2PI) ST -= ERFA_D2PI;
+    else if(ST < 0.) ST += ERFA_D2PI;
     *LST = ST;
     return 0;
 }
@@ -191,7 +191,7 @@ int get_LST(sMJD *mjd, double dUT1, double slong, double *LST){
 void hor2eq(horizCrds *h, polarCrds *pc, double sidTime){
     if(!h || !pc) return;
     placeData *p = getPlace();
-    iauAe2hd(h->az, DPI/2. - h->zd, p->slat, &pc->ha, &pc->dec); // A,H -> HA,DEC; phi - site latitude
+    eraAe2hd(h->az, ERFA_DPI/2. - h->zd, p->slat, &pc->ha, &pc->dec); // A,H -> HA,DEC; phi - site latitude
     pc->ra = sidTime - pc->ha;
     pc->eo = 0.;
 }
@@ -206,8 +206,8 @@ void eq2horH(polarCrds *pc, horizCrds *h){
     if(!h || !pc) return;
     placeData *p = getPlace();
     double alt;
-    iauHd2ae(pc->ha, pc->dec, p->slat, &h->az, &alt);
-    h->zd = DPI/2. - alt;
+    eraHd2ae(pc->ha, pc->dec, p->slat, &h->az, &alt);
+    h->zd = ERFA_DPI/2. - alt;
 }
 
 /**
@@ -221,8 +221,8 @@ void eq2hor(polarCrds *pc, horizCrds *h, double sidTime){
     double ha = sidTime - pc->ra + pc->eo;
     placeData *p = getPlace();
     double alt;
-    iauHd2ae(ha, pc->dec, p->slat, &h->az, &alt);
-    h->zd = DPI/2. - alt;
+    eraHd2ae(ha, pc->dec, p->slat, &h->az, &alt);
+    h->zd = ERFA_DPI/2. - alt;
 }
 
 
@@ -256,7 +256,7 @@ int get_ObsPlace(struct timeval *tval, polarCrds *p2000, localWeather *weath, po
             p2000->ra, p2000->dec, pr, pd, px, rv, MJD.utc1, MJD.utc2, d.DUT1, p.slong, p.slat, p.salt,
                              d.px, d.py, p, t, h, wl);
     */
-    if(iauAtco13(p2000->ra, p2000->dec,
+    if(eraAtco13(p2000->ra, p2000->dec,
                  pr, pd, px, rv,
                  MJD.utc1, MJD.utc2,
                  dut1.DUT1,
@@ -280,7 +280,7 @@ int get_ObsPlace(struct timeval *tval, polarCrds *p2000, localWeather *weath, po
 #ifdef EBUG
     printf("A(bta)/Z: ");
     radtodeg(aob);
-    printf("("); radtodeg(DPI-aob);
+    printf("("); radtodeg(ERFA_DPI-aob);
     printf(")/"); radtodeg(zob);
     printf("\n");
 #endif

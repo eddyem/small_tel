@@ -499,7 +499,7 @@ void wrhdr(){
             DBG("Failed");
             return;
         }
-        LST *= 15.*DD2R; // convert hours to radians
+        LST *= 15.*ERFA_DD2R; // convert hours to radians
     }else{
         lst = MALLOC(char, 32);
         r2sHMS(LST, lst, 32);
@@ -512,7 +512,7 @@ void wrhdr(){
         jd = MALLOC(char, 32);
         snprintf(jd, 32, "%.10f", mjd.MJD);
     }
-    polarCrds pNow = {.ra = r*15.*DD2R, .dec = d*DD2R}; // coordinates now
+    polarCrds pNow = {.ra = r*15.*ERFA_DD2R, .dec = d*ERFA_DD2R}; // coordinates now
     horizCrds hNow;
     eq2hor(&pNow, &hNow, LST);
     failcounter = 0;
@@ -569,9 +569,9 @@ void wrhdr(){
     WRHDR("RA", val, "Telescope right ascension, current epoch, deg");
     snprintf(val, 22, "%.10f", d);
     WRHDR("DEC", val, "Telescope declination, current epoch, deg");
-    snprintf(val, 22, "%.10f", hNow.az * DR2D);
+    snprintf(val, 22, "%.10f", hNow.az * ERFA_DR2D);
     WRHDR("AZ", val, "Telescope azimuth, current epoch, deg");
-    snprintf(val, 22, "%.10f", hNow.zd * DR2D);
+    snprintf(val, 22, "%.10f", hNow.zd * ERFA_DR2D);
     WRHDR("ZD", val, "Telescope zenith distance, current epoch, deg");
     WRHDR("TELSTAT", strstatus(mountstatus), "Telescope mount status");
     if(!get_MJDt(NULL, &mjd)){

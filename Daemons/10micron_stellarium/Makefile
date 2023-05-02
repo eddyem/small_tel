@@ -1,5 +1,5 @@
 PROGRAM = stellariumdaemon
-LDFLAGS = -lsofa_c -pthread
+LDFLAGS = -lerfa -pthread
 SRCS = $(wildcard *.c)
 CC = gcc
 DEFINES = -D_GNU_SOURCE -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=1111

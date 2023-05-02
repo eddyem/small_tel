@@ -19,8 +19,8 @@
 #ifndef LIBSOFA_H__
 #define LIBSOFA_H__
 
-#include <sofa.h>
-#include <sofam.h>
+#include <erfa.h>
+#include <erfam.h>
 #include <sys/time.h>
 
 // JD2451544.5 == 2000.0

@@ -1,1 +1,6 @@
 Stellarium control of 10-micron mount
+
+
+Special commands in terminal mode:
+PAUSE - pause output to port from everywhere except terminal thread
+CONTINUE - allow to write to port for everyone

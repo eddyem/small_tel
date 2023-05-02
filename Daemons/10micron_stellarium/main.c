@@ -230,7 +230,7 @@ int proc_data(uint8_t *data, ssize_t len){
     horizCrds hnow; // without refraction
     polarCrds p2000, pnow;
     p2000.ra = tagRA/12. * M_PI;
-    p2000.dec = tagDec * DD2R;
+    p2000.dec = tagDec * ERFA_DD2R;
     //             now     J2000  obs    Jnow
     if(get_ObsPlace(NULL, &p2000, NULL, &pnow, &hnow)){
         WARNX("Can't convert coordinates to Jnow");
@@ -238,22 +238,22 @@ int proc_data(uint8_t *data, ssize_t len){
     }
 #ifdef EBUG
     int i[4], j[4]; char pm, pm1;
-    iauA2af(2, hnow.az, &pm, i);
-    iauA2af(2, hnow.zd, &pm1, j);
+    eraA2af(2, hnow.az, &pm, i);
+    eraA2af(2, hnow.zd, &pm1, j);
     DBG("az: %c%02d %02d %02d.%2.d, zd: %c%02d %02d %02d.%2.d",
         pm, i[0],i[1],i[2],i[3],
         pm1,j[0],j[1],j[2],j[3]);
-    iauA2af(2, M_PI_2 - hnow.zd, &pm, i);
+    eraA2af(2, M_PI_2 - hnow.zd, &pm, i);
     DBG("h: %c%02d %02d %02d.%2.d", pm, i[0],i[1],i[2],i[3]);
 #endif
-    if(hnow.zd > 80.*DD2R){
+    if(hnow.zd > 80.*ERFA_DD2R){
         WARNX("Z > 80degr, stop telescope");
         putlog("Z>80 - stop!");
         stop_telescope();
         return 0;
     }
     tagRA = (pnow.ra - pnow.eo) / M_PI * 12.;
-    tagDec = pnow.dec / DD2R;
+    tagDec = pnow.dec / ERFA_DD2R;
     if(!setCoords(tagRA, tagDec)) return 0;
     return 1;
 }
