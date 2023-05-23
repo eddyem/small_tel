@@ -42,23 +42,34 @@ extern glob_pars *GP;
 
 static weather_t lastweather = {0};
 static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+static weatherstat_t wstat;
+
+typedef enum{
+    FORMAT_ERROR,       // send user an error message
+    FORMAT_CURDFULL,    // param=value for current data
+    FORMAT_CURDSHORT,   // comma-separated current data
+    FORMAT_STATFULL,    // param=value for stat
+    FORMAT_STATSHORT    // comma-separated stat
+} format_t;
+
+
 
 /**************** SERVER FUNCTIONS ****************/
 /**
  * Send data over socket
  * @param sock      - socket fd
  * @param webquery  - ==1 if this is web query
- * @param format    - 1 - full (param=value), 0 - simple (comma-separated)
+ * @param format    - data format
  * @return 1 if all OK
  */
-static int send_data(int sock, int webquery, int format){
+static int send_data(int sock, int webquery, format_t format){
     char tbuf[BUFSIZ]; // buffer to send
     char databuf[BUFSIZ]; // buffer with data
     ssize_t Len = 0;
     const char *eol = webquery ? "\r\n" : "\n";
     // fill buffer with data
     pthread_mutex_lock(&mutex);
-    if(format){ // full format
+    if(format == FORMAT_CURDFULL){ // full format
         Len = snprintf(databuf, BUFSIZ,
                        "Wind=%.1f%sDir=%.1f%sPressure=%.1f%sTemperature=%.1f%sHumidity=%.1f%s"
                 "Rain=%.1f%sTime=%.3f%s",
@@ -66,13 +77,48 @@ static int send_data(int sock, int webquery, int format){
                 lastweather.temperature, eol, lastweather.humidity, eol, lastweather.rainfall, eol,
                 lastweather.tmeasure, eol
         );
-    }else{ // short format
+    }else if(format == FORMAT_CURDSHORT){ // short format
         Len = snprintf(databuf, BUFSIZ,
                 "%.3f,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f%s",
                 lastweather.tmeasure, lastweather.windspeed, lastweather.winddir,
                 lastweather.pressure, lastweather.temperature, lastweather.humidity,
                 lastweather.rainfall, eol
         );
+    }else if(format == FORMAT_STATFULL){
+        char *ptr = databuf;
+        int l = BUFSIZ;
+#define PRSTAT(field, nm) do{register int lc = snprintf(ptr, l, \
+                nm "max=%.1f%s" nm "min=%.1f%s" nm "mean=%.1f%s" nm "rms=%.1f%s", \
+                wstat.field.max, eol, wstat.field.min, eol, wstat.field.mean, eol, wstat.field.rms, eol); \
+                Len += lc; l -= lc; ptr += lc;}while(0)
+        PRSTAT(windspeed, "Wind");
+        PRSTAT(winddir, "Dir");
+        PRSTAT(pressure, "Pressure");
+        PRSTAT(temperature, "Temperature");
+        PRSTAT(humidity, "Humidity");
+        PRSTAT(rainfall, "Rain");
+        PRSTAT(tmeasure, "Time");
+#undef PRSTAT
+    }else if(format == FORMAT_STATSHORT){
+        char *ptr = databuf;
+        int l = BUFSIZ;
+        register int lc;
+#define PRSTAT(field, nm) do{lc = snprintf(ptr, l, \
+                "%.1f,%.1f,%.1f,%.1f", \
+                wstat.field.max, wstat.field.min, wstat.field.mean, wstat.field.rms); \
+                Len += lc; l -= lc; ptr += lc;}while(0)
+#define COMMA() do{lc = snprintf(ptr, l, ","); Len += lc; l -= lc; ptr += lc;}while(0)
+        PRSTAT(windspeed, "Wind"); COMMA();
+        PRSTAT(winddir, "Dir"); COMMA();
+        PRSTAT(pressure, "Pressure"); COMMA();
+        PRSTAT(temperature, "Temperature"); COMMA();
+        PRSTAT(humidity, "Humidity"); COMMA();
+        PRSTAT(rainfall, "Rain"); COMMA();
+        PRSTAT(tmeasure, "Time");
+        Len += snprintf(ptr, l, "%s", eol);
+#undef PRSTAT
+    }else{
+        Len = snprintf(databuf, BUFSIZ, "Error!");
     }
     pthread_mutex_unlock(&mutex);
     // OK buffer ready, prepare to send it
@@ -86,21 +132,21 @@ static int send_data(int sock, int webquery, int format){
         if(L < 0){
             WARN("sprintf()");
             LOGWARN("sprintf()");
-            return 0;
+            return FALSE;
         }
         if(L != write(sock, tbuf, L)){
             LOGWARN("Can't write header");
             WARN("write");
-            return 0;
+            return FALSE;
         }
     }
     if(Len != write(sock, databuf, Len)){
         WARN("write()");
         LOGERR("send_data(): write() failed");
-        return 0;
+        return FALSE;
     }
     //LOGDBG("fd %d, write %s", sock, textbuf);
-    return 1;
+    return TRUE;
 }
 
 // search a first word after needle without spaces
@@ -113,6 +159,15 @@ static char* stringscan(char *str, char *needle){
     while (a < end && (*a == ' ' || *a == '\r' || *a == '\t' || *a == '\r')) a++;
     if(a >= end) return NULL;
     return a;
+}
+
+static double getpar(const char *s){
+    double x = -1.;
+    char *eptr = NULL;
+    while(*s && *s <= ' ') ++s;
+    x = strtod(s, &eptr);
+    if(eptr == s) x = -1.;
+    return x;
 }
 
 /**
@@ -142,7 +197,7 @@ static int handle_socket(int sock){
     // now we should check what do user want
     char *found = buff;
     DBG("user send: %s", buff);
-    int format = 1; // text format - default for web-queries
+    format_t format = FORMAT_CURDFULL; // text format - default for web-queries
 
     if(0 == strncmp(buff, "GET", 3)){
         DBG("GET");
@@ -164,10 +219,15 @@ static int handle_socket(int sock){
             int l = strlen(buff);
             if(contlen && l > contlen)  found = &buff[l - contlen];
         }
-    }else if(0 == strncmp(buff, "simple", 6)) format = 0; // simple format
+    }else if(0 == strncmp(buff, "simple", 6)) format = FORMAT_CURDSHORT; // simple format
     else if(0 == strncmp(buff, "stat", 4)){ // show stat
-        stat_for(90.);
-        return 0;
+        double dt = -1.; int l = 4;
+        if(0 == strncmp(buff, "statsimple", 10)){
+            l = 10; format = FORMAT_STATSHORT;
+        }else format = FORMAT_STATFULL;
+        dt = getpar(buff + l);
+        if(dt < 1.) dt = 900.; // 15 minutes - default
+        if(stat_for(dt, &wstat) < 1.) format = FORMAT_ERROR;
     }
 
     // here we can process user data

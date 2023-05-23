@@ -69,8 +69,11 @@ void addtobuf(weather_t *record){
     pthread_mutex_unlock(&mutex);
 }
 
+
+
 // get statistics for last `Tsec` seconds; @return real dT for given interval
-double stat_for(double Tsec/*, weather_t *w*/){
+double stat_for(double Tsec, weatherstat_t *wstat){
+    if(!wstat || Tsec < 1.) return 0.;
     double dt = 0., tlast = buf[lastidx].tmeasure;
     size_t startfrom = lastidx;
     pthread_mutex_lock(&mutex);
@@ -80,26 +83,64 @@ double stat_for(double Tsec/*, weather_t *w*/){
         else --startfrom;
     }
     dt = tlast - buf[startfrom].tmeasure;
-    DBG("got indexes: start=%zd, end=%zd, dt=%.2f", startfrom, lastidx, dt);
+ //   DBG("got indexes: start=%zd, end=%zd, dt=%.2f", startfrom, lastidx, dt);
     weather_t min = {0}, max = {0}, sum = {0}, sum2 = {0};
     size_t amount = 0;
     memcpy(&min, &buf[lastidx], sizeof(weather_t));
+    min.tmeasure = buf[startfrom].tmeasure;
+    max.tmeasure = buf[lastidx].tmeasure;
+    double tmean = (max.tmeasure+min.tmeasure)/2.;
+//    DBG("tmean=%.1f, min=%.1f, max=%.1f", tmean, min.tmeasure, max.tmeasure);
+    size_t st = startfrom;
+    // calculate amount of north and south winds
+    size_t north = 0, south = 0;
+    while(st != lastidx){
+        double w = buf[st].winddir;
+        if(w < 90. || w > 300.) ++north;
+        else ++south;
+        if(++st == buflen) st = 0;
+    }
+    double wminus = 0.;
+    if(north > 2*south) wminus = 360.;
     while(startfrom != lastidx){
         weather_t *curw = &buf[startfrom];
-#define CHK(field)  do{register double d = curw->field; if(d > max.field) max.field = d; else if(d < min.field) min.field = d; \
+#define CHK(field)  do{register double d = curw->field; if(d > max.field) max.field = d; if(d < min.field) min.field = d; \
                         sum.field += d; sum2.field += d*d;}while(0)
         CHK(windspeed);
+        register double s = curw->windspeed, sd = (curw->winddir - wminus) * s;
+        if(s > max.winddir) max.winddir = s;
+        if(s < min.winddir) min.winddir = s;
+        sum.winddir += sd;
+        sum2.winddir += sd * s; // v * dir^2
         CHK(pressure);
         CHK(temperature);
         CHK(humidity);
         CHK(rainfall);
+        s = curw->tmeasure;
+        sum.tmeasure += s; s -= tmean;
+        sum2.tmeasure += s * s; // correct tmeasure by mean time to exclude cumulative error of double
+#undef CHK
         ++amount;
         if(++startfrom == buflen) startfrom = 0;
     }
-    DBG("Got %zd records", amount);
-    double wmean = sum.windspeed/amount;
-    DBG("wind min/max/mean/rms=%.1f/%.1f/%.1f/%.1f", min.windspeed, max.windspeed,
-        wmean, sqrt(sum2.windspeed/amount - wmean*wmean));
+ //   DBG("Got %zd records; tsum/sum2: %g/%g", amount, sum.tmeasure, sum2.tmeasure);
+    wstat->winddir.max = max.winddir;
+    wstat->winddir.min = min.winddir;
+    register double s2 = sum2.winddir / sum.windspeed, s = sum.winddir / sum.windspeed;
+    wstat->winddir.mean = s;
+    wstat->winddir.rms = sqrt(s2 - s*s);
+#define STAT(field) do{ register double ms = sum.field/amount, ms2 = sum2.field/amount; \
+                    wstat->field.min = min.field; wstat->field.max = max.field; wstat->field.mean = ms; wstat->field.rms = sqrt(ms2 - ms*ms); }while(0)
+    STAT(windspeed);
+    STAT(pressure);
+    STAT(temperature);
+    STAT(humidity);
+    STAT(rainfall);
+    wstat->tmeasure.max = max.tmeasure;
+    wstat->tmeasure.min = min.tmeasure;
+    wstat->tmeasure.mean = sum.tmeasure/amount;
+    wstat->tmeasure.rms = sqrt(sum2.tmeasure/amount);
+  //  DBG("tmean=%.1f, min=%.1f, max=%.1f", wstat->tmeasure.mean, wstat->tmeasure.min, wstat->tmeasure.max);
     pthread_mutex_unlock(&mutex);
     return dt;
 }

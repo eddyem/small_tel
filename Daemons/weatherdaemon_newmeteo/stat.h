@@ -23,6 +23,24 @@
 // maximal time difference for records in statbuf - one hour
 #define STATMAXT    (3600.)
 
-double stat_for(double Tsec/*, weather_t *w*/);
+// main statistical data
+typedef struct{
+    double min;
+    double max;
+    double mean;
+    double rms;
+} stat_t;
+
+typedef struct{
+    stat_t windspeed;
+    stat_t winddir;
+    stat_t pressure;
+    stat_t temperature;
+    stat_t humidity;
+    stat_t rainfall;
+    stat_t tmeasure;
+} weatherstat_t;
+
+double stat_for(double Tsec, weatherstat_t *wstat);
 void addtobuf(weather_t *record);
 double get_tmax();
