@@ -200,12 +200,18 @@ static int handle_socket(int sock){
     format_t format = FORMAT_CURDFULL; // text format - default for web-queries
 
     if(0 == strncmp(buff, "GET", 3)){
-        DBG("GET");
+        DBG("GET, buff=%s", buff);
         // GET web query have format GET /some.resource
         webquery = 1;
         char *slash = strchr(buff, '/');
         if(slash){
             found = slash + 1;
+            if(strncmp(found, "stat", 4) == 0){
+                format = FORMAT_STATFULL;
+                double dt = getpar(found + 4);
+                if(dt < 1.) dt = 900.;
+                if(stat_for(dt, &wstat) < 1.) format = FORMAT_ERROR;
+            }
             char *eol = strstr(found, "HTTP");
             if(eol) *eol = 0;
         }
@@ -308,6 +314,7 @@ static void *weatherpolling(_U_ void *notused){
             addtobuf(&w);
             pthread_mutex_unlock(&mutex);
         }
+        usleep(100000); // not more than 10 messages per second
     }
     return NULL;
 }

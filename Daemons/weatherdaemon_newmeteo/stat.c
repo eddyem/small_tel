@@ -77,13 +77,15 @@ double stat_for(double Tsec, weatherstat_t *wstat){
     double dt = 0., tlast = buf[lastidx].tmeasure;
     size_t startfrom = lastidx;
     pthread_mutex_lock(&mutex);
-    if(tdiffmax <= Tsec) startfrom = firstidx; // use all data
-    else while(dt < Tsec && startfrom != firstidx){ // search from which index we should start
+    if(tdiffmax <= Tsec){ // use all data
+        startfrom = firstidx;
+        dt = tdiffmax;
+    }else while(dt < Tsec && startfrom != firstidx){ // search from which index we should start
         if(startfrom == 0) startfrom = buflen - 1;
         else --startfrom;
+        dt = tlast - buf[startfrom].tmeasure;
     }
-    dt = tlast - buf[startfrom].tmeasure;
- //   DBG("got indexes: start=%zd, end=%zd, dt=%.2f", startfrom, lastidx, dt);
+    DBG("got indexes: start=%zd, end=%zd, dt=%.2f (dtiffmax=%.1f)", startfrom, lastidx, dt, tdiffmax);
     weather_t min = {0}, max = {0}, sum = {0}, sum2 = {0};
     size_t amount = 0;
     memcpy(&min, &buf[lastidx], sizeof(weather_t));
@@ -100,18 +102,20 @@ double stat_for(double Tsec, weatherstat_t *wstat){
         else ++south;
         if(++st == buflen) st = 0;
     }
-    double wminus = 0.;
-    if(north > 2*south) wminus = 360.;
+    int minus = 0;
+    if(north > 2*south) minus = 1;
     while(startfrom != lastidx){
         weather_t *curw = &buf[startfrom];
 #define CHK(field)  do{register double d = curw->field; if(d > max.field) max.field = d; if(d < min.field) min.field = d; \
                         sum.field += d; sum2.field += d*d;}while(0)
         CHK(windspeed);
-        register double s = curw->windspeed, sd = (curw->winddir - wminus) * s;
-        if(s > max.winddir) max.winddir = s;
-        if(s < min.winddir) min.winddir = s;
+        register double dir = curw->winddir, s = curw->windspeed;
+        if(minus && dir > 180.) dir -= 360.;
+        register double sd = dir * s; // weighted sum
+        if(dir > max.winddir) max.winddir = dir;
+        if(dir < min.winddir) min.winddir = dir;
         sum.winddir += sd;
-        sum2.winddir += sd * s; // v * dir^2
+        sum2.winddir += sd * dir; // v * dir^2
         CHK(pressure);
         CHK(temperature);
         CHK(humidity);

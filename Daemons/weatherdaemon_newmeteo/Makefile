@@ -4,7 +4,7 @@ LDFLAGS := -fdata-sections -ffunction-sections -Wl,--gc-sections -Wl,--discard-a
 LDFLAGS += -flto `pkg-config --libs usefull_macros` -lm
 SRCS := $(wildcard *.c)
 DEFINES := $(DEF) -D_GNU_SOURCE -D_XOPEN_SOURCE=1111
-DEFINES += -DEBUG
+#DEFINES += -DEBUG
 OBJDIR := mk
 CFLAGS += `pkg-config --cflags usefull_macros` -O3 -Wall -Werror -Wextra -Wno-trampolines -flto
 OBJS := $(addprefix $(OBJDIR)/, $(SRCS:%.c=%.o))

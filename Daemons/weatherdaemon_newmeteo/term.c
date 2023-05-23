@@ -42,7 +42,6 @@ static const char *emultemplate = "0R0,S=1.9,D=217.2,P=787.7,T=10.8,H=69.0,R=31.
 static char *read_string(){
     //static int done = 0;
     if(GP->emul){
-        usleep(100000);
         strncpy(buf, emultemplate, BUFLEN);
         return buf;
     }
@@ -55,14 +54,14 @@ static char *read_string(){
         if((l = read_tty(ttydescr))){
             strncpy(ptr, ttydescr->buf, LL);
             r += l; LL -= l; ptr += l;
-            DBG("l=%zd, r=%zd, LL=%d", l, r, LL);
+            //DBG("l=%zd, r=%zd, LL=%d", l, r, LL);
             d0 = dtime();
             if(r > 2 && ptr[-1] == '\n') break;
         }
     }while(dtime() - d0 < WAIT_TMOUT && LL);
     if(r){
         //buf[r] = 0;
-        DBG("buf: %s", buf);
+        //DBG("buf: %s", buf);
         return buf;
     }
     return NULL;
