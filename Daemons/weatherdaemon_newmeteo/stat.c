@@ -98,7 +98,7 @@ double stat_for(double Tsec, weatherstat_t *wstat){
     size_t north = 0, south = 0;
     while(st != lastidx){
         double w = buf[st].winddir;
-        if(w < 90. || w > 300.) ++north;
+        if(w < 90. || w > 270.) ++north;
         else ++south;
         if(++st == buflen) st = 0;
     }

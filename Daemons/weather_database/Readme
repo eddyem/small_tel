@@ -1,0 +1,11 @@
+Collect weather data from new meteostation in sqlite3 database.
+
+Parameters:
+
+  -P, --pidfile=arg    pidfile (default: /tmp/wdb
+  -a, --address=arg    server name or IP
+  -d, --database=arg   database file
+  -h, --help           show this help
+  -l, --logfile=arg    logging file name
+  -p, --port=arg       server port
+  -v, --verbose        verbose level (each -v increases)

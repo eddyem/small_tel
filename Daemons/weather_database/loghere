@@ -1,0 +1,7 @@
+[MSG]	2023/06/01-17:54:37	hello, start
+[DBG]	2023/06/01-17:54:37	SQLite version: 3.42.0
+[MSG]	2023/06/01-17:54:37	Started
+[MSG]	2023/06/01-17:54:37	Created child with pid 10010
+[MSG]	2023/06/01-17:54:37	SEND to fd 3: statsimple60
+[WARN]	2023/06/01-17:54:49	Child killed with sig=2
+[ERR]	2023/06/01-17:54:49	Received signal 2, die
