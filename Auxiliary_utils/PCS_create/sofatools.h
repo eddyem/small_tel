@@ -1,6 +1,6 @@
 /*
- * This file is part of the sofa project.
- * Copyright 2020 Edward V. Emelianov <edward.emelianoff@gmail.com>.
+ * This file is part of the PCS_create project.
+ * Copyright 2023 Edward V. Emelianov <edward.emelianoff@gmail.com>.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,11 +17,9 @@
  */
 
 #pragma once
-#ifndef SOFA_H__
-#define SOFA_H__
 
-#include <sofa.h>
-#include <sofam.h>
+#include <erfa.h>
+#include <erfam.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -83,4 +81,3 @@ void eq2horH(polarCrds *pc, horizCrds *h);
 void eq2hor(polarCrds *pc, horizCrds *h, double sidTime);
 int get_ObsPlace(struct timeval *tval, polarCrds *p2000, polarCrds *pnow, horizCrds *hnow);
 
-#endif // SOFA_H__

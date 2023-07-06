@@ -67,7 +67,7 @@ static myoption cmdlnopts[] = {
 glob_pars *parse_args(int argc, char **argv){
     void *ptr = memcpy(&G, &Gdefault, sizeof(G)); assert(ptr);
     // format of help: "Usage: progname [args]\n"
-    change_helpstring(_("Usage: %s [args] FITS_files\nMake PCS list for equatorial mount\n\tWhere args are:\n"));
+    change_helpstring(_("Version: " PACKAGE_VERSION "\nUsage: %s [args] FITS_files\nMake PCS list for equatorial mount\n\tWhere args are:\n"));
     // parse arguments
     parseargs(&argc, &argv, cmdlnopts);
     if(help) showhelp(-1, cmdlnopts);

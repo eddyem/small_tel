@@ -1,11 +1,11 @@
 cmake_minimum_required(VERSION 3.0)
 set(PROJ PCS_create)
-set(MINOR_VERSION "1")
-set(MID_VERSION "0")
+set(MINOR_VERSION "0")
+set(MID_VERSION "1")
 set(MAJOR_VERSION "0")
 set(VERSION "${MAJOR_VERSION}.${MID_VERSION}.${MINOR_VERSION}")
 
-project(${PROJ} VERSION ${PROJ_VERSION} LANGUAGES C)
+project(${PROJ} VERSION ${VERSION} LANGUAGES C)
 #enable_language(C)
 
 message("VER: ${VERSION}")
@@ -37,14 +37,14 @@ find_package(CFITSIO REQUIRED)
 
 ###### pkgconfig ######
 # pkg-config modules (for pkg-check-modules)
-set(MODULES usefull_macros)
+set(MODULES usefull_macros erfa)
 
 # find packages:
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(${PROJ} REQUIRED ${MODULES})
 
 ###### additional flags ######
-list(APPEND ${PROJ}_LIBRARIES "-lsofa_c")
+#list(APPEND ${PROJ}_LIBRARIES "-lerfa")
 
 # change wrong behaviour with install prefix
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT AND CMAKE_INSTALL_PREFIX MATCHES "/usr/local")

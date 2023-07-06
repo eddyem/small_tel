@@ -176,8 +176,14 @@ static int parse_fits_file(char *name){
     if(iomode) return iomode;
     if(getDval(&ra_scope, fptr, "RA")) return 4;
     if(getDval(&dec_scope, fptr, "DEC")) return 5;
-    double uxt;
-    if(getDval(&uxt, fptr, "UNIXTIME")) return 55;
+    double uxt = -1.;
+    if(getDval(&uxt, fptr, "UNIXTIME")){ // no field "UNIXTIME" - search "JD"
+        if(getDval(&uxt, fptr, "JD")){ // no "JD" - search MJD
+            if(!getDval(&uxt, fptr, "MJD"))
+                uxt = (uxt - 40587.) * 86400.; // convert MJD to Unix time
+        }else uxt = (uxt - 2440587.5) * 86400.; // convert JD to Unix time
+    }
+    if(uxt < 0.) return 55;
     struct timeval tv;
     tv.tv_sec = (time_t) uxt;
     tv.tv_usec = 0;
@@ -188,11 +194,11 @@ static int parse_fits_file(char *name){
     fits_close_file(fptr, &status);
     chkstatus();
 
-    polarCrds J2000 = {.ra = DD2R * ra_center, .dec = DD2R * dec_center}, Jnow;
+    polarCrds J2000 = {.ra = ERFA_DD2R * ra_center, .dec = ERFA_DD2R * dec_center}, Jnow;
     DBG("J2000=%g/%g", ra_center, dec_center);
-    DBG("J2000=%g/%g", J2000.ra/DD2R, J2000.dec/DD2R);
+    DBG("J2000=%g/%g", J2000.ra/ERFA_DD2R, J2000.dec/ERFA_DD2R);
     if(get_ObsPlace(&tv, &J2000, &Jnow, NULL)) return 1;
-    DBG("JNOW: RA=%g, DEC=%g, EO=%g", Jnow.ra/DD2R, Jnow.dec/DD2R, Jnow.eo/DD2R);
+    DBG("JNOW: RA=%g, DEC=%g, EO=%g", Jnow.ra/ERFA_DD2R, Jnow.dec/ERFA_DD2R, Jnow.eo/ERFA_DD2R);
     sMJD mjd;
     if(get_MJDt(&tv, &mjd)) return 1;
     double ST;
@@ -202,23 +208,23 @@ static int parse_fits_file(char *name){
     if(!place) return 1;
     if(get_LST(&mjd, adut.DUT1, place->slong, &ST)) return 1;
 
-    double ra_now = (Jnow.ra - Jnow.eo)/DD2R, dec_now = Jnow.dec/DD2R;
+    double ra_now = (Jnow.ra - Jnow.eo)/ERFA_DD2R, dec_now = Jnow.dec/ERFA_DD2R;
     DBG("RA_now=%g, DEC_now=%g", ra_now, dec_now);
 
     if(G->horcoords){ // horizontal coordinates: change ra->AZ, dec->ZD
         horizCrds h_s, h_now;
-        polarCrds p_s = {.ra = DD2R * ra_scope, .dec = DD2R * dec_scope};
+        polarCrds p_s = {.ra = ERFA_DD2R * ra_scope, .dec = ERFA_DD2R * dec_scope};
         eq2hor(&p_s, &h_s, ST);
         eq2hor(&Jnow, &h_now, ST);
-        ra_scope = h_s.az/DD2R; dec_scope = h_s.zd/DD2R;
-        ra_now = h_now.az/DD2R; dec_now = h_now.zd/DD2R;
+        ra_scope = h_s.az/ERFA_DD2R; dec_scope = h_s.zd/ERFA_DD2R;
+        ra_now = h_now.az/ERFA_DD2R; dec_now = h_now.zd/ERFA_DD2R;
     }
-    ST /= DD2R; // convert radians to degrees
+    ST /= ERFA_DD2R; // convert radians to degrees
     if(G->ha && !G->horcoords){ // print HA instead of RA
         ra_scope = ST - ra_scope;
-        if(ra_scope < 0.) ra_scope += D2PI;
+        if(ra_scope < 0.) ra_scope += ERFA_D2PI;
         ra_now = ST - ra_now;
-        if(ra_now < 0.) ra_now += D2PI;
+        if(ra_now < 0.) ra_now += ERFA_D2PI;
     }
     if(G->delta){
         ra_now -= ra_scope;

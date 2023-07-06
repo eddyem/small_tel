@@ -1,6 +1,6 @@
 /*
- * This file is part of the sofa project.
- * Copyright 2020 Edward V. Emelianov <edward.emelianoff@gmail.com>.
+ * This file is part of the PCS_create project.
+ * Copyright 2023 Edward V. Emelianov <edward.emelianoff@gmail.com>.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -52,8 +52,8 @@ int getDUT(almDut *a){
 char *radtodeg(double r){
     static char buf[128];
     int i[4]; char pm;
-    r = iauAnpm(r);
-    iauA2af(2, r, &pm, i);
+    r = eraAnpm(r); // normalize angle into range +/- pi
+    eraA2af(2, r, &pm, i);
     snprintf(buf, 128, "%c%02d %02d %02d.%02d", pm, i[0],i[1],i[2],i[3]);
     return buf;
 }
@@ -61,8 +61,8 @@ char *radtodeg(double r){
 char *radtohrs(double r){
     static char buf[128];
     int i[4]; char pm;
-    r = iauAnp(r);
-    iauA2tf(2, r, &pm, i);
+    r = eraAnp(r); // normalize angle into range 0 to 2pi
+    eraA2tf(2, r, &pm, i);
     snprintf(buf, 128, "%02d:%02d:%02d.%02d", i[0],i[1],i[2],i[3]);
     return buf;
 }
@@ -92,15 +92,15 @@ int get_MJDt(struct timeval *tval, sMJD *MJD){
     d = tms.tm_mday;
     double utc1, utc2;
     /* UTC date. */
-    if(iauDtf2d("UTC", y, m, d, tms.tm_hour, tms.tm_min, tSeconds, &utc1, &utc2) < 0) return -1;
+    if(eraDtf2d("UTC", y, m, d, tms.tm_hour, tms.tm_min, tSeconds, &utc1, &utc2) < 0) return -1;
     if(!MJD) return 0;
     MJD->MJD = utc1 - 2400000.5 + utc2;
     MJD->utc1 = utc1;
     MJD->utc2 = utc2;
     //DBG("UTC(m): %g, %.8f\n", utc1 - 2400000.5, utc2);
-    if(iauUtctai(utc1, utc2, &MJD->tai1, &MJD->tai2)) return -1;
+    if(eraUtctai(utc1, utc2, &MJD->tai1, &MJD->tai2)) return -1;
     //DBG("TAI");
-    if(iauTaitt(MJD->tai1, MJD->tai2, &MJD->tt1, &MJD->tt2)) return -1;
+    if(eraTaitt(MJD->tai1, MJD->tai2, &MJD->tt1, &MJD->tt2)) return -1;
     //DBG("TT");
     return 0;
 }
@@ -115,17 +115,17 @@ int get_MJDt(struct timeval *tval, sMJD *MJD){
  */
 int get_LST(sMJD *mjd, double dUT1, double slong, double *LST){
     double ut11, ut12;
-    if(iauUtcut1(mjd->utc1, mjd->utc2, dUT1, &ut11, &ut12)) return 1;
+    if(eraUtcut1(mjd->utc1, mjd->utc2, dUT1, &ut11, &ut12)) return 1;
     /*double era = iauEra00(ut11, ut12) + slong;
     double eo = iauEe06a(mjd->tt1, mjd->tt2);
     printf("ERA = %s; ", radtohrs(era));
     printf("ERA-eo = %s\n", radtohrs(era-eo));*/
     if(!LST) return 0;
-    double ST = iauGst06a(ut11, ut12, mjd->tt1, mjd->tt2);
+    double ST = eraGst06a(ut11, ut12, mjd->tt1, mjd->tt2);
     ST += slong;
-    if(ST > D2PI) ST -= D2PI;
-    else if(ST < -D2PI) ST += D2PI;
-    *LST = ST;
+    //if(ST > ERFA_D2PI) ST -= ERFA_D2PI;
+    //else if(ST < 0.) ST += ERFA_D2PI;
+    *LST = eraAnp(ST); // 0..2pi
     return 0;
 }
 
@@ -138,7 +138,7 @@ int get_LST(sMJD *mjd, double dUT1, double slong, double *LST){
 void hor2eq(horizCrds *h, polarCrds *pc, double sidTime){
     if(!h || !pc) return;
     placeData *p = getPlace();
-    iauAe2hd(h->az, DPI/2. - h->zd, p->slat, &pc->ha, &pc->dec); // A,H -> HA,DEC; phi - site latitude
+    eraAe2hd(h->az, ERFA_DPI/2. - h->zd, p->slat, &pc->ha, &pc->dec); // A,H -> HA,DEC; phi - site latitude
     pc->ra = sidTime - pc->ha;
     pc->eo = 0.;
 }
@@ -153,8 +153,8 @@ void eq2horH(polarCrds *pc, horizCrds *h){
     if(!h || !pc) return;
     placeData *p = getPlace();
     double alt;
-    iauHd2ae(pc->ha, pc->dec, p->slat, &h->az, &alt);
-    h->zd = DPI/2. - alt;
+    eraHd2ae(pc->ha, pc->dec, p->slat, &h->az, &alt);
+    h->zd = ERFA_DPI/2. - alt;
 }
 
 /**
@@ -168,8 +168,8 @@ void eq2hor(polarCrds *pc, horizCrds *h, double sidTime){
     double ha = sidTime - pc->ra + pc->eo;
     placeData *p = getPlace();
     double alt;
-    iauHd2ae(ha, pc->dec, p->slat, &h->az, &alt);
-    h->zd = DPI/2. - alt;
+    eraHd2ae(ha, pc->dec, p->slat, &h->az, &alt);
+    h->zd = ERFA_DPI/2. - alt;
 }
 
 /**
@@ -198,7 +198,7 @@ int get_ObsPlace(struct timeval *tval, polarCrds *p2000, polarCrds *pnow, horizC
     double wl = 0.55;
     /* ICRS to observed. */
     double aob, zob, hob, dob, rob, eo;
-    if(iauAtco13(p2000->ra, p2000->dec,
+    if(eraAtco13(p2000->ra, p2000->dec,
                  pr, pd, px, rv,
                  MJD.utc1, MJD.utc2,
                  d.DUT1,
