@@ -128,7 +128,7 @@ static int getDval(double *ret, fitsfile *fptr, const char *key){
 }
 
 // run command xy2sky @fname and return stdout (up to 1024 bytes)
-static char *exe(char *fname){
+static char *exe(char *fname, long axes[2]){
 #define die(text)  do{fprintf(stderr, "%s\n", text); return NULL; }while(0)
     int link[2];
     pid_t pid;
@@ -139,7 +139,11 @@ static char *exe(char *fname){
         dup2(link[1], STDOUT_FILENO);
         close(link[0]);
         close(link[1]);
-        execl("/usr/bin/xy2sky", "xy2sky", "-d", fname, "2076", "2064", (char *)0);
+        char sx[32], sy[32];
+        snprintf(sx, 31, "%ld", axes[0]/2);
+        snprintf(sy, 31, "%ld", axes[1]/2);
+        DBG("Run xy2sky -d %s %s %s", fname, sx, sy);
+        execl("/usr/bin/xy2sky", "xy2sky", "-d", fname, sx, sy, (char *)0);
         die("execl");
     }else{
         close(link[1]);
@@ -158,22 +162,21 @@ static char *exe(char *fname){
 
 static int parse_fits_file(char *name){
     double ra_center = 400., dec_center = 400., ra_scope, dec_scope;
-    // get CENTER:
-    char *val = exe(name);
-    if(!val) return 1;
-    DBG("EXE gives: %s", val);
-//    char *p = strchr(val, ' ');
-//    if(!p) return 1;
-    val = getdouble(&ra_center, val);
-    if(!val) return 1;
-    if(!getdouble(&dec_center, val)) return 1;
-    DBG("J2000=%g/%g", ra_center, dec_center);
     // get FITS keywords
     fitsfile *fptr;
-    int iomode = READONLY;
-    fits_open_file(&fptr, name, iomode, &status);
-    iomode = chkstatus();
-    if(iomode) return iomode;
+#define FITS(fn, ...)  do{register int s = 0; if(fn(fptr, __VA_ARGS__, &status)) s = chkstatus(); if(s) return s;}while(0)
+    int ivar = READONLY;
+    fits_open_file(&fptr, name, ivar, &status);
+    ivar = chkstatus();
+    if(ivar) return ivar;
+    long axes[2] = {0};
+    FITS(fits_get_img_dim, &ivar);
+    if(ivar != 2){
+        WARNX("Can't find 2-dimensional image in %s", name);
+        return 1;
+    }
+    FITS(fits_get_img_size, 2, axes);
+
     if(getDval(&ra_scope, fptr, "RA")) return 4;
     if(getDval(&dec_scope, fptr, "DEC")) return 5;
     double uxt = -1.;
@@ -187,12 +190,22 @@ static int parse_fits_file(char *name){
     struct timeval tv;
     tv.tv_sec = (time_t) uxt;
     tv.tv_usec = 0;
-    val = getFITSkeyval(fptr, "PIERSIDE");
+    char *val = getFITSkeyval(fptr, "PIERSIDE");
     if(!val) return 6;
     char pierside = 'W';
     if(strstr(val, "East")) pierside = 'E';
     fits_close_file(fptr, &status);
     chkstatus();
+#undef FITS
+
+    // get CENTER:
+    val = exe(name, axes);
+    if(!val) return 1;
+    DBG("EXE gives: %s", val);
+    val = getdouble(&ra_center, val);
+    if(!val) return 1;
+    if(!getdouble(&dec_center, val)) return 1;
+    DBG("J2000=%g/%g", ra_center, dec_center);
 
     polarCrds J2000 = {.ra = ERFA_DD2R * ra_center, .dec = ERFA_DD2R * dec_center}, Jnow;
     DBG("J2000=%g/%g", ra_center, dec_center);
@@ -312,8 +325,9 @@ int main(int argc, char **argv) {
     G = parse_args(argc, argv);
     if(G->pressure < 0.) ERRX("Pressure should be greater than zero");
     if(G->temperature < -100. || G->temperature > 100.) ERRX("Temperature over the range -100..+100");
+    if(G->humidity < 0. || G->humidity > 100.) ERRX("Humidity should be in range 0..100");
     if(G->pmm) G->pressure /= hpa2mm;
-    setWeath(G->pressure, G->temperature, 0.5);
+    setWeath(G->pressure, G->temperature, G->humidity);
     if(G->for10m){
         G->horcoords = 0;
         G->crdstrings = 1;

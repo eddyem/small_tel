@@ -53,6 +53,7 @@ static myoption cmdlnopts[] = {
     {"pressure",NEED_ARG,   NULL,   'P',    arg_double, APTR(&G.pressure),  _("atmospheric pressure (hPa)")},
     {"pinmm",   NO_ARGS,    NULL,   'm',    arg_int,    APTR(&G.pmm),       _("pressure in mmHg instead of hPa")},
     {"temperature",NEED_ARG,NULL,   'T',    arg_double, APTR(&G.temperature),_("temperature, degrC")},
+    {"humidity",NEED_ARG,   NULL,   'U',    arg_double, APTR(&G.humidity),  _("humidity, percents")},
     {"horcoords",NO_ARGS,   NULL,   'A',    arg_int,    APTR(&G.horcoords), _("show horizontal coordinates instead of equatorial")},
     end_option
 };

@@ -35,6 +35,7 @@ typedef struct{
     double pressure;        // atmospheric pressure (HPa or mmHg if pmm==1)
     int pmm;                // pressure in mmHg
     double temperature;     // temperature, degrC
+    double humidity;        // humidity, percents
     int nfiles;             // amount of input files (amount of free arguments)
     char **infiles;         // input file[s] name[s]
 } glob_pars;
