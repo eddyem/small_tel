@@ -86,9 +86,10 @@ double stat_for(double Tsec, weatherstat_t *wstat){
         dt = tlast - buf[startfrom].tmeasure;
     }
     DBG("got indexes: start=%zd, end=%zd, dt=%.2f (dtiffmax=%.1f)", startfrom, lastidx, dt, tdiffmax);
-    weather_t min = {0}, max = {0}, sum = {0}, sum2 = {0};
+    weather_t min, max, sum = {0}, sum2 = {0};
     size_t amount = 0;
     memcpy(&min, &buf[lastidx], sizeof(weather_t));
+    memcpy(&max, &buf[lastidx], sizeof(weather_t));
     min.tmeasure = buf[startfrom].tmeasure;
     max.tmeasure = buf[lastidx].tmeasure;
     double tmean = (max.tmeasure+min.tmeasure)/2.;
@@ -133,8 +134,10 @@ double stat_for(double Tsec, weatherstat_t *wstat){
     register double s2 = sum2.winddir / sum.windspeed, s = sum.winddir / sum.windspeed;
     wstat->winddir.mean = s;
     wstat->winddir.rms = sqrt(s2 - s*s);
+// correct RMS by float epsilon to exclude negative values when near zero
 #define STAT(field) do{ register double ms = sum.field/amount, ms2 = sum2.field/amount; \
-                    wstat->field.min = min.field; wstat->field.max = max.field; wstat->field.mean = ms; wstat->field.rms = sqrt(ms2 - ms*ms); }while(0)
+                    wstat->field.min = min.field; wstat->field.max = max.field; wstat->field.mean = ms; \
+                    wstat->field.rms = sqrt(ms2 - ms*ms + __FLT_EPSILON__); }while(0)
     STAT(windspeed);
     STAT(pressure);
     STAT(temperature);
@@ -143,7 +146,7 @@ double stat_for(double Tsec, weatherstat_t *wstat){
     wstat->tmeasure.max = max.tmeasure;
     wstat->tmeasure.min = min.tmeasure;
     wstat->tmeasure.mean = sum.tmeasure/amount;
-    wstat->tmeasure.rms = sqrt(sum2.tmeasure/amount);
+    wstat->tmeasure.rms = sqrt(sum2.tmeasure/amount); // sum2.tmeasure is already corrected by mean
   //  DBG("tmean=%.1f, min=%.1f, max=%.1f", wstat->tmeasure.mean, wstat->tmeasure.min, wstat->tmeasure.max);
     pthread_mutex_unlock(&mutex);
     return dt;
