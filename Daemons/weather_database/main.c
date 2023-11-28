@@ -80,8 +80,6 @@ int main(int argc, char **argv){
     if(G.logfile) OPENLOG(G.logfile, lvl, 1);
     LOGMSG("hello, start");
     LOGDBG("SQLite version: %s", sqlite3_libversion());
-    int sock = open_socket(G.server, G.port);
-    if(sock < 0) ERRX("Can't open socket to %s:%s", G.server, G.port);
     check4running(self, G.pidfile);
     // signal reactions:
     signal(SIGTERM, signals); // kill (-15) - quit
@@ -110,6 +108,8 @@ int main(int argc, char **argv){
     }
 #endif
     if(!opendb(G.dbname)) return 1;
+    int sock = open_socket(G.server, G.port);
+    if(sock < 0) ERRX("Can't open socket to %s:%s", G.server, G.port);
     run_socket(sock);
     LOGERR("Unreachable code reached");
     signals(1);

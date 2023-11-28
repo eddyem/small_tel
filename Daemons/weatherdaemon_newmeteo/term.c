@@ -120,10 +120,11 @@ static int parseans(char *str, weather_t *w){
                 str += el->parlen;
                 char *endptr;
                 *el->weatherpar = strtod(str, &endptr);
-                //DBG("found par: %s, val=%g", el->parname, *el->weatherpar);
+                DBG("found par: %s, val=%g", el->parname, *el->weatherpar);
                 if(endptr == str){
                     DBG("Wrong double value");
-                    return FALSE;
+                    *el->weatherpar = 0.;
+                    //return FALSE;
                 }
                 break;
             }

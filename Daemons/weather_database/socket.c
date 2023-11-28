@@ -69,7 +69,12 @@ static void sendmessage(int fd, const char *msg, int l){
     char *tmpbuf = MALLOC(char, l+1);
     memcpy(tmpbuf, msg, l);
     if(msg[l-1] != '\n') tmpbuf[l++] = '\n';
-    if(l != send(fd, tmpbuf, l, MSG_NOSIGNAL)){
+    ssize_t s = send(fd, tmpbuf, l, MSG_NOSIGNAL);
+    if(l != s){
+        if(s < 0){
+            LOGERR("Server disconnected!");
+            ERR("Disconnected");
+        }
         LOGWARN("write()");
         WARN("write()");
     }else{
