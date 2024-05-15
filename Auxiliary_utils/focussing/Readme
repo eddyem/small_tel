@@ -1,0 +1,2 @@
+calculate best focus on plate by parabolic fit
+input: stdin or file with rows "F FWHM"
