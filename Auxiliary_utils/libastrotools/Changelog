@@ -1,0 +1,11 @@
+2025/01/27: Ver. 0.0.1
+Base operations: 
+- set/get place, weather, DUT1 and polar move
+- dynamic string and conversion of time and angle to human-readable string
+- get julian date with all need components (including MJD) by timeval, UNIX time and full julian date; get local sidereal time
+- convert RADEC <> AZ
+- get ha/ra by ra/ha and LST
+- get observed place for given location/weather/polar data of place or star (with pm etc)
+- get catalog mean position of coordinates for given epoch and observed place
+
+
