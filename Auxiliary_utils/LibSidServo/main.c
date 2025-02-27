@@ -16,6 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -30,7 +31,7 @@ conf_t Conf = {0};
  */
 static void quit(){
     DBG("Close serial devices");
-    for(int i = 0; i < 10; ++i) if(SSemergStop()) break;
+    for(int i = 0; i < 10; ++i) if(SSstop(TRUE)) break;
     closeSerial();
     DBG("Exit");
 }
@@ -61,26 +62,101 @@ static mcc_errcodes_t init(conf_t *c){
             ret = MCC_E_ENCODERDEV;
         }
     }
-    if(Conf.MountReqInterval > 1. || Conf.MountReqInterval < 0.001){
+    if(Conf.MountReqInterval > 1. || Conf.MountReqInterval < 0.05){
         DBG("Bad value of MountReqInterval");
         ret = MCC_E_BADFORMAT;
     }
+    uint8_t buf[1024];
+    data_t d = {.buf = buf, .len = 0, .maxlen = 1024};
+    // read input data as there may be some trash on start
+    if(!SSrawcmd(CMD_EXITACM, &d)) ret = MCC_E_FAILED;
     if(ret != MCC_E_OK) quit();
     return ret;
 }
 
+// check coordinates and speeds; return FALSE if failed
+// TODO fix to real limits!!!
+static int chkX(double X){
+    if(X > 2.*M_PI || X < -2.*M_PI) return FALSE;
+    return TRUE;
+}
+static int chkY(double Y){
+    if(Y > 2.*M_PI || Y < -2.*M_PI) return FALSE;
+    return TRUE;
+}
+static int chkXs(double s){
+    if(s < 0. || s > X_SPEED_MAX) return FALSE;
+    return TRUE;
+}
+static int chkYs(double s){
+    if(s < 0. || s > Y_SPEED_MAX) return FALSE;
+    return TRUE;
+}
+
+
 /**
  * @brief move2 - simple move to given point and stop
- * @param X - new X coordinate (radians: -pi..pi)
- * @param Y - new Y coordinate (radians: -pi..pi)
+ * @param X - new X coordinate (radians: -pi..pi) or NULL
+ * @param Y - new Y coordinate (radians: -pi..pi) or NULL
  * @return error code
  */
-static mcc_errcodes_t move2(double X, double Y){
-    if(X > M_PI || X < -M_PI || Y > M_PI || Y < -M_PI){
-        DBG("Wrong coords: X=%g, Y=%g", X, Y);
-        return MCC_E_BADFORMAT;
+static mcc_errcodes_t move2(const double *X, const double *Y){
+    if(!X && !Y) return MCC_E_BADFORMAT;
+    if(X){
+        if(!chkX(*X)) return MCC_E_BADFORMAT;
+        int32_t tag = X_RAD2MOT(*X);
+        DBG("X: %g, tag: %d", *X, tag);
+        if(!SSsetterI(CMD_MOTX, tag)) return MCC_E_FAILED;
     }
-    if(!SSXmoveto(X) || !SSYmoveto(Y)) return MCC_E_FAILED;
+    if(Y){
+        if(!chkY(*Y)) return MCC_E_BADFORMAT;
+        int32_t tag = Y_RAD2MOT(*Y);
+        DBG("Y: %g, tag: %d", *Y, tag);
+        if(!SSsetterI(CMD_MOTY, tag)) return MCC_E_FAILED;
+    }
+    return MCC_E_OK;
+}
+
+/**
+ * @brief setspeed - set maximal speed over axis
+ * @param X (i) - max speed or NULL
+ * @param Y (i) - -//-
+ * @return errcode
+ */
+static mcc_errcodes_t setspeed(const double *X, const double *Y){
+    if(!X && !Y) return MCC_E_BADFORMAT;
+    if(X){
+        if(!chkXs(*X)) return MCC_E_BADFORMAT;
+        int32_t spd = X_RS2MOTSPD(*X);
+        if(!SSsetterI(CMD_SPEEDX, spd)) return MCC_E_FAILED;
+    }
+    if(Y){
+        if(!chkYs(*Y)) return MCC_E_BADFORMAT;
+        int32_t spd = Y_RS2MOTSPD(*Y);
+        if(!SSsetterI(CMD_SPEEDY, spd)) return MCC_E_FAILED;
+    }
+    return MCC_E_OK;
+}
+
+/**
+ * @brief move2s - move to target with given max speed
+ * @param target (i) - target or NULL
+ * @param speed (i) - speed or NULL
+ * @return
+ */
+static mcc_errcodes_t move2s(const coords_t *target, const coords_t *speed){
+    if(!target && !speed) return MCC_E_BADFORMAT;
+    if(!target) return setspeed(&speed->X, &speed->Y);
+    if(!speed) return move2(&target->X, &target->Y);
+    if(!chkX(target->X) || !chkY(target->Y) || !chkXs(speed->X) || !chkYs(speed->Y))
+        return MCC_E_BADFORMAT;
+    char buf[128];
+    int32_t spd = X_RS2MOTSPD(speed->X), tag = X_RAD2MOT(target->X);
+    snprintf(buf, 127, "%s%" PRIi64 "%s%" PRIi64, CMD_MOTX, tag, CMD_MOTXYS, spd);
+    if(!SStextcmd(buf, NULL)) return MCC_E_FAILED;
+    spd = Y_RS2MOTSPD(speed->Y); tag = Y_RAD2MOT(target->Y);
+    snprintf(buf, 127, "%s%" PRIi64 "%s%" PRIi64, CMD_MOTY, tag, CMD_MOTXYS, spd);
+    if(!SStextcmd(buf, NULL)) return MCC_E_FAILED;
     return MCC_E_OK;
 }
 
@@ -89,7 +165,12 @@ static mcc_errcodes_t move2(double X, double Y){
  * @return errcode
  */
 static mcc_errcodes_t emstop(){
-    if(!SSemergStop()) return MCC_E_FAILED;
+    if(!SSstop(TRUE)) return MCC_E_FAILED;
+    return MCC_E_OK;
+}
+// normal stop
+static mcc_errcodes_t stop(){
+    if(!SSstop(FALSE)) return MCC_E_FAILED;
     return MCC_E_OK;
 }
 
@@ -149,13 +230,34 @@ static mcc_errcodes_t longcmd(long_command_t *cmd){
     return MCC_E_OK;
 }
 
+mcc_errcodes_t get_hwconf(hardware_configuration_t *c){
+    if(!c) return MCC_E_BADFORMAT;
+    SSconfig conf;
+    if(!cmdC(&conf, FALSE)) return MCC_E_FAILED;
+    // and bored transformations
+    DBG("Xacc=%u", conf.Xconf.accel);
+    DBG("Yacc=%u", conf.Yconf.accel);
+    c->Xconf.accel = X_MOTACC2RS(conf.Xconf.accel);
+    DBG("cacc: %g", c->Xconf.accel);
+    c->Xconf.backlash = conf.Xconf.backlash;
+    // ...
+    c->Yconf.accel = X_MOTACC2RS(conf.Yconf.accel);
+    c->Xconf.backlash = conf.Xconf.backlash;
+    // ...
+    return MCC_E_OK;
+}
+
 // init mount class
 mount_t Mount = {
     .init = init,
     .quit = quit,
     .getMountData = getMD,
     .moveTo = move2,
+    .moveWspeed = move2s,
+    .setSpeed = setspeed,
     .emergStop = emstop,
+    .stop = stop,
     .shortCmd = shortcmd,
     .longCmd = longcmd,
+    .getHWconfig = get_hwconf,
 };

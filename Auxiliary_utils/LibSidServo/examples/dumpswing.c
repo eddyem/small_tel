@@ -22,6 +22,7 @@
 #include <string.h>
 #include <usefull_macros.h>
 
+#include "conf.h"
 #include "dump.h"
 #include "sidservo.h"
 #include "simpleconv.h"
@@ -35,6 +36,7 @@ typedef struct{
     double period;
     double amplitude;
     char *coordsoutput;
+    char *conffile;
     char *axis;
 } parameters;
 
@@ -55,6 +57,7 @@ static sl_option_t cmdlnopts[] = {
     {"period",      NEED_ARG,   NULL,   'p',    arg_double, APTR(&G.period),    "swinging period (could be not reached if amplitude is too small) - not more than 900s (default: 1)"},
     {"amplitude",   NEED_ARG,   NULL,   'A',    arg_double, APTR(&G.amplitude), "max amplitude (could be not reaced if period is too small) - not more than 45deg (default: 5)"},
     {"nswings",     NEED_ARG,   NULL,   'N',    arg_int,    APTR(&G.Nswings),   "amount of swing periods (default: 10)"},
+    {"conffile",    NEED_ARG,   NULL,   'C',    arg_int,    APTR(&G.conffile),  "configuration file name"},
     end_option
 };
 
@@ -66,15 +69,6 @@ void signals(int sig){
     Mount.quit();
     exit(sig);
 }
-
-static conf_t Config = {
-    .MountDevPath = "/dev/ttyUSB0",
-    .MountDevSpeed = 19200,
-    //.EncoderDevPath = "/dev/ttyUSB1",
-    //.EncoderDevSpeed = 153000,
-    .MountReqInterval = 0.05,
-    .SepEncoder = 0
-};
 
 // dump thread
 static void *dumping(void _U_ *u){
@@ -125,7 +119,12 @@ int main(int argc, char **argv){
     if(G.period < 0.1 || G.period > 900.)
         ERRX("Period should be from 0.1 to 900s");
     if(G.Nswings < 1) ERRX("Nswings should be more than 0");
-    mcc_errcodes_t e = Mount.init(&Config);
+    conf_t *Config = readServoConf(G.conffile);
+    if(!Config){
+        dumpConf();
+        return 1;
+    }
+    mcc_errcodes_t e = Mount.init(Config);
     if(e != MCC_E_OK){
         WARNX("Can't init devices");
         return 1;
@@ -147,23 +146,24 @@ int main(int argc, char **argv){
         tagX = 0.; tagY = DEG2RAD(G.amplitude);
     }
     double t = sl_dtime(), t0 = t;
-    double divide = 2.;
+    double divide = 2., rtagX = -tagX, rtagY = -tagY;
     for(int i = 0; i < G.Nswings; ++i){
-        Mount.moveTo(tagX, tagY);
+        Mount.moveTo(&tagX, &tagY);
         DBG("CMD: %g", sl_dtime()-t0);
         t += G.period / divide;
         divide = 1.;
         waithalf(t);
         DBG("Moved to +, t=%g", t-t0);
         DBG("CMD: %g", sl_dtime()-t0);
-        Mount.moveTo(-tagX, -tagY);
+        Mount.moveTo(&rtagX, &rtagY);
         t += G.period;
         waithalf(t);
         DBG("Moved to -, t=%g", t-t0);
         DBG("CMD: %g", sl_dtime()-t0);
     }
+    double zero = 0.;
     // be sure to move @ 0,0
-    Mount.moveTo(0., 0.);
+    Mount.moveTo(&zero, &zero);
     // wait moving ends
     pthread_join(dthr, NULL);
 #undef SCMD

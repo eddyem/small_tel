@@ -23,6 +23,7 @@
 #include <time.h>
 #include <usefull_macros.h>
 
+#include "conf.h"
 #include "dump.h"
 #include "sidservo.h"
 #include "simpleconv.h"
@@ -31,7 +32,9 @@ typedef struct{
     int help;
     int Ncycles;
     int wait;
+    int relative;
     char *coordsoutput;
+    char *conffile;
     double X;
     double Y;
 } parameters;
@@ -49,16 +52,9 @@ static sl_option_t cmdlnopts[] = {
     {"newy",        NEED_ARG,   NULL,   'Y',    arg_double, APTR(&G.Y),         "new Y coordinate"},
     {"output",      NEED_ARG,   NULL,   'o',    arg_string, APTR(&G.coordsoutput),"file to log coordinates"},
     {"wait",        NO_ARGS,    NULL,   'w',    arg_int,    APTR(&G.wait),      "wait until mowing stopped"},
+    {"relative",    NO_ARGS,    NULL,   'r',    arg_int,    APTR(&G.relative),  "relative move"},
+    {"conffile",    NEED_ARG,   NULL,   'C',    arg_string, APTR(&G.conffile),  "configuration file name"},
     end_option
-};
-
-static conf_t Config = {
-    .MountDevPath = "/dev/ttyUSB0",
-    .MountDevSpeed = 19200,
-    //.EncoderDevPath = "/dev/ttyUSB1",
-    //.EncoderDevSpeed = 153000,
-    .MountReqInterval = 0.1,
-    .SepEncoder = 0
 };
 
 static FILE* fcoords = NULL;
@@ -84,8 +80,14 @@ static void *dumping(void _U_ *u){
 int main(int _U_ argc, char _U_ **argv){
     sl_init();
     sl_parseargs(&argc, &argv, cmdlnopts);
-    if(G.help) sl_showhelp(-1, cmdlnopts);
-    if(MCC_E_OK != Mount.init(&Config)) ERRX("Can't init mount");
+    if(G.help)
+        sl_showhelp(-1, cmdlnopts);
+    conf_t *Config = readServoConf(G.conffile);
+    if(!Config){
+        dumpConf();
+        return 1;
+    }
+    if(MCC_E_OK != Mount.init(Config)) ERRX("Can't init mount");
     coords_t M;
     if(!getPos(&M, NULL)) ERRX("Can't get current position");
     if(G.coordsoutput){
@@ -100,10 +102,22 @@ int main(int _U_ argc, char _U_ **argv){
     }
     printf("Mount position: X=%g, Y=%g\n", RAD2DEG(M.X), RAD2DEG(M.Y));
     if(isnan(G.X) && isnan(G.Y)) goto out;
-    if(isnan(G.X)) G.X = RAD2DEG(M.X);
-    if(isnan(G.Y)) G.Y = RAD2DEG(M.Y);
-    printf("Moving to X=%g deg, Y=%g deg\n", G.X, G.Y);
-    Mount.moveTo(DEG2RAD(G.X), DEG2RAD(G.Y));
+    double *xtag = NULL, *ytag = NULL, xr, yr;
+    if(!isnan(G.X)){
+        xr = DEG2RAD(G.X);
+        if(G.relative) xr += M.X;
+        xtag = &xr;
+    }
+    if(!isnan(G.Y)){
+        yr = DEG2RAD(G.Y);
+        if(G.relative) yr += M.Y;
+        ytag = &yr;
+    }
+    printf("Moving to ");
+    if(xtag) printf("X=%gdeg ", G.X);
+    if(ytag) printf("Y=%gdeg", G.Y);
+    printf("\n");
+    Mount.moveTo(xtag, ytag);
     if(G.wait){
         sleep(1);
         waitmoving(G.Ncycles);
@@ -112,6 +126,9 @@ int main(int _U_ argc, char _U_ **argv){
     }
 out:
     if(G.coordsoutput) pthread_join(dthr, NULL);
-    if(G.wait) Mount.quit();
+    if(G.wait){
+        if(getPos(&M, NULL)) printf("Mount position: X=%g, Y=%g\n", RAD2DEG(M.X), RAD2DEG(M.Y));
+        Mount.quit();
+    }
     return 0;
 }

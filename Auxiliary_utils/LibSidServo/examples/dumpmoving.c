@@ -24,6 +24,7 @@
 #include <time.h>
 #include <usefull_macros.h>
 
+#include "conf.h"
 #include "dump.h"
 #include "sidservo.h"
 #include "simpleconv.h"
@@ -34,6 +35,7 @@ typedef struct{
     int Ncycles;
     char *logfile;
     char *coordsoutput;
+    char *conffile;
 } parameters;
 
 static parameters G = {
@@ -47,6 +49,7 @@ static sl_option_t cmdlnopts[] = {
     {"logfile",     NEED_ARG,   NULL,   'l',    arg_string, APTR(&G.logfile),   "log file name"},
     {"ncycles",     NEED_ARG,   NULL,   'n',    arg_int,    APTR(&G.Ncycles),   "N cycles in stopped state (default: 40)"},
     {"coordsfile",  NEED_ARG,   NULL,   'o',    arg_string, APTR(&G.coordsoutput),"output file with coordinates log"},
+    {"conffile",    NEED_ARG,   NULL,   'C',    arg_string, APTR(&G.conffile),  "configuration file name"},
     end_option
 };
 
@@ -60,15 +63,6 @@ void signals(int sig){
     exit(sig);
 }
 
-static conf_t Config = {
-    .MountDevPath = "/dev/ttyUSB0",
-    .MountDevSpeed = 19200,
-    //.EncoderDevPath = "/dev/ttyUSB1",
-    //.EncoderDevSpeed = 153000,
-    .MountReqInterval = 0.1,
-    .SepEncoder = 0
-};
-
 int main(int argc, char **argv){
     sl_init();
     sl_parseargs(&argc, &argv, cmdlnopts);
@@ -76,6 +70,11 @@ int main(int argc, char **argv){
     sl_loglevel_e lvl = G.verbose + LOGLEVEL_ERR;
     if(lvl >= LOGLEVEL_AMOUNT) lvl = LOGLEVEL_AMOUNT - 1;
     if(G.logfile) OPENLOG(G.logfile, lvl, 1);
+    conf_t *Config = readServoConf(G.conffile);
+    if(!Config){
+        dumpConf();
+        return 1;
+    }
     if(G.coordsoutput){
         if(!(fcoords = fopen(G.coordsoutput, "w")))
             ERRX("Can't open %s", G.coordsoutput);
@@ -83,22 +82,21 @@ int main(int argc, char **argv){
     logmnt(fcoords, NULL);
     time_t curtime = time(NULL);
     LOGMSG("Started @ %s", ctime(&curtime));
-    LOGMSG("Mount device %s @ %d", Config.MountDevPath, Config.MountDevSpeed);
-    LOGMSG("Encoder device %s @ %d", Config.EncoderDevPath, Config.EncoderDevSpeed);
-    mcc_errcodes_t e = Mount.init(&Config);
-    if(e != MCC_E_OK){
-        WARNX("Can't init devices");
-        return 1;
-    }
+    LOGMSG("Mount device %s @ %d", Config->MountDevPath, Config->MountDevSpeed);
+    LOGMSG("Encoder device %s @ %d", Config->EncoderDevPath, Config->EncoderDevSpeed);
+    if(MCC_E_OK != Mount.init(Config)) ERRX("Can't init devices");
+    coords_t M;
+    if(!getPos(&M, NULL)) ERRX("Can't get current position");
     signal(SIGTERM, signals); // kill (-15) - quit
     signal(SIGHUP, SIG_IGN);  // hup - ignore
     signal(SIGINT, signals);  // ctrl+C - quit
     signal(SIGQUIT, signals); // ctrl+\ - quit
     signal(SIGTSTP, SIG_IGN); // ignore ctrl+Z
-    if(MCC_E_OK != Mount.moveTo(DEG2RAD(45.), DEG2RAD(45.)))
+    double tagx = DEG2RAD(45.) + M.X, tagy = DEG2RAD(45.) + M.Y;
+    if(MCC_E_OK != Mount.moveTo(&tagx, &tagy))
         ERRX("Can't move to 45, 45");
     dumpmoving(fcoords, 30., G.Ncycles);
-    Mount.moveTo(0., 0.);
+    Mount.moveTo(&M.X, &M.Y);
     dumpmoving(fcoords, 30., G.Ncycles);
     signals(0);
     return 0;

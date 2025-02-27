@@ -48,8 +48,8 @@ static struct timeval encRtmout = {0}, mntRtmout = {0};
 // encoders raw data
 typedef struct __attribute__((packed)){
     uint8_t magick;
-    int32_t encX;
     int32_t encY;
+    int32_t encX;
     uint8_t CRC[4];
 } enc_t;
 
@@ -82,6 +82,13 @@ static void gttime(){
  */
 static void parse_encbuf(uint8_t databuf[ENC_DATALEN], struct timeval *tv){
     enc_t *edata = (enc_t*) databuf;
+/*
+#ifdef EBUG
+    DBG("ENCBUF:");
+    for(int i = 0; i < ENC_DATALEN; ++i) printf("%02X ", databuf[i]);
+    printf("\n");
+#endif
+*/
     if(edata->magick != ENC_MAGICK){
         DBG("No magick");
         return;
@@ -112,13 +119,13 @@ static void parse_encbuf(uint8_t databuf[ENC_DATALEN], struct timeval *tv){
     mountdata.encposition.Y = Y_ENC2RAD(edata->encY);
     mountdata.encposition.msrtime = *tv;
     pthread_mutex_unlock(&datamutex);
-    DBG("time = %zd+%zd/1e6, X=%g deg, Y=%g deg", tv->tv_sec, tv->tv_usec, mountdata.encposition.X*180./M_PI, mountdata.encposition.Y*180./M_PI);
+    //DBG("time = %zd+%zd/1e6, X=%g deg, Y=%g deg", tv->tv_sec, tv->tv_usec, mountdata.encposition.X*180./M_PI, mountdata.encposition.Y*180./M_PI);
 }
 
 // try to read 1 byte from encoder; return -1 if nothing to read or -2 if device seems to be disconnected
 static int getencbyte(){
     if(encfd < 0) return -1;
-    uint8_t byte;
+    uint8_t byte = 0;
     fd_set rfds;
     struct timeval tv;
     do{
@@ -181,10 +188,10 @@ static void *encoderthread(void _U_ *u){
         if(b == -2) ++errctr;
         if(b < 0) continue;
         errctr = 0;
-        DBG("Got byte from Encoder: 0x%02X", b);
+//        DBG("Got byte from Encoder: 0x%02X", b);
         if(wridx == 0){
             if((uint8_t)b == ENC_MAGICK){
-                DBG("Got magic -> start filling packet");
+//                DBG("Got magic -> start filling packet");
                 databuf[wridx++] = (uint8_t) b;
                 gettimeofday(&tv, NULL);
             }
@@ -239,7 +246,11 @@ static void *mountthread(void _U_ *u){
         struct timeval tgot;
         if(0 != gettimeofday(&tgot, NULL)) continue;
         if(!MountWriteRead(cmd_getstat, &d) || d.len != sizeof(SSstat)){
+#ifdef EBUG
             DBG("Can't read SSstat, need %zd got %zd bytes", sizeof(SSstat), d.len);
+            for(size_t i = 0; i < d.len; ++i) printf("%02X ", d.buf[i]);
+            printf("\n");
+#endif
             ++errctr; continue;
         }
         if(SScalcChecksum(buf, sizeof(SSstat)-2) != status->checksum){
@@ -375,13 +386,14 @@ static int wr(const data_t *out, data_t *in, int needeol){
             (void) g;
         }
     }
-    if(in){
-        in->len = 0;
-        for(size_t i = 0; i < in->maxlen; ++i){
-            int b = getmntbyte();
-            if(b < 0) break; // nothing to read -> go out
-            in->buf[in->len++] = (uint8_t) b;
-        }
+    uint8_t buf[256];
+    data_t dumb = {.buf = buf, .maxlen = 256};
+    if(!in) in = &dumb; // even if user don't ask for answer, try to read to clear trash
+    in->len = 0;
+    for(size_t i = 0; i < in->maxlen; ++i){
+        int b = getmntbyte();
+        if(b < 0) break; // nothing to read -> go out
+        in->buf[in->len++] = (uint8_t) b;
     }
     return TRUE;
 }
@@ -395,6 +407,13 @@ static int wr(const data_t *out, data_t *in, int needeol){
 int MountWriteRead(const data_t *out, data_t *in){
     pthread_mutex_lock(&mntmutex);
     int ret = wr(out, in, 1);
+    pthread_mutex_unlock(&mntmutex);
+    return ret;
+}
+// send binary data - without EOL
+int MountWriteReadRaw(const data_t *out, data_t *in){
+    pthread_mutex_lock(&mntmutex);
+    int ret = wr(out, in, 0);
     pthread_mutex_unlock(&mntmutex);
     return ret;
 }
@@ -458,4 +477,35 @@ int cmdS(SSscmd *cmd){
 }
 int cmdL(SSlcmd *cmd){
     return bincmd((uint8_t *)cmd, sizeof(SSlcmd));
+}
+// rw == 1 to write, 0 to read
+int cmdC(SSconfig *conf, int rw){
+    static data_t *wcmd = NULL, *rcmd = NULL;
+    int ret = FALSE;
+    // dummy buffer to clear trash in input
+    char ans[300];
+    data_t a = {.buf = (uint8_t*)ans, .maxlen=299};
+    if(!wcmd) wcmd = cmd2dat(CMD_PROGFLASH);
+    if(!rcmd) rcmd = cmd2dat(CMD_DUMPFLASH);
+    pthread_mutex_lock(&mntmutex);
+    if(rw){ // write
+        if(!wr(wcmd, &a, 1)) goto rtn;
+    }else{ // read
+        data_t d;
+        d.buf = (uint8_t *) conf;
+        d.len = 0; d.maxlen = sizeof(SSconfig);
+        ret = wr(rcmd, &d, 1);
+        DBG("wr returned %s; got %zd bytes of %zd", ret ? "TRUE" : "FALSE", d.len, d.maxlen);
+        if(d.len != d.maxlen) return FALSE;
+        // simplest checksum
+        uint16_t sum = 0;
+        for(uint32_t i = 0; i < sizeof(SSconfig)-2; ++i) sum += d.buf[i];
+        if(sum != conf->checksum){
+            DBG("got sum: %u, need: %u", conf->checksum, sum);
+            return FALSE;
+        }
+    }
+rtn:
+    pthread_mutex_unlock(&mntmutex);
+    return ret;
 }

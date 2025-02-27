@@ -36,8 +36,8 @@ void logmnt(FILE *fcoords, mountdata_t *m){
         fprintf(fcoords, "# time Xmot(deg) Ymot(deg) Xenc(deg) Yenc(deg) millis T V\n");
         return;
     }
-    if(t0 < 0.) t0 = m->motposition.msrtime.tv_sec + (double)(m->motposition.msrtime.tv_usec) / 1e6;
-    double t = m->motposition.msrtime.tv_sec + (double)(m->motposition.msrtime.tv_usec) / 1e6 - t0;
+    if(t0 < 0.) t0 = m->encposition.msrtime.tv_sec + (double)(m->encposition.msrtime.tv_usec) / 1e6;
+    double t = m->encposition.msrtime.tv_sec + (double)(m->encposition.msrtime.tv_usec) / 1e6 - t0;
     // write data
     fprintf(fcoords, "%12.6f %10.6f %10.6f %10.6f %10.6f %10u %6.1f %4.1f\n",
             t, RAD2DEG(m->motposition.X), RAD2DEG(m->motposition.Y),
@@ -64,17 +64,17 @@ void dumpmoving(FILE *fcoords, double t, int N){
         WARNX("Can't get mount data");
         LOGWARN("Can't get mount data");
     }
-    uint32_t millis = mdata.millis;
+    uint32_t millis = mdata.encposition.msrtime.tv_usec;
     int ctr = -1;
     double xlast = mdata.motposition.X, ylast = mdata.motposition.Y;
     double t0 = sl_dtime();
     //DBG("millis = %u", millis);
     while(sl_dtime() - t0 < t && ctr < N){
-        usleep(10000);
+        usleep(1000);
         if(MCC_E_OK != Mount.getMountData(&mdata)){ WARNX("Can't get data"); continue;}
-        if(mdata.millis == millis) continue;
+        if(mdata.encposition.msrtime.tv_usec == millis) continue;
         //DBG("Got new data, posX=%g, posY=%g", mdata.motposition.X, mdata.motposition.Y);
-        millis = mdata.millis;
+        millis = mdata.encposition.msrtime.tv_usec;
         if(fcoords) logmnt(fcoords, &mdata);
         if(mdata.motposition.X != xlast || mdata.motposition.Y != ylast){
             xlast = mdata.motposition.X;
@@ -107,13 +107,13 @@ void waitmoving(int N){
 }
 
 /**
- * @brief getMotPos - get current
+ * @brief getPos - get current position
  * @param mot (o) - motor position (or NULL)
  * @param Y (o) - encoder position (or NULL)
  * @return FALSE if failed
  */
 int getPos(coords_t *mot, coords_t *enc){
-    mountdata_t mdata;
+    mountdata_t mdata = {0};
     int errcnt = 0;
     do{
         if(MCC_E_OK != Mount.getMountData(&mdata)) ++errcnt;
@@ -137,7 +137,8 @@ void chk0(int ncycles){
     if(!getPos(&M, NULL)) signals(2);
     if(M.X || M.Y){
         WARNX("Mount position isn't @ zero; moving");
-        Mount.moveTo(0., 0.);
+        double zero = 0.;
+        Mount.moveTo(&zero, &zero);
         waitmoving(ncycles);
         green("Now mount @ zero\n");
     }

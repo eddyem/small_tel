@@ -20,6 +20,7 @@
 #include <signal.h>
 #include <usefull_macros.h>
 
+#include "conf.h"
 #include "dump.h"
 #include "sidservo.h"
 #include "simpleconv.h"
@@ -38,6 +39,7 @@ typedef struct{
     double Y0;          // -//-
     char *coordsoutput; // dump file
     char *tfn;          // traectory function name
+    char *conffile;
 } parameters;
 
 static FILE *fcoords = NULL;
@@ -64,16 +66,8 @@ static sl_option_t cmdlnopts[] = {
     {"tmax",        NEED_ARG,   NULL,   'T',    arg_double, APTR(&G.tmax),      "maximal duration time of emulation (default: 300 seconds)"},
     {"x0",          NEED_ARG,   NULL,   '0',    arg_double, APTR(&G.X0),        "starting X-coordinate of traectory (default: 10 degrees)"},
     {"y0",          NEED_ARG,   NULL,   '1',    arg_double, APTR(&G.Y0),        "starting Y-coordinate of traectory (default: 10 degrees)"},
+    {"conffile",    NEED_ARG,   NULL,   'C',    arg_string, APTR(&G.conffile),  "configuration file name"},
     end_option
-};
-
-static conf_t Config = {
-    .MountDevPath = "/dev/ttyUSB0",
-    .MountDevSpeed = 19200,
-    //.EncoderDevPath = "/dev/ttyUSB1",
-    //.EncoderDevSpeed = 153000,
-    .MountReqInterval = 0.05,
-    .SepEncoder = 0
 };
 
 void signals(int sig){
@@ -127,7 +121,12 @@ int main(int argc, char **argv){
         if(!(fcoords = fopen(G.coordsoutput, "w")))
             ERRX("Can't open %s", G.coordsoutput);
     }else fcoords = stdout;
-    Config.MountReqInterval = G.reqint;
+    conf_t *Config = readServoConf(G.conffile);
+    if(!Config){
+        dumpConf();
+        return 1;
+    }
+    Config->MountReqInterval = G.reqint;
     traectory_fn tfn = traectory_by_name(G.tfn);
     if(!tfn){
         WARNX("Bad traectory name %s, should be one of", G.tfn);
@@ -139,7 +138,7 @@ int main(int argc, char **argv){
         ERRX("Can't init traectory");
         return 1;
     }
-    mcc_errcodes_t e = Mount.init(&Config);
+    mcc_errcodes_t e = Mount.init(Config);
     if(e != MCC_E_OK){
         WARNX("Can't init devices");
         return 1;

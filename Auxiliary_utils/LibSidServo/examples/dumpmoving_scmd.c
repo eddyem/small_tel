@@ -26,6 +26,7 @@
 #include <time.h>
 #include <usefull_macros.h>
 
+#include "conf.h"
 #include "dump.h"
 #include "sidservo.h"
 #include "simpleconv.h"
@@ -33,24 +34,31 @@
 typedef struct{
     int help;
     int Ncycles;
+    int relative;
     double reqint;
     char *coordsoutput;
+    char *conffile;
     char *axis;
 } parameters;
 
 static parameters G = {
     .Ncycles = 40,
-    .reqint = 0.1,
+    .reqint = -1.,
     .axis = "X",
 };
+
 static FILE *fcoords = NULL;
+
+static coords_t M;
 
 static sl_option_t cmdlnopts[] = {
     {"help",        NO_ARGS,    NULL,   'h',    arg_int,    APTR(&G.help),      "show this help"},
     {"ncycles",     NEED_ARG,   NULL,   'n',    arg_int,    APTR(&G.Ncycles),   "N cycles in stopped state (default: 40)"},
     {"coordsfile",  NEED_ARG,   NULL,   'o',    arg_string, APTR(&G.coordsoutput),"output file with coordinates log"},
     {"reqinterval", NEED_ARG,   NULL,   'i',    arg_double, APTR(&G.reqint),    "mount requests interval (default: 0.1)"},
-    {"axis",        NEED_ARG,   NULL,   'a',    arg_string, APTR(&G.axis),      "axis to move (X or Y)"},
+    {"axis",        NEED_ARG,   NULL,   'a',    arg_string, APTR(&G.axis),      "axis to move (X, Y or B for both)"},
+    {"conffile",    NEED_ARG,   NULL,   'C',    arg_string, APTR(&G.conffile),  "configuration file name"},
+    {"relative",    NO_ARGS,    NULL,   'r',    arg_int,    APTR(&G.relative),  "relative move"},
     end_option
 };
 
@@ -62,15 +70,6 @@ void signals(int sig){
     Mount.quit();
     exit(sig);
 }
-
-static conf_t Config = {
-    .MountDevPath = "/dev/ttyUSB0",
-    .MountDevSpeed = 19200,
-    //.EncoderDevPath = "/dev/ttyUSB1",
-    //.EncoderDevSpeed = 153000,
-    .MountReqInterval = 0.1,
-    .SepEncoder = 0
-};
 
 // dump thread
 static void *dumping(void _U_ *u){
@@ -108,20 +107,23 @@ static int Wait(double tag){
     return TRUE;
 }
 
-// move X to 40 degr with given speed until given coord
+// move X/Y to 40 degr with given speed until given coord
 static void move(double target, double limit, double speed){
 #define SCMD()   do{if(MCC_E_OK != Mount.shortCmd(&cmd)) ERRX("Can't run command"); }while(0)
     green("Move %s to %g until %g with %gdeg/s\n", G.axis, target, limit, speed);
     short_command_t cmd = {0};
-    if(*G.axis == 'X'){
-        cmd.Xmot = DEG2RAD(target);
+    if(*G.axis == 'X' || *G.axis == 'B'){
+        cmd.Xmot = DEG2RAD(target) + M.X;
         cmd.Xspeed = DEG2RAD(speed);
-    }else{
-        cmd.Ymot = DEG2RAD(target);
+        limit = DEG2RAD(limit) + M.X;
+    }
+    if(*G.axis == 'Y' || *G.axis == 'B'){
+        cmd.Ymot = DEG2RAD(target) + M.Y;
         cmd.Yspeed = DEG2RAD(speed);
+        limit = DEG2RAD(limit) + M.Y;
     }
     SCMD();
-    if(!Wait(DEG2RAD(limit))) signals(9);
+    if(!Wait(limit)) signals(9);
 #undef SCMD
 }
 
@@ -130,20 +132,25 @@ int main(int argc, char **argv){
     sl_init();
     sl_parseargs(&argc, &argv, cmdlnopts);
     if(G.help) sl_showhelp(-1, cmdlnopts);
-    if(strcmp(G.axis, "X") && strcmp(G.axis, "Y")){
-        WARNX("\"Axis\" should be X or Y");
+    if(strcmp(G.axis, "X") && strcmp(G.axis, "Y") && strcmp(G.axis, "B")){
+        WARNX("\"Axis\" should be X, Y or B");
         return 1;
     }
     if(G.coordsoutput){
         if(!(fcoords = fopen(G.coordsoutput, "w")))
             ERRX("Can't open %s", G.coordsoutput);
     }else fcoords = stdout;
-    Config.MountReqInterval = G.reqint;
-    mcc_errcodes_t e = Mount.init(&Config);
-    if(e != MCC_E_OK){
+    conf_t *Config = readServoConf(G.conffile);
+    if(!Config){
+        dumpConf();
+        return 1;
+    }
+    if(G.reqint > 0.) Config->MountReqInterval = G.reqint;
+    if(MCC_E_OK != Mount.init(Config)){
         WARNX("Can't init devices");
         return 1;
     }
+    if(!getPos(&M, NULL)) ERRX("Can't get current position");
     signal(SIGTERM, signals); // kill (-15) - quit
     signal(SIGHUP, SIG_IGN);  // hup - ignore
     signal(SIGINT, signals);  // ctrl+C - quit
@@ -151,7 +158,6 @@ int main(int argc, char **argv){
     signal(SIGTSTP, SIG_IGN); // ignore ctrl+Z
     // move to X=40 degr with different speeds
     pthread_t dthr;
-    chk0(G.Ncycles);
     logmnt(fcoords, NULL);
     if(pthread_create(&dthr, NULL, dumping, NULL)) ERRX("Can't run dump thread");
     // goto 1 degr with 1'/s
@@ -165,7 +171,7 @@ int main(int argc, char **argv){
     // and go back with 5deg/s
     move(0., 0., 5.);
     // be sure to move @ 0,0
-    Mount.moveTo(0., 0.);
+    Mount.moveTo(&M.X, &M.Y);
     // wait moving ends
     pthread_join(dthr, NULL);
 #undef SCMD

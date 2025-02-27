@@ -90,6 +90,19 @@ int SStextcmd(const char *cmd, data_t *answer){
     return MountWriteRead(&d, answer);
 }
 
+// the same as SStextcmd, but not adding EOL - send raw 'cmd'
+int SSrawcmd(const char *cmd, data_t *answer){
+    if(!cmd){
+        DBG("try to send empty command");
+        return FALSE;
+    }
+    data_t d;
+    d.buf = (uint8_t*) cmd;
+    d.len = d.maxlen = strlen(cmd);
+    DBG("send %zd bytes: %s", d.len, d.buf);
+    return MountWriteReadRaw(&d, answer);
+}
+
 /**
  * @brief SSgetint - send text command and return integer answer
  * @param cmd (i) - command to send
@@ -116,29 +129,25 @@ int SSgetint(const char *cmd, int64_t *ans){
     return TRUE;
 }
 
-// commands to move X and Y to given motor position in radians; @return FALSE if failed
-// BE CAREFUL: after each poweron X and Y are 0
-// BE CAREFUL: angle isn't checking here
-int SSXmoveto(double pos){
-    char buf[64];
-    int64_t target = X_RAD2MOT(pos);
-    DBG("move to angle %grad = %ld", pos, target);
-    snprintf(buf, 63, "%s%" PRIi64, CMD_MOTX, target);
-    return SStextcmd(buf, NULL);
-}
-int SSYmoveto(double pos){
-    char buf[64];
-    int64_t target = Y_RAD2MOT(pos);
-    DBG("move to angle %grad = %ld", pos, target);
-    snprintf(buf, 63, "%s%" PRIi64, CMD_MOTY, target);
+/**
+ * @brief SSsetterI - integer setter
+ * @param cmd - command to send
+ * @param ival - value
+ * @return false if failed
+ */
+int SSsetterI(const char *cmd, int32_t ival){
+    char buf[128];
+    snprintf(buf, 127, "%s%" PRIi32, cmd, ival);
     return SStextcmd(buf, NULL);
 }
 
-int SSemergStop(){
+int SSstop(int emerg){
     int i = 0;
+    const char *cmdx = (emerg) ? CMD_EMSTOPX : CMD_STOPX;
+    const char *cmdy = (emerg) ? CMD_EMSTOPY : CMD_STOPY;
     for(; i < 10; ++i){
-        if(!SStextcmd(CMD_EMSTOPX, NULL)) continue;
-        if(SStextcmd(CMD_EMSTOPY, NULL)) break;
+        if(!SStextcmd(cmdx, NULL)) continue;
+        if(SStextcmd(cmdy, NULL)) break;
     }
     if(i == 10) return FALSE;
     return TRUE;

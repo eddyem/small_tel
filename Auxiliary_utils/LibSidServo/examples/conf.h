@@ -19,24 +19,9 @@
 #pragma once
 
 #include "sidservo.h"
-#include "ssii.h"
 
-// magick starting sequence
-#define ENC_MAGICK  (204)
-// encoder data sequence length
-#define ENC_DATALEN (13)
-// max error counter (when read() returns -1)
-#define MAX_ERR_CTR (100)
+#define DEFCONFFILE "servo.conf"
 
-double dtime();
-data_t *cmd2dat(const char *cmd);
-void data_free(data_t **x);
-int openEncoder(const char *path, int speed);
-int openMount(const char *path, int speed);
-void closeSerial();
-mcc_errcodes_t getMD(mountdata_t  *d);
-int MountWriteRead(const data_t *out, data_t *in);
-int MountWriteReadRaw(const data_t *out, data_t *in);
-int cmdS(SSscmd *cmd);
-int cmdL(SSlcmd *cmd);
-int cmdC(SSconfig *conf, int rw);
+void confHelp();
+conf_t *readServoConf(const char *filename);
+void dumpConf();

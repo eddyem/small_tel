@@ -1,5 +1,8 @@
 CMakeLists.txt
 dbg.h
+examples/SSIIconf.c
+examples/conf.c
+examples/conf.h
 examples/dump.c
 examples/dump.h
 examples/dumpmoving.c
