@@ -1,0 +1,5 @@
+#!/usr/bin/gnuplot
+
+set term pdf
+set output "output.pdf"
+plot for [col=2:4] 'coordlog' using 1:col with lines title columnheader
