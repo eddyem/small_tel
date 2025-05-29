@@ -1,12 +1,5 @@
-Astrosib all-sky dome control network daemon
-==================
+New version of "Astrosib" dome daemon.
 
-Open a socket at given port (default: 55555), works with http & direct requests.
+Based on snippets_library ver. >= 0.3.2
+Allow more functionality than old one.
 
-**Protocol**
-
-Send requests over socket (by curl or something else) or http requests (in browser).
-
-* *open*    - open dome;
-* *close*   - close dome;
-* *status*  - dome state (return "opened", "closed" or "intermediate");
