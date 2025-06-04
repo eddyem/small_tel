@@ -138,12 +138,12 @@ static int check_status(){
 
 // run naked command or command with parameters
 static int runcmd(const char *cmd, const char *par){
-    char buf[128];
+    char buf[256];
     if(!cmd) return FALSE;
     DBG("Send command %s with par %s", cmd, par);
-    if(!par) snprintf(buf, 127, "%s", cmd);
-    else snprintf(buf, 127, "%s%s", cmd, par);
-    if(!serial_write(buf, buf, 128)) return FALSE;
+    if(!par) snprintf(buf, 255, "%s", cmd);
+    else snprintf(buf, 255, "%s%s", cmd, par);
+    if(!serial_write(buf, buf, 255)) return FALSE;
     if(strncmp(buf, "OK", 2)) return FALSE;
     return TRUE;
 }
