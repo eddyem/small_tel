@@ -33,6 +33,10 @@
 #define CMD_STATUS      "status"
 #define CMD_STATUST     "statust"
 #define CMD_RELAY       "relay"
+#define CMD_OPEN        "open"
+#define CMD_CLOSE       "close"
+#define CMD_STOP        "stop"
+#define CMD_HALF        "half"
 
 // main socket
 static sl_sock_t *s = NULL;
@@ -81,7 +85,6 @@ static sl_sock_hresult_e statusth(sl_sock_t *c, _U_ sl_sock_hitem_t *item, _U_ c
 }
 // relay on/off
 static sl_sock_hresult_e relays(int Nrelay, int Stat){
-    if(Nrelay <  NRELAY_MIN|| Nrelay > NRELAY_MAX) return RESULT_BADKEY;
     dome_cmd_t cmd = Stat ? DOME_RELAY_ON : DOME_RELAY_OFF;
     if(DOME_S_ERROR == dome_poll(cmd, Nrelay)) return RESULT_FAIL;
     return RESULT_OK;
@@ -89,6 +92,7 @@ static sl_sock_hresult_e relays(int Nrelay, int Stat){
 static sl_sock_hresult_e relay(sl_sock_t *c, sl_sock_hitem_t *item, const char *req){
     char buf[128];
     int N = item->key[sizeof(CMD_RELAY) - 1] - '0';
+    if(N <  NRELAY_MIN|| N > NRELAY_MAX) return RESULT_BADKEY;
     if(!req || !*req){ // getter
         dome_status_t dome_status;
         double lastt = get_dome_status(&dome_status);
@@ -100,6 +104,46 @@ static sl_sock_hresult_e relay(sl_sock_t *c, sl_sock_hitem_t *item, const char *
     int Stat = *req - '0';
     return relays(N, Stat);
 }
+// dome open/close/stop
+static sl_sock_hresult_e domecmd(dome_cmd_t cmd){
+    if(DOME_S_ERROR == dome_poll(cmd, 0)) return RESULT_FAIL;
+    return RESULT_OK;
+}
+static sl_sock_hresult_e opendome(_U_ sl_sock_t *c, _U_ sl_sock_hitem_t *item, _U_ const char *req){
+    return domecmd(DOME_OPEN);
+}
+static sl_sock_hresult_e closedome(_U_ sl_sock_t *c, _U_ sl_sock_hitem_t *item, _U_ const char *req){
+    return domecmd(DOME_CLOSE);
+}
+static sl_sock_hresult_e stopdome(_U_ sl_sock_t *c, _U_ sl_sock_hitem_t *item, _U_ const char *req){
+    return domecmd(DOME_STOP);
+}
+// half open/close
+static sl_sock_hresult_e halfmove(sl_sock_t *c, sl_sock_hitem_t *item, const char *req){
+    char buf[128];
+    int N = item->key[sizeof(CMD_HALF) - 1] - '0';
+    if(N < 1 || N > 2) return RESULT_BADKEY;
+    if(!req || !*req){ // getter
+        dome_status_t dome_status;
+        double lastt = get_dome_status(&dome_status);
+        if(sl_dtime() - lastt > STATUS_MAX_AGE) return RESULT_FAIL;
+        int s = dome_status.coverstate[N-1];
+        int S = -1;
+        switch(s){
+            case COVER_OPENED: S = 1; break;
+            case COVER_CLOSED: S = 0; break;
+            default: break;
+        }
+        snprintf(buf, 127, "%s=%d\n", item->key, S);
+        sl_sock_sendstrmessage(c, buf);
+        return RESULT_SILENCE;
+    }
+    int Stat = *req - '0';
+    dome_cmd_t cmd = Stat ? DOME_OPEN_ONE : DOME_CLOSE_ONE;
+    green("\n\nstat=%d, cmd=%d, N=%d\n\n", Stat, cmd, N);
+    if(DOME_S_ERROR == dome_poll(cmd, N)) return RESULT_FAIL;
+    return RESULT_OK;
+}
 
 //  and all handlers collection
 static sl_sock_hitem_t handlers[] = {
@@ -109,6 +153,11 @@ static sl_sock_hitem_t handlers[] = {
     {relay, CMD_RELAY "1", "turn on/off (=1/0) relay 1", NULL},
     {relay, CMD_RELAY "2", "turn on/off (=1/0) relay 2", NULL},
     {relay, CMD_RELAY "3", "turn on/off (=1/0) relay 3", NULL},
+    {opendome, CMD_OPEN, "open dome", NULL},
+    {closedome, CMD_CLOSE, "close dome", NULL},
+    {stopdome, CMD_STOP, "stop moving", NULL},
+    {halfmove, CMD_HALF "1", "open/close (=1/0) north half of dome", NULL},
+    {halfmove, CMD_HALF "2", "open/close (=1/0) south half of dome", NULL},
     {NULL, NULL, NULL, NULL}
 };
 

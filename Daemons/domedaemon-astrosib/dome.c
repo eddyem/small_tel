@@ -150,10 +150,25 @@ static int runcmd(const char *cmd, const char *par){
 
 // check current state and turn on/off relay if need
 static void chkrelay(){
+    static dome_state_t oldstate = DOME_S_MOVING;
+    static double t0 = 0.;
     if(state != DOME_S_MOVING) return;
     if(dome_status.coverstate[0] == COVER_INTERMEDIATE ||
-        dome_status.coverstate[1] == COVER_INTERMEDIATE) return; // still moving
-    // OK, we are on place - turn off motors' power
+        dome_status.coverstate[1] == COVER_INTERMEDIATE){ // still moving
+            oldstate = DOME_S_MOVING;
+            return;
+    }
+    DBG("state=%d, oldstate=%d", state, oldstate);
+    // OK, we are on place - turn off motors' power after 5 seconds
+    if(oldstate == DOME_S_MOVING){ // just stopped - fire pause
+        t0 = sl_dtime();
+        oldstate = DOME_S_IDLE;
+        DBG("START 5s pause");
+        return;
+    }else{ // check pause
+        if(sl_dtime() - t0 < POWER_STOP_TIMEOUT) return;
+    }
+    DBG("5s out -> turn off power");
     char buf[128];
     snprintf(buf, 127, "%s%d,%d", ASIB_CMD_RELAY, MOTRELAY_NO, MOTRELAY_OFF);
     if(serial_write(buf, buf, 128) && check_status()){
@@ -161,6 +176,7 @@ static void chkrelay(){
         if(dome_status.relay[MOTRELAY_NO-1] == MOTRELAY_OFF){
             DBG("OK state->IDLE");
             state = DOME_S_IDLE;
+            oldstate = DOME_S_MOVING;
         }
     }
 }
@@ -222,23 +238,23 @@ dome_state_t dome_poll(dome_cmd_t cmd, int par){
         case DOME_CLOSE:
             if(!runcmd(ASIB_CMD_CLOSE, NULL)) goto ret;
             break;
-        case DOME_OPEN_ONE:
+        case DOME_OPEN_ONE: // due to bug in documentation, 0 - OPEN
             if(par < 1 || par > 2) goto ret;
-            snprintf(buf, 127, "%d 90", par);
+            snprintf(buf, 127, "%d,0", par-1);
             if(!runcmd(ASIB_CMD_MOVEONE, buf)) goto ret;
             break;
-        case DOME_CLOSE_ONE:
+        case DOME_CLOSE_ONE: // due to bug in documentation, 90 - CLOSE
             if(par < 1 || par > 2) goto ret;
-            snprintf(buf, 127, "%d 0", par);
+            snprintf(buf, 127, "%d,90", par-1);
             if(!runcmd(ASIB_CMD_MOVEONE, buf)) goto ret;
             break;
         case DOME_RELAY_ON:
-            if(par < 1 || par > 3) goto ret;
+            if(par < NRELAY_MIN || par > NRELAY_MAX) goto ret;
             snprintf(buf, 127, "%d,1", par);
             if(!runcmd(ASIB_CMD_RELAY, buf)) goto ret;
             break;
         case DOME_RELAY_OFF:
-            if(par < 1 || par > 3) goto ret;
+            if(par < NRELAY_MIN || par > NRELAY_MAX) goto ret;
             snprintf(buf, 127, "%d,0", par);
             if(!runcmd(ASIB_CMD_RELAY, buf)) goto ret;
             break;

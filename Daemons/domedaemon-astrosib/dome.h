@@ -22,6 +22,9 @@
 #define NRELAY_MIN  1
 #define NRELAY_MAX  3
 
+// pause to clear power after stop - 5 seconds
+#define POWER_STOP_TIMEOUT      (5.)
+
 // dome finite state machine state
 typedef enum{
     DOME_S_IDLE,      // idle, motors disabled
@@ -43,13 +46,13 @@ typedef enum{
 
 // cover states
 enum{
-    COVER_INTERMEDIATE = 1,
+    COVER_INTERMEDIATE = 0,
     COVER_OPENED = 2,
     COVER_CLOSED = 3
 };
 
 typedef struct{
-    int coverstate[2];      // north/south covers state (3 - closed, 2 - opened, 1 - intermediate)
+    int coverstate[2];      // north/south covers state (3 - closed, 2 - opened, 0 - intermediate)
     int encoder[2];         // encoders values
     float Tin;              // temperatures (unavailable)
     float Tout;

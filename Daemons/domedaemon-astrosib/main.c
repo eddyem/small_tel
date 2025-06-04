@@ -110,5 +110,5 @@ int main(int argc, char **argv){
     sl_tty_tmout(DEFAULT_SERTMOUT);
     server_run(type, G.node, serial);
     LOGERR("Unreacheable code reached!");
-    return 0;
+    return 1;
 }
