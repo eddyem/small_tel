@@ -1,24 +1,44 @@
 # run `make DEF=...` to add extra defines
-PROGRAM := weatherdaemon
-LDFLAGS := -fdata-sections -ffunction-sections -Wl,--gc-sections -Wl,--discard-all -pthread
-LDFLAGS += -flto `pkg-config --libs usefull_macros` -lm
+PROGRAM := weatherdaemonN
+LDFLAGS := -fdata-sections -ffunction-sections -Wl,--gc-sections -Wl,--discard-all
+LDFLAGS += -lusefull_macros -lm
 SRCS := $(wildcard *.c)
 DEFINES := $(DEF) -D_GNU_SOURCE -D_XOPEN_SOURCE=1111
-#DEFINES += -DEBUG
 OBJDIR := mk
-CFLAGS += `pkg-config --cflags usefull_macros` -O3 -Wall -Werror -Wextra -Wno-trampolines -flto
+CFLAGS += -O2 -Wall -Wextra -Wno-trampolines
 OBJS := $(addprefix $(OBJDIR)/, $(SRCS:%.c=%.o))
 DEPS := $(OBJS:.o=.d)
+TARGFILE := $(OBJDIR)/TARGET
 CC = gcc
 
-all : $(OBJDIR) $(PROGRAM)
+ifeq ($(shell test -e $(TARGFILE) && echo -n yes),yes)
+	TARGET := $(file < $(TARGFILE))
+else
+	TARGET := RELEASE
+endif
 
-$(PROGRAM) : $(OBJS)
+ifeq ($(TARGET), DEBUG)
+	.DEFAULT_GOAL := debug
+endif
+
+release: CFLAGS += -flto
+release: LDFLAGS += -flto
+release: $(PROGRAM)
+
+debug: CFLAGS += -DEBUG -Werror
+debug: TARGET := DEBUG
+debug: $(PROGRAM)
+
+$(TARGFILE): $(OBJDIR)
+	@echo -e "\t\tTARGET: $(TARGET)"
+	@echo "$(TARGET)" > $(TARGFILE)
+
+$(PROGRAM) : $(TARGFILE) $(OBJS)
 	@echo -e "\t\tLD $(PROGRAM)"
-	$(CC) $(OBJS) $(LDFLAGS) -o $(PROGRAM)
+	$(CC) $(LDFLAGS) $(OBJS) -o $(PROGRAM)
 
 $(OBJDIR):
-	mkdir $(OBJDIR)
+	@mkdir $(OBJDIR)
 
 ifneq ($(MAKECMDGOALS),clean)
 -include $(DEPS)
@@ -30,13 +50,9 @@ $(OBJDIR)/%.o: %.c
 
 clean:
 	@echo -e "\t\tCLEAN"
-	@rm -f $(OBJS) $(DEPS)
-	@rmdir $(OBJDIR) 2>/dev/null || true
+	@rm -rf $(OBJDIR) 2>/dev/null || true
 
 xclean: clean
 	@rm -f $(PROGRAM)
 
-gentags:
-	CFLAGS="$(CFLAGS) $(DEFINES)" geany -g $(PROGRAM).c.tags *[hc] 2>/dev/null
-
-.PHONY: gentags clean xclean
+.PHONY: clean xclean

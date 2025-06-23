@@ -29,8 +29,8 @@
 
 #define BUFLEN (4096)
 
-static sl_tty_t *ttydescr = NULL;
-static int emulate = FALSE;
+static TTY_descr *ttydescr = NULL;
+extern glob_pars *GP;
 
 static char buf[BUFLEN];
 static const char *emultemplate = "0R0,S=1.9,D=217.2,P=787.7,T=10.8,H=69.0,R=31.0,Ri=0.0,Rs=Y";
@@ -41,7 +41,7 @@ static const char *emultemplate = "0R0,S=1.9,D=217.2,P=787.7,T=10.8,H=69.0,R=31.
  */
 static char *read_string(){
     //static int done = 0;
-    if(emulate){
+    if(GP->emul){
         strncpy(buf, emultemplate, BUFLEN);
         return buf;
     }
@@ -49,16 +49,16 @@ static char *read_string(){
     size_t r = 0, l;
     int LL = BUFLEN - 1;
     char *ptr = buf;
-    double d0 = sl_dtime();
+    double d0 = dtime();
     do{
-        if((l = sl_tty_read(ttydescr))){
+        if((l = read_tty(ttydescr))){
             strncpy(ptr, ttydescr->buf, LL);
             r += l; LL -= l; ptr += l;
             //DBG("l=%zd, r=%zd, LL=%d", l, r, LL);
-            d0 = sl_dtime();
+            d0 = dtime();
             if(r > 2 && ptr[-1] == '\n') break;
         }
-    }while(sl_dtime() - d0 < WAIT_TMOUT && LL);
+    }while(dtime() - d0 < WAIT_TMOUT && LL);
     if(r){
         //buf[r] = 0;
         //DBG("buf: %s", buf);
@@ -71,25 +71,20 @@ static char *read_string(){
  * Try to connect to `device` at baudrate speed
  * @return 1 if OK
  */
-int try_connect(char *device, int baudrate, int emul){
-    if(emul){
-        emulate = TRUE;
-        DBG("Emulation mode");
-        return TRUE;
-    }
-    if(!device) return FALSE;
+int try_connect(char *device, int baudrate){
+    if(!device) return 0;
     fflush(stdout);
-    ttydescr = sl_tty_new(device, baudrate, 1024);
-    if(ttydescr) ttydescr = sl_tty_open(ttydescr, 1); // exclusive open
-    if(!ttydescr) return FALSE;
-    while(sl_tty_read(ttydescr)); // clear rbuf
+    ttydescr = new_tty(device, baudrate, 1024);
+    if(ttydescr) ttydescr = tty_open(ttydescr, 1); // exclusive open
+    if(!ttydescr) return 0;
+    while(read_tty(ttydescr)); // clear rbuf
     LOGMSG("Connected to %s", device);
-    return TRUE;
+    return 1;
 }
 
 // stop polling thread and close tty
 void stop_tty(){
-    if(ttydescr)  sl_tty_close(&ttydescr);
+    if(ttydescr)  close_tty(&ttydescr);
 }
 
 static weather_t lastweather;
@@ -125,7 +120,7 @@ static int parseans(char *str, weather_t *w){
                 str += el->parlen;
                 char *endptr;
                 *el->weatherpar = strtod(str, &endptr);
-                //DBG("found par: %s, val=%g", el->parname, *el->weatherpar);
+                DBG("found par: %s, val=%g", el->parname, *el->weatherpar);
                 if(endptr == str){
                     DBG("Wrong double value");
                     *el->weatherpar = 0.;
@@ -138,19 +133,19 @@ static int parseans(char *str, weather_t *w){
         str = strchr(str, ',');
         //DBG("next=%s", str);
     }while(str && *str);
-    lastweather.tmeasure = sl_dtime();
+    lastweather.tmeasure = dtime();
     if(w) memcpy(w, &lastweather, sizeof(weather_t));
     return TRUE;
 }
 
 // get weather measurements; return FALSE if something failed
 int getlastweather(weather_t *w){
-    if(!emulate){
-        if(sl_tty_write(ttydescr->comfd, "!0R0\r\n", 6))
+    if(!GP->emul){
+        if(write_tty(ttydescr->comfd, "!0R0\r\n", 6))
             return FALSE;
     }
-    double t0 = sl_dtime();
-    while(sl_dtime() - t0 < T_POLLING_TMOUT){
+    double t0 = dtime();
+    while(dtime() - t0 < T_POLLING_TMOUT){
         char *r = NULL;
         if((r = read_string())){ // parse new data
             //DBG("got %s", r);

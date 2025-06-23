@@ -16,8 +16,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#pragma once
 
+
+#pragma once
+#ifndef __CMDLNOPTS_H__
+#define __CMDLNOPTS_H__
 
 /*
  * here are some typedef's for global data
@@ -38,4 +41,4 @@ typedef struct{
 
 
 glob_pars *parse_args(int argc, char **argv);
-
+#endif // __CMDLNOPTS_H__

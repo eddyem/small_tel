@@ -17,8 +17,6 @@
  */
 
 #pragma once
-#ifndef __TERM_H__
-#define __TERM_H__
 
 #include <usefull_macros.h>
 
@@ -39,8 +37,7 @@ typedef struct{
     double tmeasure;    // UNIX-time of last measure
 } weather_t;
 
-int try_connect(char *device, int baudrate);
+int try_connect(char *device, int baudrate, int emul);
 int getlastweather(weather_t *w);
 void stop_tty();
 
-#endif // __TERM_H__

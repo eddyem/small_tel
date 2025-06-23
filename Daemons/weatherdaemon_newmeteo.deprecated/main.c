@@ -27,30 +27,38 @@
 #include "socket.h"
 #include "term.h"
 
+glob_pars *GP;
+
 void signals(int signo){
+    restore_console();
     stop_tty();
     LOGERR("exit with status %d", signo);
     exit(signo);
 }
 
 int main(int argc, char **argv){
-    sl_init();
+    initial_setup();
+    signal(SIGTERM, signals); // kill (-15) - quit
+    signal(SIGHUP, SIG_IGN);  // hup - ignore
+    signal(SIGINT, signals);  // ctrl+C - quit
+    signal(SIGQUIT, signals); // ctrl+\ - quit
+    signal(SIGTSTP, SIG_IGN); // ignore ctrl+Z
+#ifndef EBUG
     char *self = strdup(argv[0]);
-    glob_pars *GP = parse_args(argc, argv);
-    sl_check4running(self, GP->pidfile);
+#endif
+    GP = parse_args(argc, argv);
     if(GP->logfile){
-        sl_loglevel_e lvl = LOGLEVEL_ERR;
+        sl_loglevel lvl = LOGLEVEL_ERR;
         for(; GP->verb && lvl < LOGLEVEL_ANY; --GP->verb) ++lvl;
         DBG("Loglevel: %d", lvl);
         if(!OPENLOG(GP->logfile, lvl, 1)) ERRX("Can't open log file");
         LOGERR("Started");
     }
     #ifndef EBUG
-    signal(SIGTERM, signals); // kill (-15) - quit
-    signal(SIGHUP, SIG_IGN);  // hup - ignore
-    signal(SIGINT, signals);  // ctrl+C - quit
-    signal(SIGQUIT, signals); // ctrl+\ - quit
-    signal(SIGTSTP, SIG_IGN); // ignore ctrl+Z
+    if(daemon(1, 0)){
+        ERR("daemon()");
+    }
+    check4running(self, GP->pidfile);
     while(1){ // guard for dead processes
         pid_t childpid = fork();
         if(childpid){
@@ -67,16 +75,14 @@ int main(int argc, char **argv){
     }
     #endif
 
+    if(GP->device) if(!try_connect(GP->device, GP->tty_speed)){
+        LOGERR("Can't connect to device");
+        ERRX("Can't connect to device");
+    }
     if(!GP->device && !GP->emul){
         LOGERR("Need serial device name or emulation flag");
         ERRX("Need serial device name or emulation flag");
     }
-
-    if(!try_connect(GP->device, GP->tty_speed, GP->emul)){
-        LOGERR("Can't connect to device");
-        ERRX("Can't connect to device");
-    }
-
     daemonize(GP->port);
     return 0;
 }

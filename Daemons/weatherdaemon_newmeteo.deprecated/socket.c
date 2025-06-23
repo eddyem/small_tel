@@ -28,6 +28,7 @@
 #include <unistd.h>     // daemon
 #include <usefull_macros.h>
 
+#include "cmdlnopts.h"   // glob_pars
 #include "socket.h"
 #include "stat.h"
 #include "term.h"
@@ -36,6 +37,8 @@
 #define BUFLEN    (1024)
 // Max amount of connections
 #define BACKLOG   (30)
+
+extern glob_pars *GP;
 
 static weather_t lastweather = {0};
 static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -69,7 +72,7 @@ static int send_data(int sock, int webquery, format_t format){
     if(format == FORMAT_CURDFULL){ // full format
         Len = snprintf(databuf, BUFSIZ,
                        "Wind=%.1f%sDir=%.1f%sPressure=%.1f%sTemperature=%.1f%sHumidity=%.1f%s"
-                "Rain=%.1f%sTime=%.1f%s",
+                "Rain=%.1f%sTime=%.3f%s",
                 lastweather.windspeed, eol, lastweather.winddir, eol, lastweather.pressure, eol,
                 lastweather.temperature, eol, lastweather.humidity, eol, lastweather.rainfall, eol,
                 lastweather.tmeasure, eol
@@ -114,7 +117,6 @@ static int send_data(int sock, int webquery, format_t format){
         PRSTAT(tmeasure, "Time");
         Len += snprintf(ptr, l, "%s", eol);
 #undef PRSTAT
-#undef COMMA
     }else{
         Len = snprintf(databuf, BUFSIZ, "Error!");
     }
@@ -245,7 +247,6 @@ static int handle_socket(int sock){
 
 // main socket server
 static void *server(void *asock){
-    FNAME();
     LOGMSG("server()");
     int sock = *((int*)asock);
     if(listen(sock, BACKLOG) == -1){
@@ -306,7 +307,6 @@ static void *server(void *asock){
 
 // poll last weather data
 static void *weatherpolling(_U_ void *notused){
-    FNAME();
     while(1){
         weather_t w;
         if(getlastweather(&w) && 0 == pthread_mutex_lock(&mutex)){
@@ -321,7 +321,6 @@ static void *weatherpolling(_U_ void *notused){
 
 // data gathering & socket management
 static void daemon_(int sock){
-    DBG("sock=%d", sock);
     if(sock < 0) return;
     pthread_t sock_thread, parser_thread;
     if(pthread_create(&sock_thread, NULL, server, (void*) &sock)){

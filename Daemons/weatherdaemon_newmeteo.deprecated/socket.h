@@ -17,25 +17,16 @@
  */
 
 #pragma once
+#ifndef __SOCKET_H__
+#define __SOCKET_H__
 
+// time interval for data polling (seconds)
+#define T_INTERVAL      (10.)
+// max amount of opened fd (+1 for server socket)
+#define MAX_FDS         (11)
+// no data timeout
+#define NODATA_TMOUT    (90.)
 
-/*
- * here are some typedef's for global data
- */
-typedef struct{
-    char *device;           // serial device name
-    char *port;             // port to connect
-    char *logfile;          // logfile name
-    int terminal;           // run as terminal
-    int echo;               // echo user commands back
-    int verb;               // verbocity level
-    int tty_speed;          // serial terminal baudrate
-    int emul;               // emulation of serial device
-    char *pidfile;          // pidfile name
-    int rest_pars_num;      // number of rest parameters
-    char** rest_pars;       // the rest parameters: array of char* (path to logfile and thrash)
-} glob_pars;
+void daemonize(char *port);
 
-
-glob_pars *parse_args(int argc, char **argv);
-
+#endif // __SOCKET_H__
