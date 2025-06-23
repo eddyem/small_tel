@@ -17,21 +17,21 @@
  */
 
 #pragma once
+#ifndef __TERM_H__
+#define __TERM_H__
 
-/*
- * here are some typedef's for global data
- */
-typedef struct{
-    char *device;           // serial device name
-    char *port;             // port to connect
-    char *logfile;          // logfile name
-    int terminal;           // run as terminal
-    int echo;               // echo user commands back
-    int verb;               // verbocity level
-    int tty_speed;          // serial terminal baudrate
-    int emul;               // emulation of serial device
-    char *pidfile;          // pidfile name
-} glob_pars;
+#include <usefull_macros.h>
 
+#define FRAME_MAX_LENGTH        (300)
+#define MAX_MEMORY_DUMP_SIZE    (0x800 * 4)
+// Terminal timeout (seconds)
+#define     WAIT_TMOUT          (0.5)
+// Terminal polling timeout - 1 second
+#define     T_POLLING_TMOUT     (1.0)
 
-glob_pars *parse_args(int argc, char **argv);
+extern TTY_descr *ttydescr;
+void run_terminal();
+int try_connect(char *device, int baudrate);
+char *poll_device();
+
+#endif // __TERM_H__

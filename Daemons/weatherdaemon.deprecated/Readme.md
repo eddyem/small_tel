@@ -1,4 +1,4 @@
-Weather daemon working with old "Astro-M" meteostation
+Weather daemon
 ==================
 
 Open a socket at given port (default: 4444)

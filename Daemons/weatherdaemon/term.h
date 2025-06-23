@@ -17,8 +17,6 @@
  */
 
 #pragma once
-#ifndef __TERM_H__
-#define __TERM_H__
 
 #include <usefull_macros.h>
 
@@ -29,9 +27,13 @@
 // Terminal polling timeout - 1 second
 #define     T_POLLING_TMOUT     (1.0)
 
-extern TTY_descr *ttydescr;
+// wind speed for gust
+#define GUST_WIND       (10.0)
+// max interval after gust to show gust time - 1 hour
+#define GUST_MAX_TIME   (3600)
+
+extern sl_tty_t *ttydescr;
 void run_terminal();
 int try_connect(char *device, int baudrate);
-char *poll_device();
+char *poll_device(char *ans, int anslen);
 
-#endif // __TERM_H__

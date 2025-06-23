@@ -31,14 +31,14 @@
 glob_pars *GP;
 
 void signals(int signo){
-    sl_restore_con();
-    if(ttydescr) sl_tty_close(&ttydescr);
+    restore_console();
+    if(ttydescr) close_tty(&ttydescr);
     LOGERR("exit with status %d", signo);
     exit(signo);
 }
 
 int main(int argc, char **argv){
-    sl_init();
+    initial_setup();
     signal(SIGTERM, signals); // kill (-15) - quit
     signal(SIGHUP, SIG_IGN);  // hup - ignore
     signal(SIGINT, signals);  // ctrl+C - quit
@@ -49,14 +49,17 @@ int main(int argc, char **argv){
 #endif
     GP = parse_args(argc, argv);
     if(GP->logfile){
-        sl_loglevel_e lvl = LOGLEVEL_ERR;
+        sl_loglevel lvl = LOGLEVEL_ERR;
         for(; GP->verb && lvl < LOGLEVEL_ANY; --GP->verb) ++lvl;
         DBG("Loglevel: %d", lvl);
         if(!OPENLOG(GP->logfile, lvl, 1)) ERRX("Can't open log file");
         LOGERR("Started");
     }
     #ifndef EBUG
-    sl_check4running(self, GP->pidfile);
+    if(daemon(1, 0)){
+        ERR("daemon()");
+    }
+    check4running(self, GP->pidfile);
     while(1){ // guard for dead processes
         pid_t childpid = fork();
         if(childpid){

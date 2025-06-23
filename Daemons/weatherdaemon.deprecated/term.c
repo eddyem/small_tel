@@ -29,7 +29,7 @@
 
 #define BUFLEN (4096)
 
-sl_tty_t *ttydescr = NULL;
+TTY_descr *ttydescr = NULL;
 extern glob_pars *GP;
 
 static char buf[BUFLEN];
@@ -51,20 +51,15 @@ static char *read_string(){
     size_t r = 0, l;
     int LL = BUFLEN - 1;
     char *ptr = buf;
-    double d0 = sl_dtime();
+    double d0 = dtime();
     do{
-        if((l = sl_tty_read(ttydescr))){
+        if((l = read_tty(ttydescr))){
             strncpy(ptr, ttydescr->buf, LL);
             r += l; LL -= l; ptr += l;
             DBG("l=%zd, r=%zd, LL=%d", l, r, LL);
-            if(ptr[-1] == '\n'){
-                DBG("Got newline");
-                ptr[-1] = 0;
-                break;
-            }
-            d0 = sl_dtime();
+            d0 = dtime();
         }
-    }while(sl_dtime() - d0 < WAIT_TMOUT && LL);
+    }while(dtime() - d0 < WAIT_TMOUT && LL);
     if(r){
         //buf[r] = 0;
         DBG("buf: %s", buf);
@@ -80,10 +75,10 @@ static char *read_string(){
 int try_connect(char *device, int baudrate){
     if(!device) return 0;
     fflush(stdout);
-    ttydescr = sl_tty_new(device, baudrate, 1024);
-    if(ttydescr) ttydescr = sl_tty_open(ttydescr, 1); // exclusive open
+    ttydescr = new_tty(device, baudrate, 1024);
+    if(ttydescr) ttydescr = tty_open(ttydescr, 1); // exclusive open
     if(!ttydescr) return 0;
-    while(sl_tty_read(ttydescr)); // clear rbuf
+    while(read_tty(ttydescr)); // clear rbuf
     LOGMSG("Connected to %s", device);
     return 1;
 }
@@ -116,17 +111,16 @@ static int getpar(char *string, double *Val, char *Name){
  * Poll serial port for new dataportion
  * @return: NULL if no data received, pointer to string if valid data received
  */
-char *poll_device(char *ans, int anslen){
+char *poll_device(){
     FNAME();
-    // gust (>10m/s) time
-    static time_t gustt = 0., btagustt = 0.;
+    static char ans[BUFLEN];
     char *ptr = ans, *r = NULL;
     if(!GP->emul){
-        if(sl_tty_write(ttydescr->comfd, "?U\r\n", 4))
+        if(write_tty(ttydescr->comfd, "?U\r\n", 4))
             return NULL;
     }
-    double t0 = sl_dtime();
-    while(sl_dtime() - t0 < T_POLLING_TMOUT){
+    double t0 = dtime();
+    while(dtime() - t0 < T_POLLING_TMOUT){
         if((r = read_string())){ // parse new data
             DBG("got %s", r);
             if(strncmp(r, "<?U>", 4)){
@@ -141,29 +135,21 @@ char *poll_device(char *ans, int anslen){
             char *eol = strchr(r, '\n');
             if(eol) *eol = 0;
             double d;
-            int L = anslen - 1, l;
-            time_t tnow = time(NULL);
+            size_t L = BUFLEN, l;
 #define PRINT(...)  do{l = snprintf(ptr, L, __VA_ARGS__); if(l > 0){ L -= l; ptr += l;}}while(0)
             if(getpar(r, &d, "RT")) PRINT("Rain=%g\n", d);
             if(getpar(r, &d, "WU")) PRINT("Clouds=%.1f\n", d);
             if(getpar(r, &d, "TE")) PRINT("Exttemp=%.1f\n", d);
-            if(getpar(r, &d, "WG")){
-                d /= 3.6;
-                PRINT("Wind=%.1f\n", d);
-                if(d > GUST_WIND) gustt = tnow;
-            }
-            if(tnow - gustt < GUST_MAX_TIME) PRINT("Gusttime=%lld\n", (long long)gustt);
+            if(getpar(r, &d, "WG")) PRINT("Wind=%.1f\n", d/3.6);
             // now get BTA parameters
             if(check_shm_block(&sdat)){
                 PRINT("BTAExttemp=%.1f\n", val_T1);
                 PRINT("BTAPres=%.1f\n", val_B);
                 PRINT("BTAWind=%.1f\n", val_Wnd);
-                if(val_Wnd > GUST_WIND) btagustt = tnow;
-                if(tnow - btagustt < GUST_MAX_TIME) PRINT("BTAGusttime=%lld\n", (long long)btagustt);
                 PRINT("BTAHumid=%.1f\n", val_Hmd);
             }
 #undef PRINT
-            snprintf(ptr, L, "Time=%lld\n", (long long)tnow);
+            snprintf(ptr, L, "Time=%lld\n", (long long)time(NULL));
             DBG("Buffer: %s", ans);
             return ans;
         }

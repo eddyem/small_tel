@@ -16,7 +16,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+
+
 #pragma once
+#ifndef __CMDLNOPTS_H__
+#define __CMDLNOPTS_H__
 
 /*
  * here are some typedef's for global data
@@ -31,7 +35,10 @@ typedef struct{
     int tty_speed;          // serial terminal baudrate
     int emul;               // emulation of serial device
     char *pidfile;          // pidfile name
+    int rest_pars_num;      // number of rest parameters
+    char** rest_pars;       // the rest parameters: array of char* (path to logfile and thrash)
 } glob_pars;
 
 
 glob_pars *parse_args(int argc, char **argv);
+#endif // __CMDLNOPTS_H__

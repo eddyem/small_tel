@@ -39,7 +39,7 @@
 
 extern glob_pars *GP;
 
-static char answer[BUFSIZ] = {0};
+static char *answer = NULL;
 static int freshdata = 0;
 static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -156,7 +156,7 @@ static int handle_socket(int sock, int notchkhdr){
             return 1;
         }
     }
-    if(*answer) send_data(sock, webquery, answer);
+    if(answer) send_data(sock, webquery, answer);
     else send_data(sock, webquery, "No data\n");
     if(webquery) return 1; // close web query after message processing
     return 0;
@@ -178,7 +178,7 @@ static void *server(void *asock){
     memset(notchkhdr, 0, sizeof(notchkhdr));
     poll_set[0].fd = sock;
     poll_set[0].events = POLLIN;
-    double lastdatat = sl_dtime();
+    double lastdatat = dtime();
     while(1){
         poll(poll_set, nfd, 1); // poll for 1ms
         for(int fdidx = 0; fdidx < nfd; ++fdidx){ // poll opened FDs
@@ -223,15 +223,15 @@ static void *server(void *asock){
                 }
             }
         } // endfor
-        if(freshdata){ // send new data to all
+        if(freshdata && answer){ // send new data to all
             freshdata = 0;
-            lastdatat = sl_dtime();
+            lastdatat = dtime();
             for(int fdidx = 1; fdidx < nfd; ++fdidx){
                 if(notchkhdr[fdidx])
                     send_data(poll_set[fdidx].fd, 0, answer);
             }
         }
-        if(sl_dtime() - lastdatat > NODATA_TMOUT){
+        if(dtime() - lastdatat > NODATA_TMOUT){
             LOGERR("No data timeout");
             ERRX("No data timeout");
         }
@@ -242,14 +242,16 @@ static void *server(void *asock){
 static void *ttyparser(_U_ void *notused){
     double tlast = 0;
     while(1){
-        if(sl_dtime() - tlast > T_INTERVAL){
-            char *got = poll_device(answer, BUFSIZ);
+        if(dtime() - tlast > T_INTERVAL){
+            char *got = poll_device();
             if(got){
-                if(0 == pthread_mutex_lock(&mutex)){
+                if (0 == pthread_mutex_lock(&mutex)){
+                    FREE(answer);
+                    answer = strdup(got);
                     freshdata = 1;
                     pthread_mutex_unlock(&mutex);
                 }
-                tlast = sl_dtime();
+                tlast = dtime();
             }
         }
         sleep(1);

@@ -29,6 +29,7 @@
  * here are global parameters initialisation
  */
 int help;
+static glob_pars  G;
 
 // default values for Gdefault & help
 #define DEFAULT_PORT    "12345"
@@ -36,12 +37,14 @@ int help;
 
 //            DEFAULTS
 // default global parameters
-static glob_pars G = {
+glob_pars const Gdefault = {
     .device = NULL,
     .port = DEFAULT_PORT,
     .logfile = NULL,
     .verb = 0,
     .tty_speed = 9600,
+    .rest_pars = NULL,
+    .rest_pars_num = 0,
     .emul = 0,
     .pidfile = DEFAULT_PID
 };
@@ -50,7 +53,7 @@ static glob_pars G = {
  * Define command line options by filling structure:
  *  name        has_arg     flag    val     type        argptr              help
 */
-sl_option_t cmdlnopts[] = {
+myoption cmdlnopts[] = {
 // common options
     {"help",    NO_ARGS,    NULL,   'h',    arg_int,    APTR(&help),        _("show this help")},
     {"device",  NEED_ARG,   NULL,   'd',    arg_string, APTR(&G.device),    _("serial device name (default: none)")},
@@ -72,15 +75,18 @@ sl_option_t cmdlnopts[] = {
  */
 glob_pars *parse_args(int argc, char **argv){
     int i;
+    void *ptr;
+    ptr = memcpy(&G, &Gdefault, sizeof(G)); assert(ptr);
     // format of help: "Usage: progname [args]\n"
-    sl_helpstring("Usage: %s [args]\n\n\tWhere args are:\n");
+    change_helpstring("Usage: %s [args]\n\n\tWhere args are:\n");
     // parse arguments
-    sl_parseargs(&argc, &argv, cmdlnopts);
-    if(help) sl_showhelp(-1, cmdlnopts);
+    parseargs(&argc, &argv, cmdlnopts);
+    if(help) showhelp(-1, cmdlnopts);
     if(argc > 0){
-        red("Unused parameters:\n");
+        G.rest_pars_num = argc;
+        G.rest_pars = calloc(argc, sizeof(char*));
         for (i = 0; i < argc; i++)
-            printf("%s\n", argv[i]);
+            G.rest_pars[i] = strdup(argv[i]);
     }
     return &G;
 }

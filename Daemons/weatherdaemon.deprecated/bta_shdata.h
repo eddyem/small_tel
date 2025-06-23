@@ -1,6 +1,8 @@
 // Copyright: V.S. Shergin, vsher@sao.ru
 // fixed for x86_64 E.V. Emelianov, edward.emelianoff@gmail.com
 #pragma once
+#ifndef __BTA_SHDATA_H__
+#define __BTA_SHDATA_H__
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -848,3 +850,4 @@ void set_acckey(uint32_t newkey);
 #pragma pack(pop)
 //#pragma GCC diagnostic pop
 
+#endif // __BTA_SHDATA_H__
