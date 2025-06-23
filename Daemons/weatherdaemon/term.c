@@ -151,6 +151,7 @@ char *poll_device(char *ans, int anslen){
                 d /= 3.6;
                 PRINT("Wind=%.1f\n", d);
                 if(d > GUST_WIND) gustt = tnow;
+                if(getpar(r, &d, "WR")) PRINT("Dir=%.1f\n", d);
             }
             if(tnow - gustt < GUST_MAX_TIME) PRINT("Gusttime=%lld\n", (long long)gustt);
             // now get BTA parameters
