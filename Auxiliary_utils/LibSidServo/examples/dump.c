@@ -23,6 +23,42 @@
 #include "dump.h"
 #include "simpleconv.h"
 
+#if 0
+// amount of elements used for encoders' data filtering
+#define NFILT	(10)
+
+static double filterK[NFILT];
+static double lastvals[2][NFILT] = {0};
+static int need2buildFilter = 1;
+
+static void buildFilter(){
+    filterK[NFILT-1] = 1.;
+    double sum = 1.;
+    for(int i = NFILT-2; i > -1; --i){
+        filterK[i] = (filterK[i+1] + 1.) * 1.1;
+        sum += filterK[i];
+    }
+    for(int i = 0; i < NFILT; ++i) filterK[i] /= sum;
+}
+
+static double filter(double val, int idx){
+    if(need2buildFilter){
+        buildFilter();
+        need2buildFilter = 0;
+    }
+    static int ctr[2] = {0};
+    for(int i = NFILT-1; i > 0; --i) lastvals[idx][i] = lastvals[idx][i-1];
+    lastvals[idx][0] = val;
+    double r = 0.;
+    if(ctr[idx] < NFILT){
+        ++ctr[idx];
+        return val;
+    }
+    for(int i = 0; i < NFILT; ++i) r += filterK[i] * lastvals[idx][i];
+    return r;
+}
+#endif
+
 /**
  * @brief logmnt - log mount data into file
  * @param fcoords - file to dump
@@ -33,16 +69,18 @@ void logmnt(FILE *fcoords, mountdata_t *m){
     //DBG("LOG %s", m ? "data" : "header");
     static double t0 = -1.;
     if(!m){ // write header
-        fprintf(fcoords, "# time Xmot(deg) Ymot(deg) Xenc(deg) Yenc(deg) millis T V\n");
+        fprintf(fcoords, "#     time    Xmot(deg)   Ymot(deg) Xenc(deg)  Yenc(deg)   VX(d/s)    VY(d/s)     millis\n");
         return;
     }
-    if(t0 < 0.) t0 = m->encposition.msrtime.tv_sec + (double)(m->encposition.msrtime.tv_usec) / 1e6;
-    double t = m->encposition.msrtime.tv_sec + (double)(m->encposition.msrtime.tv_usec) / 1e6 - t0;
+    double tnow = (m->encXposition.t + m->encYposition.t) / 2.;
+    if(t0 < 0.) t0 = tnow;
+    double t = tnow - t0;
     // write data
-    fprintf(fcoords, "%12.6f %10.6f %10.6f %10.6f %10.6f %10u %6.1f %4.1f\n",
-            t, RAD2DEG(m->motposition.X), RAD2DEG(m->motposition.Y),
-            RAD2DEG(m->encposition.X), RAD2DEG(m->encposition.Y),
-            m->millis, m->temperature, m->voltage);
+    fprintf(fcoords, "%12.6f %10.6f %10.6f %10.6f %10.6f %10.6f %10.6f %10u\n",
+            t, RAD2DEG(m->motXposition.val), RAD2DEG(m->motYposition.val),
+            RAD2DEG(m->encXposition.val), RAD2DEG(m->encYposition.val),
+            RAD2DEG(m->encXspeed.val), RAD2DEG(m->encYspeed.val),
+            m->millis);
     fflush(fcoords);
 }
 
@@ -64,21 +102,24 @@ void dumpmoving(FILE *fcoords, double t, int N){
         WARNX("Can't get mount data");
         LOGWARN("Can't get mount data");
     }
-    uint32_t millis = mdata.encposition.msrtime.tv_usec;
+    uint32_t mdmillis = mdata.millis;
+    double enct = (mdata.encXposition.t + mdata.encYposition.t) / 2.;
     int ctr = -1;
-    double xlast = mdata.motposition.X, ylast = mdata.motposition.Y;
-    double t0 = sl_dtime();
-    //DBG("millis = %u", millis);
-    while(sl_dtime() - t0 < t && ctr < N){
+    double xlast = mdata.motXposition.val, ylast = mdata.motYposition.val;
+    double t0 = Mount.currentT();
+    while(Mount.currentT() - t0 < t && ctr < N){
         usleep(1000);
         if(MCC_E_OK != Mount.getMountData(&mdata)){ WARNX("Can't get data"); continue;}
-        if(mdata.encposition.msrtime.tv_usec == millis) continue;
-        //DBG("Got new data, posX=%g, posY=%g", mdata.motposition.X, mdata.motposition.Y);
-        millis = mdata.encposition.msrtime.tv_usec;
+        double tmsr = (mdata.encXposition.t + mdata.encYposition.t) / 2.;
+        if(tmsr == enct) continue;
+        enct = tmsr;
         if(fcoords) logmnt(fcoords, &mdata);
-        if(mdata.motposition.X != xlast || mdata.motposition.Y != ylast){
-            xlast = mdata.motposition.X;
-            ylast = mdata.motposition.Y;
+        if(mdata.millis == mdmillis) continue;
+        DBG("ctr=%d", ctr);
+        mdmillis = mdata.millis;
+        if(mdata.motXposition.val != xlast || mdata.motYposition.val != ylast){
+            xlast = mdata.motXposition.val;
+            ylast = mdata.motYposition.val;
             ctr = 0;
         }else ++ctr;
     }
@@ -98,9 +139,9 @@ void waitmoving(int N){
         if(MCC_E_OK != Mount.getMountData(&mdata)){ WARNX("Can't get data"); continue;}
         if(mdata.millis == millis) continue;
         millis = mdata.millis;
-        if(mdata.motposition.X != xlast || mdata.motposition.Y != ylast){
-            xlast = mdata.motposition.X;
-            ylast = mdata.motposition.Y;
+        if(mdata.motXposition.val != xlast || mdata.motYposition.val != ylast){
+            xlast = mdata.motXposition.val;
+            ylast = mdata.motYposition.val;
             ctr = 0;
         }else ++ctr;
     }
@@ -112,7 +153,7 @@ void waitmoving(int N){
  * @param Y (o) - encoder position (or NULL)
  * @return FALSE if failed
  */
-int getPos(coords_t *mot, coords_t *enc){
+int getPos(coordval_pair_t *mot, coordval_pair_t *enc){
     mountdata_t mdata = {0};
     int errcnt = 0;
     do{
@@ -126,16 +167,22 @@ int getPos(coords_t *mot, coords_t *enc){
         WARNX("Can't read mount status");
         return FALSE;
     }
-    if(mot) *mot = mdata.motposition;
-    if(enc) *enc = mdata.encposition;
+    if(mot){
+        mot->X = mdata.motXposition;
+        mot->Y = mdata.motYposition;
+    }
+    if(enc){
+        enc->X = mdata.encXposition;
+        enc->Y = mdata.encYposition;
+    }
     return TRUE;
 }
 
 // check current position and go to 0 if non-zero
 void chk0(int ncycles){
-    coords_t M;
+    coordval_pair_t M;
     if(!getPos(&M, NULL)) signals(2);
-    if(M.X || M.Y){
+    if(M.X.val || M.Y.val){
         WARNX("Mount position isn't @ zero; moving");
         double zero = 0.;
         Mount.moveTo(&zero, &zero);

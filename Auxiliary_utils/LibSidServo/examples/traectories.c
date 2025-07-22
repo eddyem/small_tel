@@ -28,12 +28,12 @@
 
 static traectory_fn cur_traectory = NULL;
 // starting point of traectory
-static coords_t XYstart = {0};
+static coordpair_t XYstart = {0};
 static double tstart = 0.;
 // convert Xe/Ye to approximate motor coordinates:
 // Xnew = Xcor+Xe; Ynew = Ycor+Ye; as Ye goes backwards to Ym, we have
 // Xcor = Xm0 - Xe0; Ycor = Xm0 + Ye0
-static coords_t XYcor = {0};
+static coordval_pair_t XYcor = {0};
 
 /**
  * @brief init_traectory - init traectory fn, sync starting positions of motor & encoders
@@ -41,20 +41,20 @@ static coords_t XYcor = {0};
  * @param XY0 - starting point
  * @return FALSE if failed
  */
-int init_traectory(traectory_fn f, coords_t *XY0){
+int init_traectory(traectory_fn f, coordpair_t *XY0){
     if(!f || !XY0) return FALSE;
     cur_traectory = f;
     XYstart = *XY0;
-    tstart = sl_dtime();
+    tstart = Mount.currentT();
     mountdata_t mdata;
     int ntries = 0;
     for(; ntries < 10; ++ntries){
         if(MCC_E_OK == Mount.getMountData(&mdata)) break;
     }
     if(ntries == 10) return FALSE;
-    XYcor.X = mdata.motposition.X - mdata.encposition.X;
-    XYcor.Y = mdata.motposition.X + mdata.encposition.Y;
-    DBG("STARTING POINTS: x=%g, y=%g degrees", DEG2RAD(XYcor.X), DEG2RAD(XYcor.Y));
+    XYcor.X.val = mdata.motXposition.val - mdata.encXposition.val;
+    XYcor.Y.val = mdata.motYposition.val - mdata.encYposition.val;
+    DBG("STARTING POINTS: x=%g, y=%g degrees", DEG2RAD(XYcor.X.val), DEG2RAD(XYcor.Y.val));
     return TRUE;
 }
 
@@ -64,12 +64,10 @@ int init_traectory(traectory_fn f, coords_t *XY0){
  * @param t - UNIX-time of event
  * @return FALSE if something wrong (e.g. X not in -90..90 or Y not in -180..180)
  */
-int traectory_point(coords_t *nextpt, double t){
+int traectory_point(coordpair_t *nextpt, double t){
     if(t < 0. || !cur_traectory) return FALSE;
-    coords_t pt;
+    coordpair_t pt;
     if(!cur_traectory(&pt, t)) return FALSE;
-    pt.msrtime.tv_sec = floor(t);
-    pt.msrtime.tv_usec = (uint32_t) t - pt.msrtime.tv_sec;
     if(nextpt) *nextpt = pt;
     if(pt.X < -M_PI_2 || pt.X > M_PI_2 || pt.Y < -M_PI || pt.Y > M_PI) return FALSE;
     return TRUE;
@@ -77,24 +75,25 @@ int traectory_point(coords_t *nextpt, double t){
 
 // current telescope position according to starting motor coordinates
 // @return FALSE if failed to get current coordinates
-int telpos(coords_t *curpos){
+int telpos(coordval_pair_t *curpos){
     mountdata_t mdata;
     int ntries = 0;
     for(; ntries < 10; ++ntries){
         if(MCC_E_OK == Mount.getMountData(&mdata)) break;
     }
     if(ntries == 10) return FALSE;
-    coords_t pt;
-    pt.X = XYcor.X + mdata.encposition.X;
-    pt.Y = XYcor.Y + mdata.encposition.Y;
-    pt.msrtime = mdata.encposition.msrtime;
+    coordval_pair_t pt;
+    pt.X.val = XYcor.X.val + mdata.encXposition.val;
+    pt.Y.val = XYcor.Y.val + mdata.encYposition.val;
+    pt.X.t = mdata.encXposition.t;
+    pt.Y.t = mdata.encYposition.t;
     if(curpos) *curpos = pt;
     return TRUE;
 }
 
 // X=X0+1'/s, Y=Y0+15''/s
-int Linear(coords_t *nextpt, double t){
-    coords_t pt;
+int Linear(coordpair_t *nextpt, double t){
+    coordpair_t pt;
     pt.X = XYstart.X + ASEC2RAD(1.) * (t - tstart);
     pt.Y = XYstart.Y + ASEC2RAD(15.)* (t - tstart);
     if(nextpt) *nextpt = pt;
@@ -102,8 +101,8 @@ int Linear(coords_t *nextpt, double t){
 }
 
 // X=X0+5'*sin(t/30*2pi), Y=Y0+10'*cos(t/200*2pi)
-int SinCos(coords_t *nextpt, double t){
-    coords_t pt;
+int SinCos(coordpair_t *nextpt, double t){
+    coordpair_t pt;
     pt.X = XYstart.X + AMIN2RAD(5.) * sin((t-tstart)/30.*2*M_PI);
     pt.Y = XYstart.Y + AMIN2RAD(10.)* cos((t-tstart)/200.*2*M_PI);
     if(nextpt) *nextpt = pt;

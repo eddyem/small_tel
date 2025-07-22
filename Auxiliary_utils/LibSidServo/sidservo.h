@@ -27,6 +27,11 @@ extern "C"
 #include <stdint.h>
 #include <sys/time.h>
 
+// max speed interval, seconds
+#define MCC_CONF_MAX_SPEEDINT   (2.)
+// minimal speed interval in parts of EncoderReqInterval
+#define MCC_CONF_MIN_SPEEDC     (3.)
+
 // error codes
 typedef enum{
     MCC_E_OK = 0,       // all OK
@@ -42,15 +47,29 @@ typedef struct{
     int     MountDevSpeed;      // serial speed
     char*   EncoderDevPath;     // path to encoder device
     int     EncoderDevSpeed;    // serial speed
-    int     SepEncoder;         // ==1 if encoder works as separate serial device
-    double  MountReqInterval;   // maximal interval between subsequent mount requests (seconds)
-    ;
+    int     SepEncoder;         // ==1 if encoder works as separate serial device, ==2 if there's new version with two devices
+    char*   EncoderXDevPath;    // paths to new controller devices
+    char*   EncoderYDevPath;
+    double  MountReqInterval;   // interval between subsequent mount requests (seconds)
+    double  EncoderReqInterval; // interval between subsequent encoder requests (seconds)
+    double  EncoderSpeedInterval;// interval between speed calculations
 } conf_t;
 
-// coordinates in degrees: X, Y and time when they were reached
+// coordinates/speeds in degrees or d/s: X, Y
 typedef struct{
-    double X; double Y; struct timeval msrtime;
-} coords_t;
+    double X; double Y;
+} coordpair_t;
+
+// coordinate/speed and time of last measurement
+typedef struct{
+    double val;
+    double t;
+} coordval_t;
+
+typedef struct{
+    coordval_t X;
+    coordval_t Y;
+} coordval_pair_t;
 
 // data to read/write
 typedef struct{
@@ -77,8 +96,8 @@ typedef struct{
     /* If 1, we are in computerless Slew and Track mode
        (no clutches; use handpad to slew; must be in Drag and Track mode too) */
     uint8_t slewtrack :1;
-    uint8_t digin_sens :1; // Digital input from radio handpad receiver, or RA PEC Sensor sync
-    uint8_t digin :3; // Digital input from radio handpad receiver
+    uint8_t digin_sens :1;  // Digital input from radio handpad receiver, or RA PEC Sensor sync
+    uint8_t digin :3;       // Digital input from radio handpad receiver
 } ybits_t;
 
 typedef struct{
@@ -90,18 +109,18 @@ typedef struct{
 } extradata_t;
 
 typedef struct{
-    coords_t motposition;
-    coords_t encposition;
-    coords_t lastmotposition;
+    coordval_t motXposition;
+    coordval_t motYposition;
+    coordval_t encXposition;
+    coordval_t encYposition;
+    // TODO: add speedX/Y
+    coordval_t encXspeed; // once per <config> s
+    coordval_t encYspeed;
     uint8_t keypad;
     extradata_t extradata;
     uint32_t millis;
     double temperature;
     double voltage;
-    int32_t XmotRaw;
-    int32_t YmotRaw;
-    int32_t XencRaw;
-    int32_t YencRaw;
 } mountdata_t;
 
 typedef struct{
@@ -166,22 +185,33 @@ typedef struct{
     uint32_t baudrate;  // Baud Rate (baud)
     double locsdeg;     // Local Search Degrees (rad)
     double locsspeed;   // Local Search Speed (rad/s)
-    double backlspd;    // Backlash speed (???)
+    double backlspd;    // Backlash speed (rad/s)
 } hardware_configuration_t;
+
+// flags for slew function
+typedef struct{
+    uint32_t slewNguide : 1; // ==1 to gude after slewing
+} slewflags_t;
 
 // mount class
 typedef struct{
+    // TODO: on init/quit clear all XY-bits to default`
     mcc_errcodes_t  (*init)(conf_t *c); // init device
     void            (*quit)(); // deinit
     mcc_errcodes_t  (*getMountData)(mountdata_t *d); // get last data
+    // TODO: change (or add flags) switching slew-and-stop and slew-and-track
+    // add mount state: stop/slew/guide
+    mcc_errcodes_t  (*slewTo)(const coordpair_t *target, slewflags_t flags);
     mcc_errcodes_t  (*moveTo)(const double *X, const double *Y); // move to given position ans stop
-    mcc_errcodes_t  (*moveWspeed)(const coords_t *target, const  coords_t *speed); // move with given max speed
+    mcc_errcodes_t  (*moveWspeed)(const coordpair_t *target, const  coordpair_t *speed); // move with given max speed
     mcc_errcodes_t  (*setSpeed)(const double *X, const double *Y); // set speed
     mcc_errcodes_t  (*stop)(); // stop
     mcc_errcodes_t  (*emergStop)(); // emergency stop
     mcc_errcodes_t  (*shortCmd)(short_command_t *cmd); // send/get short command
     mcc_errcodes_t  (*longCmd)(long_command_t *cmd); // send/get long command
     mcc_errcodes_t  (*getHWconfig)(hardware_configuration_t *c); // get hardware configuration
+    mcc_errcodes_t  (*saveHWconfig)(hardware_configuration_t *c); // save hardware configuration
+    double          (*currentT)(); // current time
 } mount_t;
 
 extern mount_t Mount;

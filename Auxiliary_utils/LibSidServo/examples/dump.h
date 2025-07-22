@@ -25,5 +25,5 @@
 void logmnt(FILE *fcoords, mountdata_t *m);
 void dumpmoving(FILE *fcoords, double t, int N);
 void waitmoving(int N);
-int getPos(coords_t *mot, coords_t *enc);
+int getPos(coordval_pair_t *mot, coordval_pair_t *enc);
 void chk0(int ncycles);

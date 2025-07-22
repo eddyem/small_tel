@@ -16,7 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-// dump telescope moving using short binary commands
+// move telescope to target using short command and force it to track mode
 
 #include <math.h>
 #include <pthread.h>
@@ -49,7 +49,7 @@ static parameters G = {
 
 static FILE *fcoords = NULL;
 
-static coordval_pair_t M;
+static coords_t M;
 
 static sl_option_t cmdlnopts[] = {
     {"help",        NO_ARGS,    NULL,   'h',    arg_int,    APTR(&G.help),      "show this help"},
@@ -92,8 +92,8 @@ static int Wait(double tag){
             errcnt = 0;
             if(mdata.millis == millis) continue;
             millis = mdata.millis;
-            if(*G.axis == 'X') curpos = mdata.motXposition.val;
-            else curpos = mdata.motYposition.val;
+            if(*G.axis == 'X') curpos = mdata.motposition.X;
+            else curpos = mdata.motposition.Y;
             if(sign == 0.) sign = (curpos > tag) ? 1. : -1.;
             //printf("%s=%g deg, need %g deg; delta=%g arcmin\n", G.axis, RAD2DEG(curpos),
             //       RAD2DEG(tag), RAD2DEG(sign*(curpos - tag))*60.);
@@ -113,14 +113,14 @@ static void move(double target, double limit, double speed){
     green("Move %s to %g until %g with %gdeg/s\n", G.axis, target, limit, speed);
     short_command_t cmd = {0};
     if(*G.axis == 'X' || *G.axis == 'B'){
-        cmd.Xmot = DEG2RAD(target) + M.X.val;
+        cmd.Xmot = DEG2RAD(target) + M.X;
         cmd.Xspeed = DEG2RAD(speed);
-        limit = DEG2RAD(limit) + M.X.val;
+        limit = DEG2RAD(limit) + M.X;
     }
     if(*G.axis == 'Y' || *G.axis == 'B'){
-        cmd.Ymot = DEG2RAD(target) + M.Y.val;
+        cmd.Ymot = DEG2RAD(target) + M.Y;
         cmd.Yspeed = DEG2RAD(speed);
-        if(*G.axis != 'B') limit = DEG2RAD(limit) + M.Y.val;
+        if(*G.axis != 'B') limit = DEG2RAD(limit) + M.Y;
     }
     if(MCC_E_OK != Mount.shortCmd(&cmd)) ERRX("Can't run command");
     if(!Wait(limit)) signals(9);
@@ -159,16 +159,10 @@ int main(int argc, char **argv){
     pthread_t dthr;
     logmnt(fcoords, NULL);
     if(pthread_create(&dthr, NULL, dumping, NULL)) ERRX("Can't run dump thread");
-    // goto 30' with 5'/s
-    move(10., 30./60., 5./60.);
-    // goto 1' with 10'/s
-    move(10., 1., 10./60.);
-    // goto 3degr with 15'/s
-    move(10., 3., 15./60.);
-    // and go back with 7deg/s
-    move(0., 0., 7.);
-    // be sure to move @ starting position
-    Mount.moveTo(&M.X.val, &M.Y.val);
+    // goto 10 degr with 2d/s and try to track for 8 seconds
+    move(10., 10.+2./60., 2.);
+    // be sure to move @ 0,0
+    Mount.moveTo(&M.X, &M.Y);
     // wait moving ends
     pthread_join(dthr, NULL);
     signals(0);

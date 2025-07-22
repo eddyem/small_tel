@@ -37,11 +37,12 @@ uint16_t SScalcChecksum(uint8_t *buf, int len){
 
 /**
  * @brief SSconvstat - convert stat from SSII format to human
- * @param status (i) - just read data
- * @param mountdata (o) - output
+ * @param s (i) - just read data
+ * @param m (o) - output
+ * @param t - measurement time
  */
-void SSconvstat(const SSstat *s, mountdata_t *m, struct timeval *tdat){
-    if(!s || !m || !tdat) return;
+void SSconvstat(const SSstat *s, mountdata_t *m, double t){
+    if(!s || !m) return;
 /*
 #ifdef EBUG
     static double t0 = -1.;
@@ -49,18 +50,18 @@ void SSconvstat(const SSstat *s, mountdata_t *m, struct timeval *tdat){
 #endif
     DBG("Convert, t=%g", dtime()-t0);
 */
-    m->motposition.X = X_MOT2RAD(s->Xmot);
-    m->motposition.Y = Y_MOT2RAD(s->Ymot);
-    m->motposition.msrtime = *tdat;
+    m->motXposition.val = X_MOT2RAD(s->Xmot);
+    m->motYposition.val = Y_MOT2RAD(s->Ymot);
+    m->motXposition.t = m->motYposition.t = t;
     // fill encoder data from here, as there's no separate enc thread
     if(!Conf.SepEncoder){
-        m->encposition.X = X_ENC2RAD(s->Xenc);
-        m->encposition.Y = Y_ENC2RAD(s->Yenc);
-        m->encposition.msrtime = *tdat;
+        m->encXposition.val = X_ENC2RAD(s->Xenc);
+        m->encYposition.val = Y_ENC2RAD(s->Yenc);
+        m->encXposition.t = m->encYposition.t = t;
     }
-    m->lastmotposition.X = X_MOT2RAD(s->XLast);
-    m->lastmotposition.Y = Y_MOT2RAD(s->YLast);
-    m->lastmotposition.msrtime = *tdat;
+    //m->lastmotposition.X = X_MOT2RAD(s->XLast);
+    //m->lastmotposition.Y = Y_MOT2RAD(s->YLast);
+    //m->lastmotposition.msrtime = *tdat;
     m->keypad = s->keypad;
     m->extradata.ExtraBits = s->ExtraBits;
     m->extradata.ain0 = s->ain0;

@@ -6,6 +6,7 @@ examples/conf.h
 examples/dump.c
 examples/dump.h
 examples/dumpmoving.c
+examples/dumpmoving_dragNtrack.c
 examples/dumpmoving_scmd.c
 examples/dumpswing.c
 examples/goto.c

@@ -21,12 +21,12 @@
 #include "sidservo.h"
 
 // traectory
-typedef int (*traectory_fn)(coords_t *, double);
+typedef int (*traectory_fn)(coordpair_t *, double);
 
-int init_traectory(traectory_fn f, coords_t *XY0);
+int init_traectory(traectory_fn f, coordpair_t *XY0);
 traectory_fn traectory_by_name(const char *name);
 void print_tr_names();
-int traectory_point(coords_t *nextpt, double t);
-int telpos(coords_t *curpos);
-int Linear(coords_t *nextpt, double t);
-int SinCos(coords_t *nextpt, double t);
+int traectory_point(coordpair_t *nextpt, double t);
+int telpos(coordval_pair_t *curpos);
+int Linear(coordpair_t *nextpt, double t);
+int SinCos(coordpair_t *nextpt, double t);

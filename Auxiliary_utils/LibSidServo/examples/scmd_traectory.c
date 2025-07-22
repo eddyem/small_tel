@@ -89,20 +89,21 @@ static void *dumping(void _U_ *u){
 // calculate
 static void runtraectory(traectory_fn tfn){
     if(!tfn) return;
-    coords_t telXY, traectXY;
-    double t0 = sl_dtime();
-    uint32_t susec_last = 0;
+    coordval_pair_t telXY;
+    coordpair_t traectXY;
+    double t0 = Mount.currentT();
+    double tlast = 0.;
     while(1){
         if(!telpos(&telXY)){
             WARNX("No next telescope position");
             return;
         }
-        if(telXY.msrtime.tv_usec == susec_last) continue; // last measure - don't mind
-        susec_last = telXY.msrtime.tv_usec;
-        double t = sl_dtime();
-        if(telXY.X > G.Xmax || telXY.Y > G.Ymax || t - t0 > G.tmax) break;
+        if(telXY.X.t == tlast && telXY.Y.t == tlast) continue; // last measure - don't mind
+        tlast = (telXY.X.t + telXY.Y.t) / 2.;
+        double t = Mount.currentT();
+        if(telXY.X.val > G.Xmax || telXY.Y.val > G.Ymax || t - t0 > G.tmax) break;
         if(!traectory_point(&traectXY, t)) break;
-        DBG("%g: dX=%.1f'', dY=%.1f''", t-t0, RAD2ASEC(traectXY.X-telXY.X), RAD2ASEC(traectXY.Y-telXY.Y));
+        DBG("%g: dX=%.1f'', dY=%.1f''", t-t0, RAD2ASEC(traectXY.X-telXY.X.val), RAD2ASEC(traectXY.Y-telXY.Y.val));
     }
     WARNX("No next traectory point");
 }
@@ -133,7 +134,7 @@ int main(int argc, char **argv){
         print_tr_names();
         return 1;
     }
-    coords_t c = {.X = DEG2RAD(G.X0), .Y = DEG2RAD(G.Y0)};
+    coordpair_t c = {.X = DEG2RAD(G.X0), .Y = DEG2RAD(G.Y0)};
     if(!init_traectory(tfn, &c)){
         ERRX("Can't init traectory");
         return 1;

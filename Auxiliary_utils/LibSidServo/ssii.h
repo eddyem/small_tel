@@ -165,10 +165,13 @@
 // X,Y - motor, XZ,YZ - encoder, XC,YC - current*100, V - voltage*10, T - temp (F), XA,YA - mode (A[uto]/M[anual]), K - handpad status bits
 #define CMD_GETSTATTEXT "\r"
 
-
+// Loop freq
+#define SITECH_LOOP_FREQUENCY   (1953.)
 
 // steps per revolution
+// 13312000 / 4 = 3328000
 #define X_MOT_STEPSPERREV   (3325952.)
+// 17578668 / 4 = 4394667
 #define Y_MOT_STEPSPERREV   (4394960.)
 
 // maximal speeds in rad/s: 10deg/s by X and 8deg/s by Y
@@ -176,31 +179,34 @@
 #define Y_SPEED_MAX         (0.13963)
 
 // motor position to radians and back
-#define X_MOT2RAD(n)    (2.*M_PI * ((double)n) / X_MOT_STEPSPERREV)
-#define Y_MOT2RAD(n)    (2.*M_PI * ((double)n) / Y_MOT_STEPSPERREV)
-#define X_RAD2MOT(r)    ((int32_t)((r) / 2./M_PI * X_MOT_STEPSPERREV))
-#define Y_RAD2MOT(r)    ((int32_t)((r) / 2./M_PI * Y_MOT_STEPSPERREV))
+#define X_MOT2RAD(n)    (2. * M_PI * ((double)(n)) / X_MOT_STEPSPERREV)
+#define Y_MOT2RAD(n)    (2. * M_PI * ((double)(n)) / Y_MOT_STEPSPERREV)
+#define X_RAD2MOT(r)    ((int32_t)((r) / (2. * M_PI) * X_MOT_STEPSPERREV))
+#define Y_RAD2MOT(r)    ((int32_t)((r) / (2. * M_PI) * Y_MOT_STEPSPERREV))
 // motor speed in rad/s and back
-#define X_MOTSPD2RS(n)  (X_MOT2RAD(n)/65536.*1953.)
-#define X_RS2MOTSPD(r)  ((int32_t)(X_RAD2MOT(r)*65536./1953.))
-#define Y_MOTSPD2RS(n)  (Y_MOT2RAD(n)/65536.*1953.)
-#define Y_RS2MOTSPD(r)  ((int32_t)(Y_RAD2MOT(r)*65536./1953.))
+#define X_MOTSPD2RS(n)  (X_MOT2RAD(n) / 65536. * SITECH_LOOP_FREQUENCY)
+#define Y_MOTSPD2RS(n)  (Y_MOT2RAD(n) / 65536. * SITECH_LOOP_FREQUENCY)
+#define X_RS2MOTSPD(r)  ((int32_t)(X_RAD2MOT(r) * 65536. / SITECH_LOOP_FREQUENCY))
+#define Y_RS2MOTSPD(r)  ((int32_t)(Y_RAD2MOT(r) * 65536. / SITECH_LOOP_FREQUENCY))
 // motor acceleration -//-
-#define X_MOTACC2RS(n)  (X_MOT2RAD(n)/65536.*1953.*1953.)
-#define X_RS2MOTACC(r)  ((int32_t)(X_RAD2MOT(r)*65536./1953./1953.))
-#define Y_MOTACC2RS(n)  (Y_MOT2RAD(n)/65536.*1953.*1953.)
-#define Y_RS2MOTACC(r)  ((int32_t)(Y_RAD2MOT(r)*65536./1953./1953.))
+#define X_MOTACC2RS(n)  (X_MOT2RAD(n) / 65536. * SITECH_LOOP_FREQUENCY * SITECH_LOOP_FREQUENCY)
+#define Y_MOTACC2RS(n)  (Y_MOT2RAD(n) / 65536. * SITECH_LOOP_FREQUENCY * SITECH_LOOP_FREQUENCY)
+#define X_RS2MOTACC(r)  ((int32_t)(X_RAD2MOT(r) * 65536. / SITECH_LOOP_FREQUENCY / SITECH_LOOP_FREQUENCY))
+#define Y_RS2MOTACC(r)  ((int32_t)(Y_RAD2MOT(r) * 65536. / SITECH_LOOP_FREQUENCY / SITECH_LOOP_FREQUENCY))
 
 // adder time to seconds vice versa
-#define ADDER2S(a)  ((a)*1953.)
-#define S2ADDER(s)  ((s)/1953.)
+#define ADDER2S(a)  ((a) * SITECH_LOOP_FREQUENCY)
+#define S2ADDER(s)  ((s) / SITECH_LOOP_FREQUENCY)
 
 // encoder per revolution
 #define X_ENC_STEPSPERREV   (67108864.)
 #define Y_ENC_STEPSPERREV   (67108864.)
+// encoder zero position
+#define X_ENC_ZERO          (46033555)
+#define Y_ENC_ZERO          (36674010)
 // encoder position to radians and back
-#define X_ENC2RAD(n)    (2.*M_PI * ((double)n) / X_ENC_STEPSPERREV)
-#define Y_ENC2RAD(n)    (2.*M_PI * ((double)n) / Y_ENC_STEPSPERREV)
+#define X_ENC2RAD(n)    (2.*M_PI * ((double)(n-X_ENC_ZERO)) / X_ENC_STEPSPERREV)
+#define Y_ENC2RAD(n)    (2.*M_PI * ((double)(n-Y_ENC_ZERO)) / Y_ENC_STEPSPERREV)
 #define X_RAD2ENC(r)    ((uint32_t)((r) / 2./M_PI * X_ENC_STEPSPERREV))
 #define Y_RAD2ENC(r)    ((uint32_t)((r) / 2./M_PI * Y_ENC_STEPSPERREV))
 
@@ -303,7 +309,7 @@ typedef struct{
 } __attribute__((packed)) SSconfig;
 
 uint16_t SScalcChecksum(uint8_t *buf, int len);
-void SSconvstat(const SSstat *status, mountdata_t *mountdata, struct timeval *tdat);
+void SSconvstat(const SSstat *status, mountdata_t *mountdata, double t);
 int SStextcmd(const char *cmd, data_t *answer);
 int SSrawcmd(const char *cmd, data_t *answer);
 int SSgetint(const char *cmd, int64_t *ans);

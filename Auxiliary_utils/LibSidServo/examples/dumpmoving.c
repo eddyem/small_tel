@@ -85,18 +85,18 @@ int main(int argc, char **argv){
     LOGMSG("Mount device %s @ %d", Config->MountDevPath, Config->MountDevSpeed);
     LOGMSG("Encoder device %s @ %d", Config->EncoderDevPath, Config->EncoderDevSpeed);
     if(MCC_E_OK != Mount.init(Config)) ERRX("Can't init devices");
-    coords_t M;
+    coordval_pair_t M;
     if(!getPos(&M, NULL)) ERRX("Can't get current position");
     signal(SIGTERM, signals); // kill (-15) - quit
     signal(SIGHUP, SIG_IGN);  // hup - ignore
     signal(SIGINT, signals);  // ctrl+C - quit
     signal(SIGQUIT, signals); // ctrl+\ - quit
     signal(SIGTSTP, SIG_IGN); // ignore ctrl+Z
-    double tagx = DEG2RAD(45.) + M.X, tagy = DEG2RAD(45.) + M.Y;
+    double tagx = DEG2RAD(45.) + M.X.val, tagy = DEG2RAD(45.) + M.Y.val;
     if(MCC_E_OK != Mount.moveTo(&tagx, &tagy))
         ERRX("Can't move to 45, 45");
     dumpmoving(fcoords, 30., G.Ncycles);
-    Mount.moveTo(&M.X, &M.Y);
+    Mount.moveTo(&M.X.val, &M.Y.val);
     dumpmoving(fcoords, 30., G.Ncycles);
     signals(0);
     return 0;

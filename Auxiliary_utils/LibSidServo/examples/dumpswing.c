@@ -83,18 +83,18 @@ void waithalf(double t){
     uint32_t millis = 0;
     double xlast = 0., ylast = 0.;
     while(ctr < 5){
-        if(sl_dtime() >= t) return;
+        if(Mount.currentT() >= t) return;
         usleep(1000);
         if(MCC_E_OK != Mount.getMountData(&mdata)){ WARNX("Can't get data"); continue;}
         if(mdata.millis == millis) continue;
         millis = mdata.millis;
-        if(mdata.motposition.X != xlast || mdata.motposition.Y != ylast){
-            DBG("NEQ: old=%g, now=%g", RAD2DEG(ylast), RAD2DEG(mdata.motposition.Y));
-            xlast = mdata.motposition.X;
-            ylast = mdata.motposition.Y;
+        if(mdata.motXposition.val != xlast || mdata.motYposition.val != ylast){
+            DBG("NEQ: old=%g, now=%g", RAD2DEG(ylast), RAD2DEG(mdata.motYposition.val));
+            xlast = mdata.motXposition.val;
+            ylast = mdata.motYposition.val;
             ctr = 0;
         }else{
-            DBG("EQ: old=%g, now=%g", RAD2DEG(ylast), RAD2DEG(mdata.motposition.Y));
+            DBG("EQ: old=%g, now=%g", RAD2DEG(ylast), RAD2DEG(mdata.motYposition.val));
             ++ctr;
         }
     }
@@ -145,21 +145,21 @@ int main(int argc, char **argv){
     }else{
         tagX = 0.; tagY = DEG2RAD(G.amplitude);
     }
-    double t = sl_dtime(), t0 = t;
+    double t = Mount.currentT(), t0 = t;
     double divide = 2., rtagX = -tagX, rtagY = -tagY;
     for(int i = 0; i < G.Nswings; ++i){
         Mount.moveTo(&tagX, &tagY);
-        DBG("CMD: %g", sl_dtime()-t0);
+        DBG("CMD: %g", Mount.currentT()-t0);
         t += G.period / divide;
         divide = 1.;
         waithalf(t);
         DBG("Moved to +, t=%g", t-t0);
-        DBG("CMD: %g", sl_dtime()-t0);
+        DBG("CMD: %g", Mount.currentT()-t0);
         Mount.moveTo(&rtagX, &rtagY);
         t += G.period;
         waithalf(t);
         DBG("Moved to -, t=%g", t-t0);
-        DBG("CMD: %g", sl_dtime()-t0);
+        DBG("CMD: %g", Mount.currentT()-t0);
     }
     double zero = 0.;
     // be sure to move @ 0,0

@@ -40,7 +40,7 @@ typedef struct{
 } parameters;
 
 static parameters G = {
-    .Ncycles = 40,
+    .Ncycles = 10,
     .X = NAN,
     .Y = NAN,
 };
@@ -88,7 +88,7 @@ int main(int _U_ argc, char _U_ **argv){
         return 1;
     }
     if(MCC_E_OK != Mount.init(Config)) ERRX("Can't init mount");
-    coords_t M;
+    coordval_pair_t M;
     if(!getPos(&M, NULL)) ERRX("Can't get current position");
     if(G.coordsoutput){
         if(!G.wait) green("When logging I should wait until moving ends; added '-w'");
@@ -100,18 +100,22 @@ int main(int _U_ argc, char _U_ **argv){
         logmnt(fcoords, NULL);
         if(pthread_create(&dthr, NULL, dumping, NULL)) ERRX("Can't run dump thread");
     }
-    printf("Mount position: X=%g, Y=%g\n", RAD2DEG(M.X), RAD2DEG(M.Y));
+    printf("Mount position: X=%g, Y=%g\n", RAD2DEG(M.X.val), RAD2DEG(M.Y.val));
     if(isnan(G.X) && isnan(G.Y)) goto out;
     double *xtag = NULL, *ytag = NULL, xr, yr;
+    double _7deg = RAD2DEG(7.);
     if(!isnan(G.X)){
         xr = DEG2RAD(G.X);
-        if(G.relative) xr += M.X;
+        if(G.relative) xr += M.X.val;
         xtag = &xr;
+        // set max speed
+        Mount.setSpeed(&_7deg, NULL);
     }
     if(!isnan(G.Y)){
         yr = DEG2RAD(G.Y);
-        if(G.relative) yr += M.Y;
+        if(G.relative) yr += M.Y.val;
         ytag = &yr;
+        Mount.setSpeed(NULL, &_7deg);
     }
     printf("Moving to ");
     if(xtag) printf("X=%gdeg ", G.X);
@@ -122,12 +126,14 @@ int main(int _U_ argc, char _U_ **argv){
         sleep(1);
         waitmoving(G.Ncycles);
         if(!getPos(&M, NULL)) WARNX("Can't get current position");
-        else printf("New mount position: X=%g, Y=%g\n", RAD2DEG(M.X), RAD2DEG(M.Y));
+        else printf("New mount position: X=%g, Y=%g\n", RAD2DEG(M.X.val), RAD2DEG(M.Y.val));
     }
 out:
+    DBG("JOIN");
     if(G.coordsoutput) pthread_join(dthr, NULL);
+    DBG("QUIT");
     if(G.wait){
-        if(getPos(&M, NULL)) printf("Mount position: X=%g, Y=%g\n", RAD2DEG(M.X), RAD2DEG(M.Y));
+        if(getPos(&M, NULL)) printf("Mount position: X=%g, Y=%g\n", RAD2DEG(M.X.val), RAD2DEG(M.Y.val));
         Mount.quit();
     }
     return 0;

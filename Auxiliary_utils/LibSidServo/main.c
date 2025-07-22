@@ -49,21 +49,25 @@ static mcc_errcodes_t init(conf_t *c){
     if(!Conf.MountDevPath || Conf.MountDevSpeed < 1200){
         DBG("Define mount device path and speed");
         ret = MCC_E_BADFORMAT;
-    }else if(!openMount(Conf.MountDevPath, Conf.MountDevSpeed)){
+    }else if(!openMount()){
         DBG("Can't open %s with speed %d", Conf.MountDevPath, Conf.MountDevSpeed);
         ret = MCC_E_MOUNTDEV;
     }
     if(Conf.SepEncoder){
-        if(!Conf.EncoderDevPath || Conf.EncoderDevSpeed < 1200){
-            DBG("Define encoder device path and speed");
+        if(!Conf.EncoderDevPath && !Conf.EncoderXDevPath){
+            DBG("Define encoder device path");
             ret = MCC_E_BADFORMAT;
-        }else if(!openEncoder(Conf.EncoderDevPath, Conf.EncoderDevSpeed)){
-            DBG("Can't open %s with speed %d", Conf.EncoderDevPath, Conf.EncoderDevSpeed);
+        }else if(!openEncoder()){
+            DBG("Can't open encoder device");
             ret = MCC_E_ENCODERDEV;
         }
     }
     if(Conf.MountReqInterval > 1. || Conf.MountReqInterval < 0.05){
         DBG("Bad value of MountReqInterval");
+        ret = MCC_E_BADFORMAT;
+    }
+    if(Conf.EncoderSpeedInterval < Conf.EncoderReqInterval * MCC_CONF_MIN_SPEEDC || Conf.EncoderSpeedInterval > MCC_CONF_MAX_SPEEDINT){
+        DBG("Wrong speed interval");
         ret = MCC_E_BADFORMAT;
     }
     uint8_t buf[1024];
@@ -91,6 +95,12 @@ static int chkXs(double s){
 static int chkYs(double s){
     if(s < 0. || s > Y_SPEED_MAX) return FALSE;
     return TRUE;
+}
+
+static mcc_errcodes_t slew2(const coordpair_t *target, slewflags_t flags){
+    (void)target;
+    (void)flags;
+    return MCC_E_FAILED;
 }
 
 
@@ -144,7 +154,7 @@ static mcc_errcodes_t setspeed(const double *X, const double *Y){
  * @param speed (i) - speed or NULL
  * @return
  */
-static mcc_errcodes_t move2s(const coords_t *target, const coords_t *speed){
+static mcc_errcodes_t move2s(const coordpair_t *target, const coordpair_t *speed){
     if(!target && !speed) return MCC_E_BADFORMAT;
     if(!target) return setspeed(&speed->X, &speed->Y);
     if(!speed) return move2(&target->X, &target->Y);
@@ -152,10 +162,10 @@ static mcc_errcodes_t move2s(const coords_t *target, const coords_t *speed){
         return MCC_E_BADFORMAT;
     char buf[128];
     int32_t spd = X_RS2MOTSPD(speed->X), tag = X_RAD2MOT(target->X);
-    snprintf(buf, 127, "%s%" PRIi64 "%s%" PRIi64, CMD_MOTX, tag, CMD_MOTXYS, spd);
+    snprintf(buf, 127, "%s%" PRIi32 "%s%" PRIi32, CMD_MOTX, tag, CMD_MOTXYS, spd);
     if(!SStextcmd(buf, NULL)) return MCC_E_FAILED;
     spd = Y_RS2MOTSPD(speed->Y); tag = Y_RAD2MOT(target->Y);
-    snprintf(buf, 127, "%s%" PRIi64 "%s%" PRIi64, CMD_MOTY, tag, CMD_MOTXYS, spd);
+    snprintf(buf, 127, "%s%" PRIi32 "%s%" PRIi32, CMD_MOTY, tag, CMD_MOTXYS, spd);
     if(!SStextcmd(buf, NULL)) return MCC_E_FAILED;
     return MCC_E_OK;
 }
@@ -230,20 +240,119 @@ static mcc_errcodes_t longcmd(long_command_t *cmd){
     return MCC_E_OK;
 }
 
-mcc_errcodes_t get_hwconf(hardware_configuration_t *c){
-    if(!c) return MCC_E_BADFORMAT;
-    SSconfig conf;
-    if(!cmdC(&conf, FALSE)) return MCC_E_FAILED;
-    // and bored transformations
-    DBG("Xacc=%u", conf.Xconf.accel);
-    DBG("Yacc=%u", conf.Yconf.accel);
-    c->Xconf.accel = X_MOTACC2RS(conf.Xconf.accel);
-    DBG("cacc: %g", c->Xconf.accel);
-    c->Xconf.backlash = conf.Xconf.backlash;
-    // ...
-    c->Yconf.accel = X_MOTACC2RS(conf.Yconf.accel);
-    c->Xconf.backlash = conf.Xconf.backlash;
-    // ...
+static mcc_errcodes_t get_hwconf(hardware_configuration_t *hwConfig){
+    if(!hwConfig) return MCC_E_BADFORMAT;
+    SSconfig config;
+    if(!cmdC(&config, FALSE)) return MCC_E_FAILED;
+    // Convert acceleration (ticks per loop^2 to rad/s^2)
+    hwConfig->Xconf.accel = X_MOTACC2RS(config.Xconf.accel);
+    hwConfig->Yconf.accel = Y_MOTACC2RS(config.Yconf.accel);
+    // Convert backlash (ticks to radians)
+    hwConfig->Xconf.backlash = X_MOT2RAD(config.Xconf.backlash);
+    hwConfig->Yconf.backlash = Y_MOT2RAD(config.Yconf.backlash);
+    // Convert error limit (ticks to radians)
+    hwConfig->Xconf.errlimit = X_MOT2RAD(config.Xconf.errlimit);
+    hwConfig->Yconf.errlimit = Y_MOT2RAD(config.Yconf.errlimit);
+    // Proportional, integral, and derivative gains are unitless, so no conversion needed
+    hwConfig->Xconf.propgain = (double)config.Xconf.propgain;
+    hwConfig->Yconf.propgain = (double)config.Yconf.propgain;
+    hwConfig->Xconf.intgain = (double)config.Xconf.intgain;
+    hwConfig->Yconf.intgain = (double)config.Yconf.intgain;
+    hwConfig->Xconf.derivgain = (double)config.Xconf.derivgain;
+    hwConfig->Yconf.derivgain = (double)config.Yconf.derivgain;
+    // Output limit is a percentage (0-100)
+    hwConfig->Xconf.outplimit = (double)config.Xconf.outplimit / 255.0 * 100.0;
+    hwConfig->Yconf.outplimit = (double)config.Yconf.outplimit / 255.0 * 100.0;
+    // Current limit in amps
+    hwConfig->Xconf.currlimit = (double)config.Xconf.currlimit / 100.0;
+    hwConfig->Yconf.currlimit = (double)config.Yconf.currlimit / 100.0;
+    // Integral limit is unitless
+    hwConfig->Xconf.intlimit = (double)config.Xconf.intlimit;
+    hwConfig->Yconf.intlimit = (double)config.Yconf.intlimit;
+    // Copy XBits and YBits (no conversion needed)
+    hwConfig->xbits = config.xbits;
+    hwConfig->ybits = config.ybits;
+    // Copy address
+    hwConfig->address = config.address;
+
+    // TODO: What to do with eqrate, eqadj and trackgoal?
+
+    // Convert latitude (degrees * 100 to radians)
+    hwConfig->latitude = (double)config.latitude / 100.0 * M_PI / 180.0;
+    // Copy ticks per revolution
+    hwConfig->Xsetpr = config.Xsetpr;
+    hwConfig->Ysetpr = config.Ysetpr;
+    hwConfig->Xmetpr = config.Xmetpr;
+    hwConfig->Ymetpr = config.Ymetpr;
+    // Convert slew rates (ticks per loop to rad/s)
+    hwConfig->Xslewrate = X_MOTSPD2RS(config.Xslewrate);
+    hwConfig->Yslewrate = Y_MOTSPD2RS(config.Yslewrate);
+    // Convert pan rates (ticks per loop to rad/s)
+    hwConfig->Xpanrate = X_MOTSPD2RS(config.Xpanrate);
+    hwConfig->Ypanrate = Y_MOTSPD2RS(config.Ypanrate);
+    // Convert guide rates (ticks per loop to rad/s)
+    hwConfig->Xguiderate = X_MOTSPD2RS(config.Xguiderate);
+    hwConfig->Yguiderate = Y_MOTSPD2RS(config.Yguiderate);
+    // copy baudrate
+    hwConfig->baudrate = (uint32_t) config.baudrate;
+    // Convert local search degrees (degrees * 100 to radians)
+    hwConfig->locsdeg = (double)config.locsdeg / 100.0 * M_PI / 180.0;
+    // Convert local search speed (arcsec per second to rad/s)
+    hwConfig->locsspeed = (double)config.locsspeed * M_PI / (180.0 * 3600.0);
+    // Convert backlash speed (ticks per loop to rad/s)
+    hwConfig->backlspd = X_MOTSPD2RS(config.backlspd);
+    return MCC_E_OK;
+}
+
+static mcc_errcodes_t write_hwconf(hardware_configuration_t *hwConfig){
+    SSconfig config;
+    // Convert acceleration (rad/s^2 to ticks per loop^2)
+    config.Xconf.accel = X_RS2MOTACC(hwConfig->Xconf.accel);
+    config.Yconf.accel = Y_RS2MOTACC(hwConfig->Yconf.accel);
+    // Convert backlash (radians to ticks)
+    config.Xconf.backlash = X_RAD2MOT(hwConfig->Xconf.backlash);
+    config.Yconf.backlash = Y_RAD2MOT(hwConfig->Yconf.backlash);
+    // Convert error limit (radians to ticks)
+    config.Xconf.errlimit = X_RAD2MOT(hwConfig->Xconf.errlimit);
+    config.Yconf.errlimit = Y_RAD2MOT(hwConfig->Yconf.errlimit);
+    // Proportional, integral, and derivative gains are unitless, so no conversion needed
+    config.Xconf.propgain = (uint16_t)hwConfig->Xconf.propgain;
+    config.Yconf.propgain = (uint16_t)hwConfig->Yconf.propgain;
+    config.Xconf.intgain = (uint16_t)hwConfig->Xconf.intgain;
+    config.Yconf.intgain = (uint16_t)hwConfig->Yconf.intgain;
+    config.Xconf.derivgain = (uint16_t)hwConfig->Xconf.derivgain;
+    config.Yconf.derivgain = (uint16_t)hwConfig->Yconf.derivgain;
+    // Output limit is a percentage (0-100), so convert back to 0-255
+    config.Xconf.outplimit = (uint8_t)(hwConfig->Xconf.outplimit / 100.0 * 255.0);
+    config.Yconf.outplimit = (uint8_t)(hwConfig->Yconf.outplimit / 100.0 * 255.0);
+    // Current limit is in amps (convert back to *100)
+    config.Xconf.currlimit = (uint16_t)(hwConfig->Xconf.currlimit * 100.0);
+    config.Yconf.currlimit = (uint16_t)(hwConfig->Yconf.currlimit * 100.0);
+    // Integral limit is unitless, so no conversion needed
+    config.Xconf.intlimit = (uint16_t)hwConfig->Xconf.intlimit;
+    config.Yconf.intlimit = (uint16_t)hwConfig->Yconf.intlimit;
+    // Copy XBits and YBits (no conversion needed)
+    config.xbits = hwConfig->xbits;
+    config.ybits = hwConfig->ybits;
+    // Convert latitude (radians to degrees * 100)
+    config.latitude = (uint16_t)(hwConfig->latitude * 180.0 / M_PI * 100.0);
+    // Convert slew rates (rad/s to ticks per loop)
+    config.Xslewrate = X_RS2MOTSPD(hwConfig->Xslewrate);
+    config.Yslewrate = Y_RS2MOTSPD(hwConfig->Yslewrate);
+    // Convert pan rates (rad/s to ticks per loop)
+    config.Xpanrate = X_RS2MOTSPD(hwConfig->Xpanrate);
+    config.Ypanrate = Y_RS2MOTSPD(hwConfig->Ypanrate);
+    // Convert guide rates (rad/s to ticks per loop)
+    config.Xguiderate = X_RS2MOTSPD(hwConfig->Xguiderate);
+    config.Yguiderate = Y_RS2MOTSPD(hwConfig->Yguiderate);
+    // Convert local search degrees (radians to degrees * 100)
+    config.locsdeg = (uint32_t)(hwConfig->locsdeg * 180.0 / M_PI * 100.0);
+    // Convert local search speed (rad/s to arcsec per second)
+    config.locsspeed = (uint32_t)(hwConfig->locsspeed * 180.0 * 3600.0 / M_PI);
+    // Convert backlash speed (rad/s to ticks per loop)
+    config.backlspd = X_RS2MOTSPD(hwConfig->backlspd);
+    // TODO - next
+    (void) config;
     return MCC_E_OK;
 }
 
@@ -252,6 +361,7 @@ mount_t Mount = {
     .init = init,
     .quit = quit,
     .getMountData = getMD,
+    .slewTo = slew2,
     .moveTo = move2,
     .moveWspeed = move2s,
     .setSpeed = setspeed,
@@ -260,4 +370,6 @@ mount_t Mount = {
     .shortCmd = shortcmd,
     .longCmd = longcmd,
     .getHWconfig = get_hwconf,
+    .saveHWconfig = write_hwconf,
+    .currentT = dtime,
 };

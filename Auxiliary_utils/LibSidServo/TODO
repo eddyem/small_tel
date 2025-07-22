@@ -1,0 +1,11 @@
+1. WTF after closing?
+
+closeSerial (/home/eddy/C-files/LibSidServo/serial.c, line 484): close fd
+
+closeSerial (/home/eddy/C-files/LibSidServo/serial.c, line 489): Kill encoder thread
+
+closeSerial (/home/eddy/C-files/LibSidServo/serial.c, line 491): close fd
+*** bit out of range 0 - FD_SETSIZE on fd_set ***: terminated
+Aborted
+
+

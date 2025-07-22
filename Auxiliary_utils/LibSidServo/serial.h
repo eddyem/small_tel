@@ -31,8 +31,8 @@
 double dtime();
 data_t *cmd2dat(const char *cmd);
 void data_free(data_t **x);
-int openEncoder(const char *path, int speed);
-int openMount(const char *path, int speed);
+int openEncoder();
+int openMount();
 void closeSerial();
 mcc_errcodes_t getMD(mountdata_t  *d);
 int MountWriteRead(const data_t *out, data_t *in);

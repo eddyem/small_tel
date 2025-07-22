@@ -24,10 +24,13 @@
 static conf_t Config = {
     .MountDevPath = "/dev/ttyUSB0",
     .MountDevSpeed = 19200,
-    .EncoderDevPath = "/dev/ttyUSB1",
+    .EncoderXDevPath = "/dev/encoderX0",
+    .EncoderYDevPath = "/dev/encoderY0",
     .EncoderDevSpeed = 153000,
     .MountReqInterval = 0.1,
-    .SepEncoder = 1
+    .EncoderReqInterval = 0.05,
+    .SepEncoder = 2,
+    .EncoderSpeedInterval = 0.1,
 };
 
 static sl_option_t opts[] = {
@@ -36,7 +39,11 @@ static sl_option_t opts[] = {
     {"EncoderDevPath",  NEED_ARG,   NULL,   0,  arg_string, APTR(&Config.EncoderDevPath),   "path to encoder device"},
     {"EncoderDevSpeed", NEED_ARG,   NULL,   0,  arg_int,    APTR(&Config.EncoderDevSpeed),  "serial speed of encoder device"},
     {"MountReqInterval",NEED_ARG,   NULL,   0,  arg_double, APTR(&Config.MountReqInterval), "interval of mount requests (not less than 0.05s)"},
-    {"SepEncoder",      NO_ARGS,    NULL,   0,  arg_int,    APTR(&Config.SepEncoder),       "encoder is separate device"},
+    {"EncoderReqInterval",NEED_ARG, NULL,   0,  arg_double, APTR(&Config.EncoderReqInterval),"interval of encoder requests (in case of sep=2)"},
+    {"SepEncoder",      NO_ARGS,    NULL,   0,  arg_int,    APTR(&Config.SepEncoder),       "encoder is separate device (1 - one device, 2 - two devices)"},
+    {"EncoderXDevPath", NEED_ARG,   NULL,   0,  arg_string, APTR(&Config.EncoderXDevPath),  "path to X encoder (/dev/encoderX0)"},
+    {"EncoderYDevPath", NEED_ARG,   NULL,   0,  arg_string, APTR(&Config.EncoderYDevPath),  "path to Y encoder (/dev/encoderY0)"},
+    {"EncoderSpeedInterval", NEED_ARG,NULL, 0,  arg_double, APTR(&Config.EncoderSpeedInterval),"interval of speed calculations, s"},
     end_option
 };
 
