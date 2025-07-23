@@ -202,13 +202,6 @@ static mcc_errcodes_t shortcmd(short_command_t *cmd){
     s.YBits = cmd->YBits;
     DBG("X->%d, Y->%d, Xs->%d, Ys->%d", s.Xmot, s.Ymot, s.Xspeed, s.Yspeed);
     if(!cmdS(&s)) return MCC_E_FAILED;
-    cmd->Xmot = X_MOT2RAD(s.Xmot);
-    cmd->Ymot = Y_MOT2RAD(s.Ymot);
-    cmd->Xspeed = X_MOTSPD2RS(s.Xspeed);
-    cmd->Yspeed = Y_MOTSPD2RS(s.Yspeed);
-    cmd->xychange = s.xychange;
-    cmd->XBits = s.XBits;
-    cmd->YBits = s.YBits;
     return MCC_E_OK;
 }
 
@@ -229,14 +222,6 @@ static mcc_errcodes_t longcmd(long_command_t *cmd){
     l.Xatime = S2ADDER(cmd->Xatime);
     l.Yatime = S2ADDER(cmd->Yatime);
     if(!cmdL(&l)) return MCC_E_FAILED;
-    cmd->Xmot = X_MOT2RAD(l.Xmot);
-    cmd->Ymot = Y_MOT2RAD(l.Ymot);
-    cmd->Xspeed = X_MOTSPD2RS(l.Xspeed);
-    cmd->Yspeed = Y_MOTSPD2RS(l.Yspeed);
-    cmd->Xadder = X_MOTSPD2RS(l.Xadder);
-    cmd->Yadder = Y_MOTSPD2RS(l.Yadder);
-    cmd->Xatime = ADDER2S(l.Xatime);
-    cmd->Yatime = ADDER2S(l.Yatime);
     return MCC_E_OK;
 }
 

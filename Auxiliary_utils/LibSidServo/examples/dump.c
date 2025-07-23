@@ -115,7 +115,7 @@ void dumpmoving(FILE *fcoords, double t, int N){
         enct = tmsr;
         if(fcoords) logmnt(fcoords, &mdata);
         if(mdata.millis == mdmillis) continue;
-        DBG("ctr=%d", ctr);
+        //DBG("ctr=%d", ctr);
         mdmillis = mdata.millis;
         if(mdata.motXposition.val != xlast || mdata.motYposition.val != ylast){
             xlast = mdata.motXposition.val;

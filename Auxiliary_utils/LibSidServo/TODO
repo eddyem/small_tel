@@ -9,3 +9,7 @@ closeSerial (/home/eddy/C-files/LibSidServo/serial.c, line 491): close fd
 Aborted
 
 
+2. Init: set "motors" positions due to "encoders" position
+
+3. From time to time: repeat 2
+

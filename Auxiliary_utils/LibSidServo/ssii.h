@@ -168,11 +168,15 @@
 // Loop freq
 #define SITECH_LOOP_FREQUENCY   (1953.)
 
-// steps per revolution
+// steps per revolution (SSI - x4 - for SSI)
 // 13312000 / 4 = 3328000
-#define X_MOT_STEPSPERREV   (3325952.)
+#define X_MOT_STEPSPERREV_SSI   (13312000.)
+//#define X_MOT_STEPSPERREV   (3325952.)
+#define X_MOT_STEPSPERREV   (3328000.)
 // 17578668 / 4 = 4394667
-#define Y_MOT_STEPSPERREV   (4394960.)
+#define Y_MOT_STEPSPERREV_SSI (17578668.)
+//#define Y_MOT_STEPSPERREV   (4394960.)
+#define Y_MOT_STEPSPERREV   (4394667.)
 
 // maximal speeds in rad/s: 10deg/s by X and 8deg/s by Y
 #define X_SPEED_MAX         (0.17453)
@@ -195,8 +199,8 @@
 #define Y_RS2MOTACC(r)  ((int32_t)(Y_RAD2MOT(r) * 65536. / SITECH_LOOP_FREQUENCY / SITECH_LOOP_FREQUENCY))
 
 // adder time to seconds vice versa
-#define ADDER2S(a)  ((a) * SITECH_LOOP_FREQUENCY)
-#define S2ADDER(s)  ((s) / SITECH_LOOP_FREQUENCY)
+#define ADDER2S(a)  ((a) / SITECH_LOOP_FREQUENCY)
+#define S2ADDER(s)  ((s) * SITECH_LOOP_FREQUENCY)
 
 // encoder per revolution
 #define X_ENC_STEPSPERREV   (67108864.)

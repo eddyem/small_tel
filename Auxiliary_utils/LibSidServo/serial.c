@@ -541,6 +541,8 @@ static int wr(const data_t *out, data_t *in, int needeol){
         if(b < 0) break; // nothing to read -> go out
         in->buf[in->len++] = (uint8_t) b;
     }
+    //DBG("Clear trashing input");
+    while(getmntbyte() > -1);
     return TRUE;
 }
 
@@ -606,11 +608,7 @@ static int bincmd(uint8_t *cmd, int len){
     data_t d;
     d.buf = cmd;
     d.len = d.maxlen = len;
-    ret = wr(&d, &d, 0);
-#ifdef EBUG
-    if(len == sizeof(SSscmd)) logscmd((SSscmd*)cmd);
-    else loglcmd((SSlcmd*)cmd);
-#endif
+    ret = wr(&d, NULL, 0);
     DBG("%s", ret ? "SUCCESS" : "FAIL");
 rtn:
     pthread_mutex_unlock(&mntmutex);
