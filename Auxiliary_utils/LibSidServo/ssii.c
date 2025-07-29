@@ -35,6 +35,28 @@ uint16_t SScalcChecksum(uint8_t *buf, int len){
     return checksum;
 }
 
+
+static void axestat(int32_t *prev, int32_t cur, int *nstopped, mnt_status_t *stat){
+    if(*prev == INT32_MAX){
+        *stat = MNT_STOPPED;
+    }else if(*stat != MNT_STOPPED){
+        if(*prev == cur){
+            if(++(*nstopped) > MOTOR_STOPPED_CNT) *stat = MNT_STOPPED;
+        }
+    }else if(*prev != cur){
+        //*stat = MNT_SLEWING;
+        *nstopped = 0;
+    }
+    *prev = cur;
+}
+// check for stopped/pointing states
+static void ChkStopped(const SSstat *s, mountdata_t *m){
+    static int32_t Xmot_prev = INT32_MAX, Ymot_prev = INT32_MAX; // previous coordinates
+    static int Xnstopped = 0, Ynstopped = 0; // counters to get STOPPED state
+    axestat(&Xmot_prev, s->Xmot, &Xnstopped, &m->Xstatus);
+    axestat(&Ymot_prev, s->Ymot, &Ynstopped, &m->Ystatus);
+}
+
 /**
  * @brief SSconvstat - convert stat from SSII format to human
  * @param s (i) - just read data
@@ -52,6 +74,7 @@ void SSconvstat(const SSstat *s, mountdata_t *m, double t){
 */
     m->motXposition.val = X_MOT2RAD(s->Xmot);
     m->motYposition.val = Y_MOT2RAD(s->Ymot);
+    ChkStopped(s, m);
     m->motXposition.t = m->motYposition.t = t;
     // fill encoder data from here, as there's no separate enc thread
     if(!Conf.SepEncoder){
@@ -154,3 +177,28 @@ int SSstop(int emerg){
     return TRUE;
 }
 
+// update motors' positions due to encoders'
+mcc_errcodes_t updateMotorPos(){
+    mountdata_t md = {0};
+    double t0 = dtime(), t = 0.;
+    DBG("start @ %g", t0);
+    do{
+        t = dtime();
+        if(MCC_E_OK == getMD(&md)){
+            DBG("got");
+            if(fabs(md.encXposition.t - t) < 0.1 && fabs(md.encYposition.t - t) < 0.1){
+                DBG("FIX motors position to encoders");
+                int32_t Xpos = X_RAD2MOT(md.encXposition.val), Ypos = Y_RAD2MOT(md.encYposition.val);
+                if(SSsetterI(CMD_MOTXSET, Xpos) && SSsetterI(CMD_MOTYSET, Ypos)){
+                    DBG("All OK");
+                    return MCC_E_OK;
+                }
+            }else{
+                DBG("on position");
+                return MCC_E_OK;
+            }
+        }
+        DBG("NO DATA; dt = %g", t - t0);
+    }while(t - t0 < 2.);
+    return MCC_E_FATAL;
+}

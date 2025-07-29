@@ -92,11 +92,12 @@ int main(int argc, char **argv){
     signal(SIGINT, signals);  // ctrl+C - quit
     signal(SIGQUIT, signals); // ctrl+\ - quit
     signal(SIGTSTP, SIG_IGN); // ignore ctrl+Z
-    double tagx = DEG2RAD(45.) + M.X.val, tagy = DEG2RAD(45.) + M.Y.val;
-    if(MCC_E_OK != Mount.moveTo(&tagx, &tagy))
+    coordpair_t tag = {.X = DEG2RAD(45.) + M.X.val, .Y = DEG2RAD(45.) + M.Y.val};
+    if(MCC_E_OK != Mount.moveTo(&tag))
         ERRX("Can't move to 45, 45");
     dumpmoving(fcoords, 30., G.Ncycles);
-    Mount.moveTo(&M.X.val, &M.Y.val);
+    tag.X = M.X.val; tag.Y = M.Y.val;
+    Mount.moveTo(&tag);
     dumpmoving(fcoords, 30., G.Ncycles);
     signals(0);
     return 0;

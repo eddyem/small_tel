@@ -1,0 +1,8 @@
+#!/usr/bin/gnuplot
+
+#set term pdf
+#set output "output.pdf"
+while(1){
+    plot for [col in "target curpos speed error"] 'coords' using 1:col with lines title columnheader
+    pause 1
+}

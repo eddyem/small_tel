@@ -27,6 +27,10 @@ extern "C"
 #include <stdint.h>
 #include <sys/time.h>
 
+// max speeds (rad/s): xs=10 deg/s, ys=8 deg/s
+#define MCC_MAX_X_SPEED         (0.174533)
+#define MCC_MAX_Y_SPEED         (0.139626)
+
 // max speed interval, seconds
 #define MCC_CONF_MAX_SPEEDINT   (2.)
 // minimal speed interval in parts of EncoderReqInterval
@@ -108,12 +112,21 @@ typedef struct{
     uint16_t ain1;
 } extradata_t;
 
+typedef enum{
+    MNT_STOPPED,
+    MNT_SLEWING,
+    MNT_POINTING,
+    MNT_GUIDING,
+    MNT_ERROR,
+} mnt_status_t;
+
 typedef struct{
+    mnt_status_t Xstatus;
+    mnt_status_t Ystatus;
     coordval_t motXposition;
     coordval_t motYposition;
     coordval_t encXposition;
     coordval_t encYposition;
-    // TODO: add speedX/Y
     coordval_t encXspeed; // once per <config> s
     coordval_t encYspeed;
     uint8_t keypad;
@@ -122,10 +135,6 @@ typedef struct{
     double temperature;
     double voltage;
 } mountdata_t;
-
-typedef struct{
-    ;
-} mountstat_t;
 
 typedef struct{
     double Xmot;        // 0  X motor position (rad)
@@ -190,7 +199,7 @@ typedef struct{
 
 // flags for slew function
 typedef struct{
-    uint32_t slewNguide : 1; // ==1 to gude after slewing
+    uint32_t slewNguide : 1; // ==1 to guide after slewing
 } slewflags_t;
 
 // mount class
@@ -199,12 +208,11 @@ typedef struct{
     mcc_errcodes_t  (*init)(conf_t *c); // init device
     void            (*quit)(); // deinit
     mcc_errcodes_t  (*getMountData)(mountdata_t *d); // get last data
-    // TODO: change (or add flags) switching slew-and-stop and slew-and-track
-    // add mount state: stop/slew/guide
     mcc_errcodes_t  (*slewTo)(const coordpair_t *target, slewflags_t flags);
-    mcc_errcodes_t  (*moveTo)(const double *X, const double *Y); // move to given position ans stop
+    mcc_errcodes_t  (*correctTo)(coordval_pair_t *target);
+    mcc_errcodes_t  (*moveTo)(const coordpair_t *target); // move to given position and stop
     mcc_errcodes_t  (*moveWspeed)(const coordpair_t *target, const  coordpair_t *speed); // move with given max speed
-    mcc_errcodes_t  (*setSpeed)(const double *X, const double *Y); // set speed
+    mcc_errcodes_t  (*setSpeed)(const coordpair_t *tagspeed); // set speed
     mcc_errcodes_t  (*stop)(); // stop
     mcc_errcodes_t  (*emergStop)(); // emergency stop
     mcc_errcodes_t  (*shortCmd)(short_command_t *cmd); // send/get short command

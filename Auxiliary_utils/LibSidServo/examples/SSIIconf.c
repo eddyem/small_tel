@@ -16,6 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <math.h>
 #include <stdio.h>
 #include <usefull_macros.h>
 
@@ -50,6 +51,83 @@ static sl_option_t confopts[] = {
     end_option
 };
 
+static void dumpaxe(char axe, axe_config_t *c){
+#define STRUCTPAR(p)    (c)->p
+#define DUMP(par) do{printf("%c%s=%g\n", axe, #par, STRUCTPAR(par));}while(0)
+#define DUMPD(par) do{printf("%c%s=%g\n", axe, #par, RAD2DEG(STRUCTPAR(par)));}while(0)
+    DUMPD(accel);
+    DUMPD(backlash);
+    DUMPD(errlimit);
+    DUMP(propgain);
+    DUMP(intgain);
+    DUMP(derivgain);
+    DUMP(outplimit);
+    DUMP(currlimit);
+    DUMP(intlimit);
+#undef DUMP
+#undef DUMPD
+}
+
+static void dumpxbits(xbits_t *c){
+#define DUMPBIT(f) do{printf("X%s=%d\n", #f, STRUCTPAR(f));}while(0)
+    DUMPBIT(motrev);
+    DUMPBIT(motpolarity);
+    DUMPBIT(encrev);
+    DUMPBIT(dragtrack);
+    DUMPBIT(trackplat);
+    DUMPBIT(handpaden);
+    DUMPBIT(newpad);
+    DUMPBIT(guidemode);
+#undef DUMPBIT
+}
+
+static void dumpybits(ybits_t *c){
+#define DUMPBIT(f) do{printf("Y%s=%d\n", #f, STRUCTPAR(f));}while(0)
+    DUMPBIT(motrev);
+    DUMPBIT(motpolarity);
+    DUMPBIT(encrev);
+    DUMPBIT(slewtrack);
+    DUMPBIT(digin_sens);
+    printf("Ydigin=%d\n", c->digin);
+#undef DUMPBIT
+}
+
+static void dumpHWconf(){
+#undef STRUCTPAR
+#define STRUCTPAR(p)    (HW).p
+#define DUMP(par) do{printf("%s=%g\n", #par, STRUCTPAR(par));}while(0)
+#define DUMPD(par) do{printf("%s=%g\n", #par, RAD2DEG(STRUCTPAR(par)));}while(0)
+#define DUMPU8(par) do{printf("%s=%u\n", #par, (uint8_t)STRUCTPAR(par));}while(0)
+#define DUMPU32(par) do{printf("%s=%u\n", #par, (uint32_t)STRUCTPAR(par));}while(0)
+    green("X axe configuration:\n");
+    dumpaxe('X', &HW.Xconf);
+    green("X bits:\n");
+    dumpxbits(&HW.xbits);
+    green("Y axe configuration:\n");
+    dumpaxe('Y', &HW.Yconf);
+    green("Y bits:\n");
+    dumpybits(&HW.ybits);
+    printf("address=%d\n", HW.address);
+    DUMP(eqrate);
+    DUMP(eqadj);
+    DUMP(trackgoal);
+    DUMPD(latitude);
+    DUMPU32(Xsetpr);
+    DUMPU32(Ysetpr);
+    DUMPU32(Xmetpr);
+    DUMPU32(Ymetpr);
+    DUMPD(Xslewrate);
+    DUMPD(Yslewrate);
+    DUMPD(Xpanrate);
+    DUMPD(Ypanrate);
+    DUMPD(Xguiderate);
+    DUMPD(Yguiderate);
+    DUMPU32(baudrate);
+    DUMPD(locsdeg);
+    DUMPD(locsspeed);
+    DUMPD(backlspd);
+}
+
 int main(int argc, char** argv){
     sl_init();
     sl_parseargs(&argc, &argv, cmdlnopts);
@@ -68,9 +146,11 @@ int main(int argc, char** argv){
     green("Got configuration:\n");
     printf("%s\n", c);
     FREE(c);
+    dumpHWconf();
+    /*
     if(G.hwconffile && G.writeconf){
         ;
-    }
+    }*/
     Mount.quit();
     return 0;
 }

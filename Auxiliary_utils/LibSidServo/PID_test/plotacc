@@ -1,0 +1,4 @@
+#!/usr/bin/gnuplot
+
+plot 'coords' using 1:5 with lines title columnheader
+pause mouse

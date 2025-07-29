@@ -168,6 +168,9 @@
 // Loop freq
 #define SITECH_LOOP_FREQUENCY   (1953.)
 
+// amount of consequent same coordinates to detect stop
+#define MOTOR_STOPPED_CNT       (20)
+
 // steps per revolution (SSI - x4 - for SSI)
 // 13312000 / 4 = 3328000
 #define X_MOT_STEPSPERREV_SSI   (13312000.)
@@ -178,13 +181,22 @@
 //#define Y_MOT_STEPSPERREV   (4394960.)
 #define Y_MOT_STEPSPERREV   (4394667.)
 
-// maximal speeds in rad/s: 10deg/s by X and 8deg/s by Y
-#define X_SPEED_MAX         (0.17453)
-#define Y_SPEED_MAX         (0.13963)
+// convert angle in radians to +-pi
+static inline double ang2half(double ang){
+    if(ang < -M_PI) ang += 2.*M_PI;
+    else if(ang > M_PI) ang -= 2.*M_PI;
+    return ang;
+}
+// convert to only positive: 0..2pi
+static inline double ang2full(double ang){
+    if(ang < 0.) ang += 2.*M_PI;
+    else if(ang > 2.*M_PI) ang -= 2.*M_PI;
+    return ang;
+}
 
 // motor position to radians and back
-#define X_MOT2RAD(n)    (2. * M_PI * ((double)(n)) / X_MOT_STEPSPERREV)
-#define Y_MOT2RAD(n)    (2. * M_PI * ((double)(n)) / Y_MOT_STEPSPERREV)
+#define X_MOT2RAD(n)    ang2half(2. * M_PI * ((double)(n)) / X_MOT_STEPSPERREV)
+#define Y_MOT2RAD(n)    ang2half(2. * M_PI * ((double)(n)) / Y_MOT_STEPSPERREV)
 #define X_RAD2MOT(r)    ((int32_t)((r) / (2. * M_PI) * X_MOT_STEPSPERREV))
 #define Y_RAD2MOT(r)    ((int32_t)((r) / (2. * M_PI) * Y_MOT_STEPSPERREV))
 // motor speed in rad/s and back
@@ -206,11 +218,14 @@
 #define X_ENC_STEPSPERREV   (67108864.)
 #define Y_ENC_STEPSPERREV   (67108864.)
 // encoder zero position
-#define X_ENC_ZERO          (46033555)
-#define Y_ENC_ZERO          (36674010)
+#define X_ENC_ZERO          (61245239)
+#define Y_ENC_ZERO          (36999830)
+// encoder reversed (no: +1)
+#define X_ENC_SIGN          (-1.)
+#define Y_ENC_SIGN          (-1.)
 // encoder position to radians and back
-#define X_ENC2RAD(n)    (2.*M_PI * ((double)(n-X_ENC_ZERO)) / X_ENC_STEPSPERREV)
-#define Y_ENC2RAD(n)    (2.*M_PI * ((double)(n-Y_ENC_ZERO)) / Y_ENC_STEPSPERREV)
+#define X_ENC2RAD(n)    ang2half(X_ENC_SIGN * 2.*M_PI * ((double)(n-X_ENC_ZERO)) / X_ENC_STEPSPERREV)
+#define Y_ENC2RAD(n)    ang2half(Y_ENC_SIGN * 2.*M_PI * ((double)(n-Y_ENC_ZERO)) / Y_ENC_STEPSPERREV)
 #define X_RAD2ENC(r)    ((uint32_t)((r) / 2./M_PI * X_ENC_STEPSPERREV))
 #define Y_RAD2ENC(r)    ((uint32_t)((r) / 2./M_PI * Y_ENC_STEPSPERREV))
 
@@ -320,3 +335,4 @@ int SSgetint(const char *cmd, int64_t *ans);
 int SSsetterI(const char *cmd, int32_t ival);
 int SSstop(int emerg);
 int SSshortCmd(SSscmd *cmd);
+mcc_errcodes_t updateMotorPos();

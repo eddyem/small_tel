@@ -26,6 +26,8 @@
 
 conf_t Conf = {0};
 
+static mcc_errcodes_t shortcmd(short_command_t *cmd);
+
 /**
  * @brief quit - close all opened and return to default state
  */
@@ -74,11 +76,11 @@ static mcc_errcodes_t init(conf_t *c){
     data_t d = {.buf = buf, .len = 0, .maxlen = 1024};
     // read input data as there may be some trash on start
     if(!SSrawcmd(CMD_EXITACM, &d)) ret = MCC_E_FAILED;
-    if(ret != MCC_E_OK) quit();
-    return ret;
+    if(ret != MCC_E_OK) return ret;
+    return updateMotorPos();
 }
 
-// check coordinates and speeds; return FALSE if failed
+// check coordinates (rad) and speeds (rad/s); return FALSE if failed
 // TODO fix to real limits!!!
 static int chkX(double X){
     if(X > 2.*M_PI || X < -2.*M_PI) return FALSE;
@@ -89,17 +91,21 @@ static int chkY(double Y){
     return TRUE;
 }
 static int chkXs(double s){
-    if(s < 0. || s > X_SPEED_MAX) return FALSE;
+    if(s < 0. || s > MCC_MAX_X_SPEED) return FALSE;
     return TRUE;
 }
 static int chkYs(double s){
-    if(s < 0. || s > Y_SPEED_MAX) return FALSE;
+    if(s < 0. || s > MCC_MAX_Y_SPEED) return FALSE;
     return TRUE;
 }
 
 static mcc_errcodes_t slew2(const coordpair_t *target, slewflags_t flags){
     (void)target;
     (void)flags;
+    if(MCC_E_OK != updateMotorPos()) return MCC_E_FAILED;
+    //...
+    setStat(MNT_SLEWING, MNT_SLEWING);
+    //...
     return MCC_E_FAILED;
 }
 
@@ -110,41 +116,34 @@ static mcc_errcodes_t slew2(const coordpair_t *target, slewflags_t flags){
  * @param Y - new Y coordinate (radians: -pi..pi) or NULL
  * @return error code
  */
-static mcc_errcodes_t move2(const double *X, const double *Y){
-    if(!X && !Y) return MCC_E_BADFORMAT;
-    if(X){
-        if(!chkX(*X)) return MCC_E_BADFORMAT;
-        int32_t tag = X_RAD2MOT(*X);
-        DBG("X: %g, tag: %d", *X, tag);
-        if(!SSsetterI(CMD_MOTX, tag)) return MCC_E_FAILED;
-    }
-    if(Y){
-        if(!chkY(*Y)) return MCC_E_BADFORMAT;
-        int32_t tag = Y_RAD2MOT(*Y);
-        DBG("Y: %g, tag: %d", *Y, tag);
-        if(!SSsetterI(CMD_MOTY, tag)) return MCC_E_FAILED;
-    }
+static mcc_errcodes_t move2(const coordpair_t *target){
+    if(!target) return MCC_E_BADFORMAT;
+    if(!chkX(target->X) || !chkY(target->Y)) return MCC_E_BADFORMAT;
+    if(MCC_E_OK != updateMotorPos()) return MCC_E_FAILED;
+    short_command_t cmd = {0};
+    DBG("x,y: %g, %g", target->X, target->Y);
+    cmd.Xmot = target->X;
+    cmd.Ymot = target->Y;
+    cmd.Xspeed = MCC_MAX_X_SPEED;
+    cmd.Yspeed = MCC_MAX_Y_SPEED;
+    mcc_errcodes_t r = shortcmd(&cmd);
+    if(r != MCC_E_OK) return r;
+    setStat(MNT_SLEWING, MNT_SLEWING);
     return MCC_E_OK;
 }
 
 /**
- * @brief setspeed - set maximal speed over axis
+ * @brief setspeed - set maximal speed over axis by text command
  * @param X (i) - max speed or NULL
  * @param Y (i) - -//-
  * @return errcode
  */
-static mcc_errcodes_t setspeed(const double *X, const double *Y){
-    if(!X && !Y) return MCC_E_BADFORMAT;
-    if(X){
-        if(!chkXs(*X)) return MCC_E_BADFORMAT;
-        int32_t spd = X_RS2MOTSPD(*X);
-        if(!SSsetterI(CMD_SPEEDX, spd)) return MCC_E_FAILED;
-    }
-    if(Y){
-        if(!chkYs(*Y)) return MCC_E_BADFORMAT;
-        int32_t spd = Y_RS2MOTSPD(*Y);
-        if(!SSsetterI(CMD_SPEEDY, spd)) return MCC_E_FAILED;
-    }
+static mcc_errcodes_t setspeed(const coordpair_t *tagspeed){
+    if(!tagspeed || !chkXs(tagspeed->X) || !chkYs(tagspeed->Y)) return MCC_E_BADFORMAT;
+    int32_t spd = X_RS2MOTSPD(tagspeed->X);
+    if(!SSsetterI(CMD_SPEEDX, spd)) return MCC_E_FAILED;
+    spd = Y_RS2MOTSPD(tagspeed->Y);
+    if(!SSsetterI(CMD_SPEEDY, spd)) return MCC_E_FAILED;
     return MCC_E_OK;
 }
 
@@ -155,18 +154,18 @@ static mcc_errcodes_t setspeed(const double *X, const double *Y){
  * @return
  */
 static mcc_errcodes_t move2s(const coordpair_t *target, const coordpair_t *speed){
-    if(!target && !speed) return MCC_E_BADFORMAT;
-    if(!target) return setspeed(&speed->X, &speed->Y);
-    if(!speed) return move2(&target->X, &target->Y);
-    if(!chkX(target->X) || !chkY(target->Y) || !chkXs(speed->X) || !chkYs(speed->Y))
-        return MCC_E_BADFORMAT;
-    char buf[128];
-    int32_t spd = X_RS2MOTSPD(speed->X), tag = X_RAD2MOT(target->X);
-    snprintf(buf, 127, "%s%" PRIi32 "%s%" PRIi32, CMD_MOTX, tag, CMD_MOTXYS, spd);
-    if(!SStextcmd(buf, NULL)) return MCC_E_FAILED;
-    spd = Y_RS2MOTSPD(speed->Y); tag = Y_RAD2MOT(target->Y);
-    snprintf(buf, 127, "%s%" PRIi32 "%s%" PRIi32, CMD_MOTY, tag, CMD_MOTXYS, spd);
-    if(!SStextcmd(buf, NULL)) return MCC_E_FAILED;
+    if(!target || !speed) return MCC_E_BADFORMAT;
+    if(!chkX(target->X) || !chkY(target->Y)) return MCC_E_BADFORMAT;
+    if(!chkXs(speed->X) || !chkYs(speed->Y)) return MCC_E_BADFORMAT;
+    if(MCC_E_OK != updateMotorPos()) return MCC_E_FAILED;
+    short_command_t cmd = {0};
+    cmd.Xmot = target->X;
+    cmd.Ymot = target->Y;
+    cmd.Xspeed = speed->X;
+    cmd.Yspeed = speed->Y;
+    mcc_errcodes_t r = shortcmd(&cmd);
+    if(r != MCC_E_OK) return r;
+    setStat(MNT_SLEWING, MNT_SLEWING);
     return MCC_E_OK;
 }
 
@@ -192,7 +191,7 @@ static mcc_errcodes_t stop(){
 static mcc_errcodes_t shortcmd(short_command_t *cmd){
     if(!cmd) return MCC_E_BADFORMAT;
     SSscmd s = {0};
-    DBG("xmot=%g, ymot=%g", cmd->Xmot, cmd->Ymot);
+    DBG("tag: xmot=%g rad, ymot=%g rad", cmd->Xmot, cmd->Ymot);
     s.Xmot = X_RAD2MOT(cmd->Xmot);
     s.Ymot = Y_RAD2MOT(cmd->Ymot);
     s.Xspeed = X_RS2MOTSPD(cmd->Xspeed);
@@ -261,14 +260,14 @@ static mcc_errcodes_t get_hwconf(hardware_configuration_t *hwConfig){
     hwConfig->address = config.address;
 
     // TODO: What to do with eqrate, eqadj and trackgoal?
-
+    config.latitude = __bswap_16(config.latitude);
     // Convert latitude (degrees * 100 to radians)
-    hwConfig->latitude = (double)config.latitude / 100.0 * M_PI / 180.0;
+    hwConfig->latitude = ((double)config.latitude) / 100.0 * M_PI / 180.0;
     // Copy ticks per revolution
-    hwConfig->Xsetpr = config.Xsetpr;
-    hwConfig->Ysetpr = config.Ysetpr;
-    hwConfig->Xmetpr = config.Xmetpr;
-    hwConfig->Ymetpr = config.Ymetpr;
+    hwConfig->Xsetpr = __bswap_32(config.Xsetpr);
+    hwConfig->Ysetpr = __bswap_32(config.Ysetpr);
+    hwConfig->Xmetpr = __bswap_32(config.Xmetpr);
+    hwConfig->Ymetpr = __bswap_32(config.Ymetpr);
     // Convert slew rates (ticks per loop to rad/s)
     hwConfig->Xslewrate = X_MOTSPD2RS(config.Xslewrate);
     hwConfig->Yslewrate = Y_MOTSPD2RS(config.Yslewrate);
@@ -320,7 +319,7 @@ static mcc_errcodes_t write_hwconf(hardware_configuration_t *hwConfig){
     config.xbits = hwConfig->xbits;
     config.ybits = hwConfig->ybits;
     // Convert latitude (radians to degrees * 100)
-    config.latitude = (uint16_t)(hwConfig->latitude * 180.0 / M_PI * 100.0);
+    config.latitude = __bswap_16((uint16_t)(hwConfig->latitude * 180.0 / M_PI * 100.0));
     // Convert slew rates (rad/s to ticks per loop)
     config.Xslewrate = X_RS2MOTSPD(hwConfig->Xslewrate);
     config.Yslewrate = Y_RS2MOTSPD(hwConfig->Yslewrate);
@@ -336,6 +335,10 @@ static mcc_errcodes_t write_hwconf(hardware_configuration_t *hwConfig){
     config.locsspeed = (uint32_t)(hwConfig->locsspeed * 180.0 * 3600.0 / M_PI);
     // Convert backlash speed (rad/s to ticks per loop)
     config.backlspd = X_RS2MOTSPD(hwConfig->backlspd);
+    config.Xsetpr = __bswap_32(hwConfig->Xsetpr);
+    config.Ysetpr = __bswap_32(hwConfig->Ysetpr);
+    config.Xmetpr = __bswap_32(hwConfig->Xmetpr);
+    config.Ymetpr = __bswap_32(hwConfig->Ymetpr);
     // TODO - next
     (void) config;
     return MCC_E_OK;

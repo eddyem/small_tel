@@ -1,5 +1,5 @@
 /*
- * This file is part of the libsidservo project.
+ * This file is part of the moving_model project.
  * Copyright 2025 Edward V. Emelianov <edward.emelianoff@gmail.com>.
  *
  * This program is free software: you can redistribute it and/or modify
@@ -18,26 +18,6 @@
 
 #pragma once
 
-#include "sidservo.h"
-#include "ssii.h"
+#include "moving_private.h"
 
-// magick starting sequence
-#define ENC_MAGICK  (204)
-// encoder data sequence length
-#define ENC_DATALEN (13)
-// max error counter (when read() returns -1)
-#define MAX_ERR_CTR (100)
-
-double dtime();
-data_t *cmd2dat(const char *cmd);
-void data_free(data_t **x);
-int openEncoder();
-int openMount();
-void closeSerial();
-mcc_errcodes_t getMD(mountdata_t  *d);
-void setStat(mnt_status_t Xstatus, mnt_status_t Ystatus);
-int MountWriteRead(const data_t *out, data_t *in);
-int MountWriteReadRaw(const data_t *out, data_t *in);
-int cmdS(SSscmd *cmd);
-int cmdL(SSlcmd *cmd);
-int cmdC(SSconfig *conf, int rw);
+extern movemodel_t s_shaped;

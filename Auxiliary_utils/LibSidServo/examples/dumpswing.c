@@ -146,24 +146,25 @@ int main(int argc, char **argv){
         tagX = 0.; tagY = DEG2RAD(G.amplitude);
     }
     double t = Mount.currentT(), t0 = t;
-    double divide = 2., rtagX = -tagX, rtagY = -tagY;
+    coordpair_t tag = {.X = tagX, .Y = tagY}, rtag = {.X = -tagX, .Y = -tagY};
+    double divide = 2.;
     for(int i = 0; i < G.Nswings; ++i){
-        Mount.moveTo(&tagX, &tagY);
+        Mount.moveTo(&tag);
         DBG("CMD: %g", Mount.currentT()-t0);
         t += G.period / divide;
         divide = 1.;
         waithalf(t);
         DBG("Moved to +, t=%g", t-t0);
         DBG("CMD: %g", Mount.currentT()-t0);
-        Mount.moveTo(&rtagX, &rtagY);
+        Mount.moveTo(&rtag);
         t += G.period;
         waithalf(t);
         DBG("Moved to -, t=%g", t-t0);
         DBG("CMD: %g", Mount.currentT()-t0);
     }
-    double zero = 0.;
+    tag = (coordpair_t){.X = 0., .Y = 0.};
     // be sure to move @ 0,0
-    Mount.moveTo(&zero, &zero);
+    Mount.moveTo(&tag);
     // wait moving ends
     pthread_join(dthr, NULL);
 #undef SCMD

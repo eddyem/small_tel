@@ -1,0 +1,5 @@
+#!/usr/bin/gnuplot
+
+set term jpeg size 1000,500
+set output "error.jpg"
+plot 'coords' using 1:6 with lines title columnheader

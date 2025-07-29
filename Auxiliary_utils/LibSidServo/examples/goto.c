@@ -88,8 +88,8 @@ int main(int _U_ argc, char _U_ **argv){
         return 1;
     }
     if(MCC_E_OK != Mount.init(Config)) ERRX("Can't init mount");
-    coordval_pair_t M;
-    if(!getPos(&M, NULL)) ERRX("Can't get current position");
+    coordval_pair_t M, E;
+    if(!getPos(&M, &E)) ERRX("Can't get current position");
     if(G.coordsoutput){
         if(!G.wait) green("When logging I should wait until moving ends; added '-w'");
         G.wait = 1;
@@ -100,28 +100,27 @@ int main(int _U_ argc, char _U_ **argv){
         logmnt(fcoords, NULL);
         if(pthread_create(&dthr, NULL, dumping, NULL)) ERRX("Can't run dump thread");
     }
-    printf("Mount position: X=%g, Y=%g\n", RAD2DEG(M.X.val), RAD2DEG(M.Y.val));
+    M.X.val = RAD2DEG(M.X.val);
+    M.Y.val = RAD2DEG(M.Y.val);
+    printf("Mount position: X=%g, Y=%g; encoders: X=%g, Y=%g\n", M.X.val, M.Y.val,
+           RAD2DEG(E.X.val), RAD2DEG(E.Y.val));
     if(isnan(G.X) && isnan(G.Y)) goto out;
-    double *xtag = NULL, *ytag = NULL, xr, yr;
-    double _7deg = RAD2DEG(7.);
-    if(!isnan(G.X)){
-        xr = DEG2RAD(G.X);
-        if(G.relative) xr += M.X.val;
-        xtag = &xr;
-        // set max speed
-        Mount.setSpeed(&_7deg, NULL);
+    coordpair_t tag;
+    if(isnan(G.X)){
+        if(G.relative) G.X = 0.;
+        else G.X = M.X.val;
     }
-    if(!isnan(G.Y)){
-        yr = DEG2RAD(G.Y);
-        if(G.relative) yr += M.Y.val;
-        ytag = &yr;
-        Mount.setSpeed(NULL, &_7deg);
+    if(isnan(G.Y)){
+        if(G.relative) G.Y = 0.;
+        else G.Y = M.Y.val;
     }
-    printf("Moving to ");
-    if(xtag) printf("X=%gdeg ", G.X);
-    if(ytag) printf("Y=%gdeg", G.Y);
-    printf("\n");
-    Mount.moveTo(xtag, ytag);
+    if(G.relative){
+        G.X += M.X.val;
+        G.Y += M.Y.val;
+    }
+    printf("Moving to X=%gdeg, Y=%gdeg\n", G.X, G.Y);
+    tag.X = DEG2RAD(G.X); tag.Y = DEG2RAD(G.Y);
+    Mount.moveTo(&tag);
     if(G.wait){
         sleep(1);
         waitmoving(G.Ncycles);

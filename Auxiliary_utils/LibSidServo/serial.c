@@ -56,9 +56,19 @@ typedef struct __attribute__((packed)){
 } enc_t;
 
 /**
- * @brief dtime - UNIX time with microsecond
- * @return value
+ * @brief dtime - monotonic time from first run
+ * @return
  */
+double dtime(){
+    struct timespec start_time = {0}, cur_time;
+    if(start_time.tv_sec == 0 && start_time.tv_nsec == 0){
+        clock_gettime(CLOCK_MONOTONIC, &start_time);
+    }
+    clock_gettime(CLOCK_MONOTONIC, &cur_time);
+    return ((double)(cur_time.tv_sec - start_time.tv_sec) +
+                     (cur_time.tv_nsec - start_time.tv_nsec) * 1e-9);
+}
+#if 0
 double dtime(){
     double t;
     struct timeval tv;
@@ -66,6 +76,7 @@ double dtime(){
     t = tv.tv_sec + ((double)tv.tv_usec)/1e6;
     return t;
 }
+#endif
 #if 0
 double tv2d(struct timeval *tv){
     if(!tv) return 0.;
@@ -492,6 +503,8 @@ void closeSerial(){
     if(mntfd > -1){
         DBG("Kill mount thread");
         pthread_cancel(mntthread);
+        DBG("join mount thread");
+        pthread_join(mntthread, NULL);
         DBG("close fd");
         close(mntfd);
         mntfd = -1;
@@ -499,6 +512,8 @@ void closeSerial(){
     if(encfd[0] > -1){
         DBG("Kill encoder thread");
         pthread_cancel(encthread);
+        DBG("join encoder thread");
+        pthread_join(encthread, NULL);
         DBG("close fd");
         close(encfd[0]);
         encfd[0] = -1;
@@ -516,6 +531,13 @@ mcc_errcodes_t getMD(mountdata_t  *d){
     *d = mountdata;
     pthread_mutex_unlock(&datamutex);
     return MCC_E_OK;
+}
+
+void setStat(mnt_status_t Xstatus, mnt_status_t Ystatus){
+    pthread_mutex_lock(&datamutex);
+    mountdata.Xstatus = Xstatus;
+    mountdata.Ystatus = Ystatus;
+    pthread_mutex_unlock(&datamutex);
 }
 
 // write-read without locking mutex (to be used inside other functions)
@@ -594,12 +616,16 @@ static int bincmd(uint8_t *cmd, int len){
     if(len == sizeof(SSscmd)){
         ((SSscmd*)cmd)->checksum = SScalcChecksum(cmd, len-2);
         DBG("Short command");
+#ifdef EBUG
         logscmd((SSscmd*)cmd);
+#endif
         if(!wr(dscmd, &a, 1)) goto rtn;
     }else if(len == sizeof(SSlcmd)){
         ((SSlcmd*)cmd)->checksum = SScalcChecksum(cmd, len-2);
         DBG("Long command");
+#ifdef EBUG
         loglcmd((SSlcmd*)cmd);
+#endif
         if(!wr(dlcmd, &a, 1)) goto rtn;
     }else{
         goto rtn;

@@ -25,6 +25,9 @@
 
 #include "Tramp.h"
 
+#undef DBG
+#define DBG(...)
+
 static movestate_t state = ST_STOP;
 static moveparam_t Min, Max; // `Min` acceleration not used!
 
@@ -101,7 +104,7 @@ static int calc(moveparam_t *x, double t){
     double dx0s = curspeed * dt0s / 2.; // distance
     DBG("dt0s=%g, dx0s=%g", dt0s, dx0s);
     if(dx0s > Dx){
-        DBG("distance too short");
+        WARNX("distance too short");
         return FALSE;
     }
     if(fabs(Dx - dx0s) < coord_tolerance){ // just stop and we'll be on target
@@ -142,7 +145,7 @@ static int calc(moveparam_t *x, double t){
         }else Params[0].accel = a;
     }
     if(setspeed < Min.speed){
-        DBG("New speed should be too small");
+        WARNX("New speed should be too small");
         return FALSE;
     }
     moveparam_t *p = &Params[STAGE_MAXSPEED];
@@ -154,7 +157,7 @@ static int calc(moveparam_t *x, double t){
     // calculate dx12 and dt12
     double dx12 = Dx - dx01 - dx23;
     if(dx12 < -coord_tolerance){
-        DBG("Oops, WTF?");
+        WARNX("Oops, WTF dx12=%g?", dx12);
         return FALSE;
     }
     double dt12 = dx12 / setspeed;

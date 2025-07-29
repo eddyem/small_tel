@@ -184,8 +184,8 @@ void chk0(int ncycles){
     if(!getPos(&M, NULL)) signals(2);
     if(M.X.val || M.Y.val){
         WARNX("Mount position isn't @ zero; moving");
-        double zero = 0.;
-        Mount.moveTo(&zero, &zero);
+        coordpair_t zero = {0., 0.};
+        Mount.moveTo(&zero);
         waitmoving(ncycles);
         green("Now mount @ zero\n");
     }

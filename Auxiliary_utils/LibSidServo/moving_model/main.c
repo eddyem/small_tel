@@ -38,12 +38,12 @@ static pars G = {
 };
 
 static limits_t limits = {
-    .min = {.coord = -1e6, .speed = 0.1, .accel = 0.1},
-    .max = {.coord = 1e6, .speed = 1e3, .accel = 50.},
+    .min = {.coord = -1e6, .speed = 0.01, .accel = 0.1},
+    .max = {.coord = 1e6, .speed = 20., .accel = 9.53523},
     .jerk = 10.
 };
 
-static myoption opts[] = {
+static sl_option_t opts[] = {
     {"help",    NO_ARGS,    NULL,   'h',    arg_int,    APTR(&G.help),          "show this help"},
     {"ramp",    NEED_ARG,   NULL,   'r',    arg_string, APTR(&G.ramptype),      "ramp type: \"d\", \"t\" or \"s\" - dumb, trapezoid, s-type"},
     {"deltat",  NEED_ARG,   NULL,   't',    arg_int,    APTR(&G.dT),            "time interval for monitoring (microseconds, >0)"},
@@ -84,9 +84,9 @@ static void monit(double tnext){
 }
 
 int main(int argc, char **argv){
-    initial_setup();
-    parseargs(&argc, &argv, opts);
-    if(G.help) showhelp(-1, opts);
+    sl_init();
+    sl_parseargs(&argc, &argv, opts);
+    if(G.help) sl_showhelp(-1, opts);
     if(G.xlog){
         coordslog = fopen(G.xlog, "w");
         if(!coordslog) ERR("Can't open %s", G.xlog);
@@ -101,8 +101,9 @@ int main(int argc, char **argv){
     model = init_moving(ramp, &limits);
     if(!model) ERRX("Can't init moving model: check parameters");
     Tstart = nanot();
-    moveparam_t target = {.speed = 10., .coord = 20.};
-    if(move(&target)) monit(0.5);
+    moveparam_t target = {.speed = 8.0, .coord = 90.};
+    if(move(&target)) monit(60.);
+    /*
     for(int i = 0; i < 10; ++i){
         target.coord = -target.coord;
         if(move(&target)) monit(1.);
@@ -119,6 +120,7 @@ int main(int argc, char **argv){
     target.coord = 0.; target.speed = 20.;
     if(move(&target)) monit(1e6);
     usleep(5000);
+    */
     fclose(coordslog);
     return 0;
 }

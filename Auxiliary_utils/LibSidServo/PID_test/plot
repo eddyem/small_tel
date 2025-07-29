@@ -1,0 +1,4 @@
+#!/usr/bin/gnuplot
+
+plot for [col in "target curpos speed error"] 'coords' using 1:col with lines title columnheader
+pause mouse

@@ -168,7 +168,8 @@ int main(int argc, char **argv){
     // and go back with 7deg/s
     move(0., 0., 7.);
     // be sure to move @ starting position
-    Mount.moveTo(&M.X.val, &M.Y.val);
+    coordpair_t tag = {.X = M.X.val, .Y = M.Y.val};
+    Mount.moveTo(&tag);
     // wait moving ends
     pthread_join(dthr, NULL);
     signals(0);

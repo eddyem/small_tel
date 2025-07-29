@@ -1,0 +1,6 @@
+#!/usr/bin/gnuplot
+
+while(1){
+    plot 'coords' using 1:6 with lines title columnheader
+    pause 1
+}

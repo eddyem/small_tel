@@ -59,6 +59,6 @@ extern conf_t Conf;
         fprintf(stderr, "\n");} while(0)
 
 #else  // EBUG
-    #define FNAME()  do{}while(0)
-    #define DBG(...) do{}while(0)
+    #define FNAME()
+    #define DBG(...)
 #endif // EBUG
