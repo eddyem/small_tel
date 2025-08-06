@@ -30,6 +30,7 @@
 
 typedef struct{
     int help;
+    int dumpconf;
     int Ncycles;        // n cycles to wait stop
     double reqint;      // requests interval (seconds)
     double Xmax;        // maximal X to stop
@@ -38,11 +39,12 @@ typedef struct{
     double X0;          // starting point of traectory (-30..30 degr)
     double Y0;          // -//-
     char *coordsoutput; // dump file
+    char *errlog;       // log with position errors
     char *tfn;          // traectory function name
     char *conffile;
 } parameters;
 
-static FILE *fcoords = NULL;
+static FILE *fcoords = NULL, *errlog = NULL;
 static pthread_t dthr;
 static parameters G = {
     .Ncycles = 40,
@@ -61,12 +63,14 @@ static sl_option_t cmdlnopts[] = {
     {"coordsfile",  NEED_ARG,   NULL,   'o',    arg_string, APTR(&G.coordsoutput),"output file with coordinates log"},
     {"reqinterval", NEED_ARG,   NULL,   'i',    arg_double, APTR(&G.reqint),    "mount requests interval (default: 0.1 second)"},
     {"traectory",   NEED_ARG,   NULL,   't',    arg_string, APTR(&G.tfn),       "used traectory function (default: sincos)"},
-    {"xmax",        NEED_ARG,   NULL,   'X',    arg_double, APTR(&G.Xmax),      "maximal X coordinate for traectory (default: 45 degrees)"},
-    {"ymax",        NEED_ARG,   NULL,   'Y',    arg_double, APTR(&G.Ymax),      "maximal X coordinate for traectory (default: 45 degrees)"},
+    {"xmax",        NEED_ARG,   NULL,   'X',    arg_double, APTR(&G.Xmax),      "maximal abs X coordinate for traectory (default: 45 degrees)"},
+    {"ymax",        NEED_ARG,   NULL,   'Y',    arg_double, APTR(&G.Ymax),      "maximal abs Y coordinate for traectory (default: 45 degrees)"},
     {"tmax",        NEED_ARG,   NULL,   'T',    arg_double, APTR(&G.tmax),      "maximal duration time of emulation (default: 300 seconds)"},
     {"x0",          NEED_ARG,   NULL,   '0',    arg_double, APTR(&G.X0),        "starting X-coordinate of traectory (default: 10 degrees)"},
     {"y0",          NEED_ARG,   NULL,   '1',    arg_double, APTR(&G.Y0),        "starting Y-coordinate of traectory (default: 10 degrees)"},
     {"conffile",    NEED_ARG,   NULL,   'C',    arg_string, APTR(&G.conffile),  "configuration file name"},
+    {"errlog",      NEED_ARG,   NULL,   'e',    arg_string, APTR(&G.errlog),    "file with errors log"},
+    {"dumpconf",    NO_ARGS,    NULL,   'D',    arg_int,    APTR(&G.dumpconf),  "dump current configuration"},
     end_option
 };
 
@@ -76,6 +80,8 @@ void signals(int sig){
         signal(sig, SIG_IGN);
         DBG("Get signal %d, quit.\n", sig);
     }
+    Mount.stop();
+    sleep(1);
     Mount.quit();
     if(fcoords) fclose(fcoords);
     exit(sig);
@@ -90,22 +96,39 @@ static void *dumping(void _U_ *u){
 static void runtraectory(traectory_fn tfn){
     if(!tfn) return;
     coordval_pair_t telXY;
-    coordpair_t traectXY;
-    double t0 = Mount.currentT();
-    double tlast = 0.;
+    coordval_pair_t target;
+    coordpair_t traectXY, endpoint;
+    endpoint.X = G.Xmax, endpoint.Y = G.Ymax;
+    double t0 = Mount.currentT(), tlast = 0.;
+    double tlastX = 0., tlastY = 0.;
     while(1){
         if(!telpos(&telXY)){
             WARNX("No next telescope position");
             return;
         }
-        if(telXY.X.t == tlast && telXY.Y.t == tlast) continue; // last measure - don't mind
-        tlast = (telXY.X.t + telXY.Y.t) / 2.;
+        if(telXY.X.t == tlastX && telXY.Y.t == tlastY) continue; // last measure - don't mind
+        DBG("\n\nTELPOS: %g'/%g' measured @ %g/%g", RAD2AMIN(telXY.X.val), RAD2AMIN(telXY.Y.val), telXY.X.t, telXY.Y.t);
+        tlastX = telXY.X.t; tlastY = telXY.Y.t;
         double t = Mount.currentT();
-        if(telXY.X.val > G.Xmax || telXY.Y.val > G.Ymax || t - t0 > G.tmax) break;
+        if(fabs(telXY.X.val) > G.Xmax || fabs(telXY.Y.val) > G.Ymax || t - t0 > G.tmax) break;
         if(!traectory_point(&traectXY, t)) break;
-        DBG("%g: dX=%.1f'', dY=%.1f''", t-t0, RAD2ASEC(traectXY.X-telXY.X.val), RAD2ASEC(traectXY.Y-telXY.Y.val));
+        target.X.val = traectXY.X; target.Y.val = traectXY.Y;
+        target.X.t = target.Y.t = t;
+        // check whether we should change direction
+        if(telXY.X.val > traectXY.X) endpoint.X = -G.Xmax;
+        else if(telXY.X.val < traectXY.X) endpoint.X = G.Xmax;
+        if(telXY.Y.val > traectXY.Y) endpoint.Y = -G.Ymax;
+        else if(telXY.Y.val < traectXY.Y) endpoint.Y = G.Ymax;
+        DBG("target: %g'/%g'", RAD2AMIN(traectXY.X), RAD2AMIN(traectXY.Y));
+        DBG("%g: dX=%.4f'', dY=%.4f''", t-t0, RAD2ASEC(traectXY.X-telXY.X.val), RAD2ASEC(traectXY.Y-telXY.Y.val));
+        DBG("Correct to: %g/%g with EP %g/%g", RAD2DEG(target.X.val), RAD2DEG(target.Y.val), RAD2DEG(endpoint.X), RAD2DEG(endpoint.Y));
+        if(errlog)
+            fprintf(errlog, "%10.4g  %10.4g  %10.4g\n", t, RAD2ASEC(traectXY.X-telXY.X.val), RAD2ASEC(traectXY.Y-telXY.Y.val));
+        if(MCC_E_OK != Mount.correctTo(&target, &endpoint)) WARNX("Error of correction!");
+        while((t = Mount.currentT()) - tlast < MCC_PID_REFRESH_DT) usleep(50);
+        tlast = t;
     }
-    WARNX("No next traectory point");
+    WARNX("No next traectory point or emulation ends");
 }
 
 int main(int argc, char **argv){
@@ -118,12 +141,18 @@ int main(int argc, char **argv){
     G.Xmax = DEG2RAD(G.Xmax); G.Ymax = DEG2RAD(G.Ymax);
     if(G.X0 < -30. || G.X0 > 30. || G.Y0 < -30. || G.Y0 > 30.)
         ERRX("X0 and Y0 should be -30..30 degrees");
+    if(G.errlog){
+        if(!(errlog = fopen(G.errlog, "w")))
+            ERRX("Can't open error log %s", G.errlog);
+        else
+            fprintf(errlog, "#    time      Xerr''      Yerr''   // target - real\n");
+    }
     if(G.coordsoutput){
         if(!(fcoords = fopen(G.coordsoutput, "w")))
             ERRX("Can't open %s", G.coordsoutput);
     }else fcoords = stdout;
     conf_t *Config = readServoConf(G.conffile);
-    if(!Config){
+    if(!Config || G.dumpconf){
         dumpConf();
         return 1;
     }

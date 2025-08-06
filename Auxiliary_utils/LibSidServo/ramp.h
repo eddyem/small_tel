@@ -1,5 +1,5 @@
 /*
- * This file is part of the libsidservo project.
+ * This file is part of the moving_model project.
  * Copyright 2025 Edward V. Emelianov <edward.emelianoff@gmail.com>.
  *
  * This program is free software: you can redistribute it and/or modify
@@ -16,14 +16,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-// simple conversion macros
+#pragma once
 
-#include <math.h>
+#include "movingmodel.h"
 
-#define DEG2RAD(d)  ((d)/180.*M_PI)
-#define ASEC2RAD(d) ((d)/180.*M_PI/3600.)
-#define AMIN2RAD(d) ((d)/180.*M_PI/60.)
-#define RAD2DEG(r)  ((r)/M_PI*180.)
-#define RAD2ASEC(r) ((r)/M_PI*180.*3600.)
-#define RAD2AMIN(r) ((r)/M_PI*180.*60.)
-
+extern movemodel_t trapez;

@@ -19,8 +19,9 @@
 #include <ctype.h>
 #include <inttypes.h>
 #include <string.h>
+#include <unistd.h>
 
-#include "dbg.h"
+#include "main.h"
 #include "serial.h"
 #include "ssii.h"
 
@@ -35,16 +36,18 @@ uint16_t SScalcChecksum(uint8_t *buf, int len){
     return checksum;
 }
 
-
-static void axestat(int32_t *prev, int32_t cur, int *nstopped, mnt_status_t *stat){
+// Next three functions runs under locked mountdata_t mutex and shouldn't call locked it again!!
+static void chkstopstat(int32_t *prev, int32_t cur, int *nstopped, axis_status_t *stat){
     if(*prev == INT32_MAX){
-        *stat = MNT_STOPPED;
-    }else if(*stat != MNT_STOPPED){
-        if(*prev == cur){
-            if(++(*nstopped) > MOTOR_STOPPED_CNT) *stat = MNT_STOPPED;
+        *stat = AXIS_STOPPED;
+        DBG("START");
+    }else if(*stat != AXIS_STOPPED){
+        if(*prev == cur && ++(*nstopped) > MOTOR_STOPPED_CNT){
+            *stat = AXIS_STOPPED;
+            DBG("AXIS stopped");
         }
     }else if(*prev != cur){
-        //*stat = MNT_SLEWING;
+        DBG("AXIS moving");
         *nstopped = 0;
     }
     *prev = cur;
@@ -53,8 +56,8 @@ static void axestat(int32_t *prev, int32_t cur, int *nstopped, mnt_status_t *sta
 static void ChkStopped(const SSstat *s, mountdata_t *m){
     static int32_t Xmot_prev = INT32_MAX, Ymot_prev = INT32_MAX; // previous coordinates
     static int Xnstopped = 0, Ynstopped = 0; // counters to get STOPPED state
-    axestat(&Xmot_prev, s->Xmot, &Xnstopped, &m->Xstatus);
-    axestat(&Ymot_prev, s->Ymot, &Ynstopped, &m->Ystatus);
+    chkstopstat(&Xmot_prev, s->Xmot, &Xnstopped, &m->Xstate);
+    chkstopstat(&Ymot_prev, s->Ymot, &Ynstopped, &m->Ystate);
 }
 
 /**
@@ -65,13 +68,6 @@ static void ChkStopped(const SSstat *s, mountdata_t *m){
  */
 void SSconvstat(const SSstat *s, mountdata_t *m, double t){
     if(!s || !m) return;
-/*
-#ifdef EBUG
-    static double t0 = -1.;
-    if(t0 < 0.) t0 = dtime();
-#endif
-    DBG("Convert, t=%g", dtime()-t0);
-*/
     m->motXposition.val = X_MOT2RAD(s->Xmot);
     m->motYposition.val = Y_MOT2RAD(s->Ymot);
     ChkStopped(s, m);
@@ -81,10 +77,8 @@ void SSconvstat(const SSstat *s, mountdata_t *m, double t){
         m->encXposition.val = X_ENC2RAD(s->Xenc);
         m->encYposition.val = Y_ENC2RAD(s->Yenc);
         m->encXposition.t = m->encYposition.t = t;
+        getXspeed(); getYspeed();
     }
-    //m->lastmotposition.X = X_MOT2RAD(s->XLast);
-    //m->lastmotposition.Y = Y_MOT2RAD(s->YLast);
-    //m->lastmotposition.msrtime = *tdat;
     m->keypad = s->keypad;
     m->extradata.ExtraBits = s->ExtraBits;
     m->extradata.ain0 = s->ain0;
@@ -110,7 +104,7 @@ int SStextcmd(const char *cmd, data_t *answer){
     data_t d;
     d.buf = (uint8_t*) cmd;
     d.len = d.maxlen = strlen(cmd);
-    DBG("send %zd bytes: %s", d.len, d.buf);
+    //DBG("send %zd bytes: %s", d.len, d.buf);
     return MountWriteRead(&d, answer);
 }
 
@@ -123,7 +117,7 @@ int SSrawcmd(const char *cmd, data_t *answer){
     data_t d;
     d.buf = (uint8_t*) cmd;
     d.len = d.maxlen = strlen(cmd);
-    DBG("send %zd bytes: %s", d.len, d.buf);
+    //DBG("send %zd bytes: %s", d.len, d.buf);
     return MountWriteReadRaw(&d, answer);
 }
 
@@ -180,22 +174,38 @@ int SSstop(int emerg){
 // update motors' positions due to encoders'
 mcc_errcodes_t updateMotorPos(){
     mountdata_t md = {0};
-    double t0 = dtime(), t = 0.;
+    if(Conf.RunModel) return MCC_E_OK;
+    double t0 = nanotime(), t = 0.;
     DBG("start @ %g", t0);
     do{
-        t = dtime();
+        t = nanotime();
         if(MCC_E_OK == getMD(&md)){
-            DBG("got");
-            if(fabs(md.encXposition.t - t) < 0.1 && fabs(md.encYposition.t - t) < 0.1){
-                DBG("FIX motors position to encoders");
-                int32_t Xpos = X_RAD2MOT(md.encXposition.val), Ypos = Y_RAD2MOT(md.encYposition.val);
-                if(SSsetterI(CMD_MOTXSET, Xpos) && SSsetterI(CMD_MOTYSET, Ypos)){
-                    DBG("All OK");
-                    return MCC_E_OK;
-                }
-            }else{
-                DBG("on position");
-                return MCC_E_OK;
+            if(md.encXposition.t == 0 || md.encYposition.t == 0){
+                DBG("Just started, t-t0 = %g!", t - t0);
+                sleep(1);
+                DBG("t-t0 = %g", nanotime() - t0);
+                //usleep(10000);
+                continue;
+            }
+            DBG("got; t pos x/y: %g/%g; tnow: %g", md.encXposition.t, md.encYposition.t, t);
+            mcc_errcodes_t OK = MCC_E_OK;
+            if(fabs(md.motXposition.val - md.encXposition.val) > MCC_ENCODERS_ERROR && md.Xstate == AXIS_STOPPED){
+                DBG("NEED to sync X: motors=%g, axiss=%g", md.motXposition.val, md.encXposition.val);
+                if(!SSsetterI(CMD_MOTXSET, X_RAD2MOT(md.encXposition.val))){
+                    DBG("Xpos sync failed!");
+                    OK = MCC_E_FAILED;
+                }else DBG("Xpos sync OK, Dt=%g", nanotime() - t0);
+            }
+            if(fabs(md.motYposition.val - md.encYposition.val) > MCC_ENCODERS_ERROR && md.Xstate == AXIS_STOPPED){
+                DBG("NEED to sync Y: motors=%g, axiss=%g", md.motYposition.val, md.encYposition.val);
+                if(!SSsetterI(CMD_MOTYSET, Y_RAD2MOT(md.encYposition.val))){
+                    DBG("Ypos sync failed!");
+                    OK = MCC_E_FAILED;
+                }else DBG("Ypos sync OK, Dt=%g", nanotime() - t0);
+            }
+            if(MCC_E_OK == OK){
+                DBG("Encoders synced");
+                return OK;
             }
         }
         DBG("NO DATA; dt = %g", t - t0);

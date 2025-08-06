@@ -1,5 +1,6 @@
 CMakeLists.txt
-dbg.h
+PID.c
+PID.h
 examples/SSIIconf.c
 examples/conf.c
 examples/conf.h
@@ -18,6 +19,11 @@ serial.c
 examples/CMakeLists.txt
 examples/traectories.c
 examples/traectories.h
+main.h
+movingmodel.c
+movingmodel.h
+ramp.c
+ramp.h
 serial.h
 ssii.c
 ssii.h

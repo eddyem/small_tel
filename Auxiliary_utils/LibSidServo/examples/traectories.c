@@ -30,10 +30,6 @@ static traectory_fn cur_traectory = NULL;
 // starting point of traectory
 static coordpair_t XYstart = {0};
 static double tstart = 0.;
-// convert Xe/Ye to approximate motor coordinates:
-// Xnew = Xcor+Xe; Ynew = Ycor+Ye; as Ye goes backwards to Ym, we have
-// Xcor = Xm0 - Xe0; Ycor = Xm0 + Ye0
-static coordval_pair_t XYcor = {0};
 
 /**
  * @brief init_traectory - init traectory fn, sync starting positions of motor & encoders
@@ -52,9 +48,6 @@ int init_traectory(traectory_fn f, coordpair_t *XY0){
         if(MCC_E_OK == Mount.getMountData(&mdata)) break;
     }
     if(ntries == 10) return FALSE;
-    XYcor.X.val = mdata.motXposition.val - mdata.encXposition.val;
-    XYcor.Y.val = mdata.motYposition.val - mdata.encYposition.val;
-    DBG("STARTING POINTS: x=%g, y=%g degrees", DEG2RAD(XYcor.X.val), DEG2RAD(XYcor.Y.val));
     return TRUE;
 }
 
@@ -83,8 +76,8 @@ int telpos(coordval_pair_t *curpos){
     }
     if(ntries == 10) return FALSE;
     coordval_pair_t pt;
-    pt.X.val = XYcor.X.val + mdata.encXposition.val;
-    pt.Y.val = XYcor.Y.val + mdata.encYposition.val;
+    pt.X.val = mdata.encXposition.val;
+    pt.Y.val = mdata.encYposition.val;
     pt.X.t = mdata.encXposition.t;
     pt.Y.t = mdata.encYposition.t;
     if(curpos) *curpos = pt;
@@ -94,7 +87,7 @@ int telpos(coordval_pair_t *curpos){
 // X=X0+1'/s, Y=Y0+15''/s
 int Linear(coordpair_t *nextpt, double t){
     coordpair_t pt;
-    pt.X = XYstart.X + ASEC2RAD(1.) * (t - tstart);
+    pt.X = XYstart.X + ASEC2RAD(0.1) * (t - tstart);
     pt.Y = XYstart.Y + ASEC2RAD(15.)* (t - tstart);
     if(nextpt) *nextpt = pt;
     return TRUE;
@@ -103,7 +96,7 @@ int Linear(coordpair_t *nextpt, double t){
 // X=X0+5'*sin(t/30*2pi), Y=Y0+10'*cos(t/200*2pi)
 int SinCos(coordpair_t *nextpt, double t){
     coordpair_t pt;
-    pt.X = XYstart.X + AMIN2RAD(5.) * sin((t-tstart)/30.*2*M_PI);
+    pt.X = XYstart.X + ASEC2RAD(5.) * sin((t-tstart)/30.*2*M_PI);
     pt.Y = XYstart.Y + AMIN2RAD(10.)* cos((t-tstart)/200.*2*M_PI);
     if(nextpt) *nextpt = pt;
     return TRUE;
@@ -116,8 +109,8 @@ typedef struct{
 } tr_names;
 
 static tr_names names[] = {
-    {Linear, "linear", "X=X0+1'/s, Y=Y0+15''/s"},
-    {SinCos, "sincos", "X=X0+5'*sin(t/30*2pi), Y=Y0+10'*cos(t/200*2pi)"},
+    {Linear, "linear", "X=X0+0.1''/s, Y=Y0+15''/s"},
+    {SinCos, "sincos", "X=X0+5''*sin(t/30*2pi), Y=Y0+10'*cos(t/200*2pi)"},
     {NULL, NULL, NULL}
 };
 

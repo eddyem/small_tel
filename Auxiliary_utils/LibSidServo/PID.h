@@ -16,14 +16,25 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-// simple conversion macros
+#pragma once
 
-#include <math.h>
+#include <stddef.h>
 
-#define DEG2RAD(d)  ((d)/180.*M_PI)
-#define ASEC2RAD(d) ((d)/180.*M_PI/3600.)
-#define AMIN2RAD(d) ((d)/180.*M_PI/60.)
-#define RAD2DEG(r)  ((r)/M_PI*180.)
-#define RAD2ASEC(r) ((r)/M_PI*180.*3600.)
-#define RAD2AMIN(r) ((r)/M_PI*180.*60.)
+#include "sidservo.h"
 
+typedef struct {
+    PIDpar_t gain;      // PID gains
+    double prev_error;  // Previous error
+    double integral;    // Integral term
+    double *pidIarray;  // array for Integral
+    double prevT;       // time of previous correction
+    size_t pidIarrSize; // it's size
+    size_t curIidx;     // and index of current element
+} PIDController_t;
+
+PIDController_t *pid_create(const PIDpar_t *gain, size_t Iarrsz);
+void pid_clear(PIDController_t *pid);
+void pid_delete(PIDController_t **pid);
+double pid_calculate(PIDController_t *pid, double error, double dt);
+
+mcc_errcodes_t  correct2(const coordval_pair_t *target, const coordpair_t *endpoint);

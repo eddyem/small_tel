@@ -28,16 +28,17 @@
 // max error counter (when read() returns -1)
 #define MAX_ERR_CTR (100)
 
-double dtime();
 data_t *cmd2dat(const char *cmd);
 void data_free(data_t **x);
 int openEncoder();
 int openMount();
 void closeSerial();
 mcc_errcodes_t getMD(mountdata_t  *d);
-void setStat(mnt_status_t Xstatus, mnt_status_t Ystatus);
+void setStat(axis_status_t Xstate, axis_status_t Ystate);
 int MountWriteRead(const data_t *out, data_t *in);
 int MountWriteReadRaw(const data_t *out, data_t *in);
 int cmdS(SSscmd *cmd);
 int cmdL(SSlcmd *cmd);
 int cmdC(SSconfig *conf, int rw);
+void getXspeed();
+void getYspeed();

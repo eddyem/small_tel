@@ -16,6 +16,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+/*
+ * This file contains all need for external usage
+ */
+
+
 #pragma once
 
 #ifdef __cplusplus
@@ -27,14 +32,37 @@ extern "C"
 #include <stdint.h>
 #include <sys/time.h>
 
+// acceptable position error - 0.1''
+#define MCC_POSITION_ERROR      (5e-7)
+// acceptable disagreement between motor and axis encoders - 2''
+#define MCC_ENCODERS_ERROR      (1e-7)
+
 // max speeds (rad/s): xs=10 deg/s, ys=8 deg/s
 #define MCC_MAX_X_SPEED         (0.174533)
 #define MCC_MAX_Y_SPEED         (0.139626)
+// accelerations by both axis (for model); TODO: move speeds/accelerations into config?
+// xa=12.6 deg/s^2, ya= 9.5 deg/s^2
+#define MCC_X_ACCELERATION      (0.219911)
+#define MCC_Y_ACCELERATION      (0.165806)
 
 // max speed interval, seconds
 #define MCC_CONF_MAX_SPEEDINT   (2.)
 // minimal speed interval in parts of EncoderReqInterval
 #define MCC_CONF_MIN_SPEEDC     (3.)
+// PID I cycle time (analog of "RC" for PID on opamps)
+#define MCC_PID_CYCLE_TIME      (5.)
+// maximal PID refresh time interval (if larger all old data will be cleared)
+#define MCC_PID_MAX_DT          (1.)
+// normal PID refresh interval
+#define MCC_PID_REFRESH_DT      (0.1)
+// boundary conditions for axis state: "slewing/pointing/guiding"
+// if angle < MCC_MAX_POINTING_ERR, change state from "slewing" to "pointing": 5 degrees
+//#define MCC_MAX_POINTING_ERR    (0.20943951)
+#define MCC_MAX_POINTING_ERR    (0.08726646)
+// if angle < MCC_MAX_GUIDING_ERR, chane state from "pointing" to "guiding": 1.5 deg
+#define MCC_MAX_GUIDING_ERR     (0.026179939)
+// if error less than this value we suppose that target is captured and guiding is good: 0.1''
+#define MCC_MAX_ATTARGET_ERR    (4.8481368e-7)
 
 // error codes
 typedef enum{
@@ -47,16 +75,25 @@ typedef enum{
 } mcc_errcodes_t;
 
 typedef struct{
-    char*   MountDevPath;       // path to mount device
-    int     MountDevSpeed;      // serial speed
-    char*   EncoderDevPath;     // path to encoder device
-    int     EncoderDevSpeed;    // serial speed
-    int     SepEncoder;         // ==1 if encoder works as separate serial device, ==2 if there's new version with two devices
-    char*   EncoderXDevPath;    // paths to new controller devices
+    double P, I, D;
+} PIDpar_t;
+
+typedef struct{
+    char*   MountDevPath;           // path to mount device
+    int     MountDevSpeed;          // serial speed
+    char*   EncoderDevPath;         // path to encoder device
+    int     EncoderDevSpeed;        // serial speed
+    int     SepEncoder;             // ==1 if encoder works as separate serial device, ==2 if there's new version with two devices
+    char*   EncoderXDevPath;        // paths to new controller devices
     char*   EncoderYDevPath;
-    double  MountReqInterval;   // interval between subsequent mount requests (seconds)
-    double  EncoderReqInterval; // interval between subsequent encoder requests (seconds)
-    double  EncoderSpeedInterval;// interval between speed calculations
+    double  MountReqInterval;       // interval between subsequent mount requests (seconds)
+    double  EncoderReqInterval;     // interval between subsequent encoder requests (seconds)
+    double  EncoderSpeedInterval;   // interval between speed calculations
+    int     RunModel;               // == 1 if you want to use model instead of real mount
+    PIDpar_t XPIDC;                 // gain parameters of PID for both axiss (C - coordinate driven, V - velocity driven)
+    PIDpar_t XPIDV;
+    PIDpar_t YPIDC;
+    PIDpar_t YPIDV;
 } conf_t;
 
 // coordinates/speeds in degrees or d/s: X, Y
@@ -113,16 +150,16 @@ typedef struct{
 } extradata_t;
 
 typedef enum{
-    MNT_STOPPED,
-    MNT_SLEWING,
-    MNT_POINTING,
-    MNT_GUIDING,
-    MNT_ERROR,
-} mnt_status_t;
+    AXIS_STOPPED,
+    AXIS_SLEWING,
+    AXIS_POINTING,
+    AXIS_GUIDING,
+    AXIS_ERROR,
+} axis_status_t;
 
 typedef struct{
-    mnt_status_t Xstatus;
-    mnt_status_t Ystatus;
+    axis_status_t Xstate;
+    axis_status_t Ystate;
     coordval_t motXposition;
     coordval_t motYposition;
     coordval_t encXposition;
@@ -157,7 +194,7 @@ typedef struct{
     double Yatime;      // 28
 } long_command_t; // long command
 
-// hardware axe configuration
+// hardware axis configuration
 typedef struct{
     double accel;       // Default Acceleration, rad/s^2
     double backlash;    // Backlash (???)
@@ -168,13 +205,13 @@ typedef struct{
     double outplimit;   // Output Limit, percent (0..100)
     double currlimit;   // Current Limit (A)
     double intlimit;    // Integral Limit (???)
-} __attribute__((packed)) axe_config_t;
+} __attribute__((packed)) axis_config_t;
 
 // hardware configuration
 typedef struct{
-    axe_config_t Xconf;
+    axis_config_t Xconf;
     xbits_t xbits;
-    axe_config_t Yconf;
+    axis_config_t Yconf;
     ybits_t ybits;
     uint8_t address;
     double eqrate;      // Equatorial Rate (???)
@@ -197,19 +234,19 @@ typedef struct{
     double backlspd;    // Backlash speed (rad/s)
 } hardware_configuration_t;
 
-// flags for slew function
+/* flags for slew function
 typedef struct{
     uint32_t slewNguide : 1; // ==1 to guide after slewing
 } slewflags_t;
-
+*/
 // mount class
 typedef struct{
     // TODO: on init/quit clear all XY-bits to default`
     mcc_errcodes_t  (*init)(conf_t *c); // init device
     void            (*quit)(); // deinit
     mcc_errcodes_t  (*getMountData)(mountdata_t *d); // get last data
-    mcc_errcodes_t  (*slewTo)(const coordpair_t *target, slewflags_t flags);
-    mcc_errcodes_t  (*correctTo)(coordval_pair_t *target);
+//    mcc_errcodes_t  (*slewTo)(const coordpair_t *target, slewflags_t flags);
+    mcc_errcodes_t  (*correctTo)(const coordval_pair_t *target, const coordpair_t *endpoint);
     mcc_errcodes_t  (*moveTo)(const coordpair_t *target); // move to given position and stop
     mcc_errcodes_t  (*moveWspeed)(const coordpair_t *target, const  coordpair_t *speed); // move with given max speed
     mcc_errcodes_t  (*setSpeed)(const coordpair_t *tagspeed); // set speed
@@ -223,7 +260,6 @@ typedef struct{
 } mount_t;
 
 extern mount_t Mount;
-
 
 #ifdef __cplusplus
 }

@@ -16,27 +16,132 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+/*
+ * main functions to fill struct `mount_t`
+ */
+
 #include <inttypes.h>
+#include <strings.h>
+#include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "dbg.h"
+#include "main.h"
+#include "movingmodel.h"
 #include "serial.h"
 #include "ssii.h"
+#include "PID.h"
 
 conf_t Conf = {0};
-
+// parameters for model
+static movemodel_t *Xmodel, *Ymodel;
+// radians, rad/sec, rad/sec^2
+static limits_t
+    Xlimits = {
+        .min = {.coord = -3.1241, .speed = 1e-10, .accel = 1e-6},
+        .max = {.coord = 3.1241, .speed = MCC_MAX_X_SPEED, .accel = MCC_X_ACCELERATION}},
+    Ylimits = {
+        .min = {.coord = -3.1241, .speed = 1e-10, .accel = 1e-6},
+        .max = {.coord = 3.1241, .speed = MCC_MAX_Y_SPEED, .accel = MCC_Y_ACCELERATION}}
+;
 static mcc_errcodes_t shortcmd(short_command_t *cmd);
+
+/**
+ * @brief nanotime - monotonic time from first run
+ * @return time in seconds
+ */
+double nanotime(){
+    static struct timespec *start = NULL;
+    struct timespec now;
+    if(!start){
+        start = malloc(sizeof(struct timespec));
+        if(!start) return -1.;
+        if(clock_gettime(CLOCK_MONOTONIC, start)) return -1.;
+    }
+    if(clock_gettime(CLOCK_MONOTONIC, &now)) return -1.;
+    double nd = ((double)now.tv_nsec - (double)start->tv_nsec) * 1e-9;
+    double sd = (double)now.tv_sec - (double)start->tv_sec;
+    return sd + nd;
+}
 
 /**
  * @brief quit - close all opened and return to default state
  */
 static void quit(){
-    DBG("Close serial devices");
+    if(Conf.RunModel) return;
     for(int i = 0; i < 10; ++i) if(SSstop(TRUE)) break;
+    DBG("Close all serial devices");
     closeSerial();
     DBG("Exit");
 }
+
+void getModData(mountdata_t *mountdata){
+    if(!mountdata || !Xmodel || !Ymodel) return;
+    static double oldmt = -100.; // old `millis measurement` time
+    static uint32_t oldmillis = 0;
+    double tnow = nanotime();
+    moveparam_t Xp, Yp;
+    movestate_t Xst = Xmodel->get_state(Xmodel, &Xp);
+    //DBG("Xstate = %d", Xst);
+    if(Xst == ST_MOVE) Xst = Xmodel->proc_move(Xmodel, &Xp, tnow);
+    movestate_t Yst = Ymodel->get_state(Ymodel, &Yp);
+    if(Yst == ST_MOVE) Yst = Ymodel->proc_move(Ymodel, &Yp, tnow);
+    mountdata->motXposition.t = mountdata->encXposition.t = mountdata->motYposition.t = mountdata->encYposition.t = tnow;
+    mountdata->motXposition.val = mountdata->encXposition.val  = Xp.coord;
+    mountdata->motYposition.val  = mountdata->encYposition.val  = Yp.coord;
+    getXspeed(); getYspeed();
+    if(tnow - oldmt > Conf.MountReqInterval){
+        oldmillis = mountdata->millis = (uint32_t)(tnow * 1e3);
+        oldmt = tnow;
+    }else mountdata->millis = oldmillis;
+}
+
+/**
+ * less square calculations of speed
+ */
+less_square_t *LS_init(size_t Ndata){
+    if(Ndata < 5){
+        DBG("Ndata=%zd - TOO SMALL", Ndata);
+        return NULL;
+    }
+    DBG("Init less squares: %zd", Ndata);
+    less_square_t *l = calloc(1, sizeof(less_square_t));
+    l->x = calloc(Ndata, sizeof(double));
+    l->t2 = calloc(Ndata, sizeof(double));
+    l->t = calloc(Ndata, sizeof(double));
+    l->xt = calloc(Ndata, sizeof(double));
+    l->arraysz = Ndata;
+    return l;
+}
+void LS_delete(less_square_t **l){
+    if(!l || !*l) return;
+    free((*l)->x); free((*l)->t2); free((*l)->t); free((*l)->xt);
+    free(*l);
+    *l = NULL;
+}
+// add next data portion and calculate current slope
+double LS_calc_slope(less_square_t *l, double x, double t){
+    if(!l) return 0.;
+    size_t idx = l->idx;
+    double oldx = l->x[idx], oldt = l->t[idx], oldt2 = l->t2[idx], oldxt = l->xt[idx];
+    double t2 = t * t, xt = x * t;
+    l->x[idx] = x; l->t2[idx] = t2;
+    l->t[idx] = t; l->xt[idx] = xt;
+    ++idx;
+    l->idx = (idx >= l->arraysz) ? 0 : idx;
+    l->xsum += x - oldx;
+    l->t2sum += t2 - oldt2;
+    l->tsum += t - oldt;
+    l->xtsum += xt - oldxt;
+    double n = (double)l->arraysz;
+    double denominator = n * l->t2sum - l->tsum * l->tsum;
+    //DBG("idx=%zd, arrsz=%zd, den=%g", l->idx, l->arraysz, denominator);
+    if(fabs(denominator) < 1e-7) return 0.;
+    double numerator = n * l->xtsum - l->xsum * l->tsum;
+    // point: (sum_x  - slope * sum_t) / n;
+    return (numerator / denominator);
+}
+
 
 /**
  * @brief init - open serial devices and do other job
@@ -48,6 +153,12 @@ static mcc_errcodes_t init(conf_t *c){
     if(!c) return MCC_E_BADFORMAT;
     Conf = *c;
     mcc_errcodes_t ret = MCC_E_OK;
+    Xmodel = model_init(&Xlimits);
+    Ymodel = model_init(&Ylimits);
+    if(Conf.RunModel){
+        if(!Xmodel || !Ymodel || !openMount()) return MCC_E_FAILED;
+        return MCC_E_OK;
+    }
     if(!Conf.MountDevPath || Conf.MountDevSpeed < 1200){
         DBG("Define mount device path and speed");
         ret = MCC_E_BADFORMAT;
@@ -72,10 +183,9 @@ static mcc_errcodes_t init(conf_t *c){
         DBG("Wrong speed interval");
         ret = MCC_E_BADFORMAT;
     }
-    uint8_t buf[1024];
-    data_t d = {.buf = buf, .len = 0, .maxlen = 1024};
-    // read input data as there may be some trash on start
-    if(!SSrawcmd(CMD_EXITACM, &d)) ret = MCC_E_FAILED;
+    //uint8_t buf[1024];
+    //data_t d = {.buf = buf, .len = 0, .maxlen = 1024};
+    if(!SSrawcmd(CMD_EXITACM, NULL)) ret = MCC_E_FAILED;
     if(ret != MCC_E_OK) return ret;
     return updateMotorPos();
 }
@@ -99,16 +209,34 @@ static int chkYs(double s){
     return TRUE;
 }
 
+// set SLEWING state if axis was stopped later
+static void setslewingstate(){
+    //FNAME();
+    mountdata_t d;
+    if(MCC_E_OK == getMD(&d)){
+        axis_status_t newx = d.Xstate, newy = d.Ystate;
+        //DBG("old state: %d/%d", d.Xstate, d.Ystate);
+        if(d.Xstate == AXIS_STOPPED) newx = AXIS_SLEWING;
+        if(d.Ystate == AXIS_STOPPED) newy = AXIS_SLEWING;
+        if(newx != d.Xstate || newy != d.Ystate){
+            DBG("Started moving -> slew");
+            setStat(newx, newy);
+        }
+    }else DBG("CAN't GET MOUNT DATA!");
+}
+
+/*
 static mcc_errcodes_t slew2(const coordpair_t *target, slewflags_t flags){
     (void)target;
     (void)flags;
+    //if(Conf.RunModel) return ... ;
     if(MCC_E_OK != updateMotorPos()) return MCC_E_FAILED;
     //...
-    setStat(MNT_SLEWING, MNT_SLEWING);
+    setStat(AXIS_SLEWING, AXIS_SLEWING);
     //...
     return MCC_E_FAILED;
 }
-
+*/
 
 /**
  * @brief move2 - simple move to given point and stop
@@ -128,7 +256,7 @@ static mcc_errcodes_t move2(const coordpair_t *target){
     cmd.Yspeed = MCC_MAX_Y_SPEED;
     mcc_errcodes_t r = shortcmd(&cmd);
     if(r != MCC_E_OK) return r;
-    setStat(MNT_SLEWING, MNT_SLEWING);
+    setslewingstate();
     return MCC_E_OK;
 }
 
@@ -140,6 +268,7 @@ static mcc_errcodes_t move2(const coordpair_t *target){
  */
 static mcc_errcodes_t setspeed(const coordpair_t *tagspeed){
     if(!tagspeed || !chkXs(tagspeed->X) || !chkYs(tagspeed->Y)) return MCC_E_BADFORMAT;
+    if(Conf.RunModel) return MCC_E_FAILED;
     int32_t spd = X_RS2MOTSPD(tagspeed->X);
     if(!SSsetterI(CMD_SPEEDX, spd)) return MCC_E_FAILED;
     spd = Y_RS2MOTSPD(tagspeed->Y);
@@ -165,7 +294,7 @@ static mcc_errcodes_t move2s(const coordpair_t *target, const coordpair_t *speed
     cmd.Yspeed = speed->Y;
     mcc_errcodes_t r = shortcmd(&cmd);
     if(r != MCC_E_OK) return r;
-    setStat(MNT_SLEWING, MNT_SLEWING);
+    setslewingstate();
     return MCC_E_OK;
 }
 
@@ -174,11 +303,25 @@ static mcc_errcodes_t move2s(const coordpair_t *target, const coordpair_t *speed
  * @return errcode
  */
 static mcc_errcodes_t emstop(){
+    FNAME();
+    if(Conf.RunModel){
+        double curt = nanotime();
+        Xmodel->emergency_stop(Xmodel, curt);
+        Ymodel->emergency_stop(Ymodel, curt);
+        return MCC_E_OK;
+    }
     if(!SSstop(TRUE)) return MCC_E_FAILED;
     return MCC_E_OK;
 }
 // normal stop
 static mcc_errcodes_t stop(){
+    FNAME();
+    if(Conf.RunModel){
+        double curt = nanotime();
+        Xmodel->stop(Xmodel, curt);
+        Ymodel->stop(Ymodel,curt);
+        return MCC_E_OK;
+    }
     if(!SSstop(FALSE)) return MCC_E_FAILED;
     return MCC_E_OK;
 }
@@ -190,6 +333,16 @@ static mcc_errcodes_t stop(){
  */
 static mcc_errcodes_t shortcmd(short_command_t *cmd){
     if(!cmd) return MCC_E_BADFORMAT;
+    if(Conf.RunModel){
+        double curt = nanotime();
+        moveparam_t param = {0};
+        param.coord = cmd->Xmot; param.speed = cmd->Xspeed;
+        if(!model_move2(Xmodel, &param, curt)) return MCC_E_FAILED;
+        param.coord = cmd->Ymot; param.speed = cmd->Yspeed;
+        if(!model_move2(Ymodel, &param, curt)) return MCC_E_FAILED;
+        setslewingstate();
+        return MCC_E_OK;
+    }
     SSscmd s = {0};
     DBG("tag: xmot=%g rad, ymot=%g rad", cmd->Xmot, cmd->Ymot);
     s.Xmot = X_RAD2MOT(cmd->Xmot);
@@ -201,16 +354,27 @@ static mcc_errcodes_t shortcmd(short_command_t *cmd){
     s.YBits = cmd->YBits;
     DBG("X->%d, Y->%d, Xs->%d, Ys->%d", s.Xmot, s.Ymot, s.Xspeed, s.Yspeed);
     if(!cmdS(&s)) return MCC_E_FAILED;
+    setslewingstate();
     return MCC_E_OK;
 }
 
 /**
- * @brief shortcmd - send and receive long binary command
+ * @brief longcmd - send and receive long binary command
  * @param cmd (io) - command
  * @return errcode
  */
 static mcc_errcodes_t longcmd(long_command_t *cmd){
     if(!cmd) return MCC_E_BADFORMAT;
+    if(Conf.RunModel){
+        double curt = nanotime();
+        moveparam_t param = {0};
+        param.coord = cmd->Xmot; param.speed = cmd->Xspeed;
+        if(!model_move2(Xmodel, &param, curt)) return MCC_E_FAILED;
+        param.coord = cmd->Ymot; param.speed = cmd->Yspeed;
+        if(!model_move2(Ymodel, &param, curt)) return MCC_E_FAILED;
+        setslewingstate();
+        return MCC_E_OK;
+    }
     SSlcmd l = {0};
     l.Xmot = X_RAD2MOT(cmd->Xmot);
     l.Ymot = Y_RAD2MOT(cmd->Ymot);
@@ -221,11 +385,13 @@ static mcc_errcodes_t longcmd(long_command_t *cmd){
     l.Xatime = S2ADDER(cmd->Xatime);
     l.Yatime = S2ADDER(cmd->Yatime);
     if(!cmdL(&l)) return MCC_E_FAILED;
+    setslewingstate();
     return MCC_E_OK;
 }
 
 static mcc_errcodes_t get_hwconf(hardware_configuration_t *hwConfig){
     if(!hwConfig) return MCC_E_BADFORMAT;
+    if(Conf.RunModel) return MCC_E_FAILED;
     SSconfig config;
     if(!cmdC(&config, FALSE)) return MCC_E_FAILED;
     // Convert acceleration (ticks per loop^2 to rad/s^2)
@@ -266,8 +432,8 @@ static mcc_errcodes_t get_hwconf(hardware_configuration_t *hwConfig){
     // Copy ticks per revolution
     hwConfig->Xsetpr = __bswap_32(config.Xsetpr);
     hwConfig->Ysetpr = __bswap_32(config.Ysetpr);
-    hwConfig->Xmetpr = __bswap_32(config.Xmetpr);
-    hwConfig->Ymetpr = __bswap_32(config.Ymetpr);
+    hwConfig->Xmetpr = __bswap_32(config.Xmetpr) / 4; // as documentation said, real ticks are 4 times less
+    hwConfig->Ymetpr = __bswap_32(config.Ymetpr) / 4;
     // Convert slew rates (ticks per loop to rad/s)
     hwConfig->Xslewrate = X_MOTSPD2RS(config.Xslewrate);
     hwConfig->Yslewrate = Y_MOTSPD2RS(config.Yslewrate);
@@ -290,6 +456,7 @@ static mcc_errcodes_t get_hwconf(hardware_configuration_t *hwConfig){
 
 static mcc_errcodes_t write_hwconf(hardware_configuration_t *hwConfig){
     SSconfig config;
+    if(Conf.RunModel) return MCC_E_FAILED;
     // Convert acceleration (rad/s^2 to ticks per loop^2)
     config.Xconf.accel = X_RS2MOTACC(hwConfig->Xconf.accel);
     config.Yconf.accel = Y_RS2MOTACC(hwConfig->Yconf.accel);
@@ -349,7 +516,7 @@ mount_t Mount = {
     .init = init,
     .quit = quit,
     .getMountData = getMD,
-    .slewTo = slew2,
+//    .slewTo = slew2,
     .moveTo = move2,
     .moveWspeed = move2s,
     .setSpeed = setspeed,
@@ -359,5 +526,7 @@ mount_t Mount = {
     .longCmd = longcmd,
     .getHWconfig = get_hwconf,
     .saveHWconfig = write_hwconf,
-    .currentT = dtime,
+    .currentT = nanotime,
+    .correctTo = correct2,
 };
+

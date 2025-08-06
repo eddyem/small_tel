@@ -27,13 +27,6 @@
 #define TIME_TICK_MAX           (10.)
 
 typedef enum{
-    RAMP_DUMB,          // no ramp: infinite acceleration/deceleration
-    RAMP_TRAPEZIUM,     // trapezium ramp
-    RAMP_S,             // s-shaped ramp
-    RAMP_AMOUNT
-} ramptype_t;
-
-typedef enum{
     ST_STOP,            // stopped
     ST_MOVE,            // moving
     ST_AMOUNT
@@ -48,7 +41,6 @@ typedef struct{ // all values could be both as positive and negative
 typedef struct{
     moveparam_t min;
     moveparam_t max;
-    double jerk;
 } limits_t;
 
 typedef struct{
@@ -64,7 +56,7 @@ typedef struct{
 extern double coord_tolerance;
 
 double nanot();
-movemodel_t *init_moving(ramptype_t type, limits_t *l);
+movemodel_t *init_moving(limits_t *l);
 int init_coordtol(double tolerance);
 int init_timetick(double tick);
 int move_to(moveparam_t *target, double t);

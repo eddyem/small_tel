@@ -115,7 +115,7 @@ void dumpmoving(FILE *fcoords, double t, int N){
         enct = tmsr;
         if(fcoords) logmnt(fcoords, &mdata);
         if(mdata.millis == mdmillis) continue;
-        //DBG("ctr=%d", ctr);
+        //DBG("ctr=%d, motpos=%g/%g", ctr, mdata.motXposition.val, mdata.motYposition.val);
         mdmillis = mdata.millis;
         if(mdata.motXposition.val != xlast || mdata.motYposition.val != ylast){
             xlast = mdata.motXposition.val;
@@ -123,10 +123,11 @@ void dumpmoving(FILE *fcoords, double t, int N){
             ctr = 0;
         }else ++ctr;
     }
+    DBG("Exit dumping; tend=%g, tmon=%g", t, Mount.currentT() - t0);
 }
 
 /**
- * @brief waitmoving - wait until moving by both axes stops at least for N cycles
+ * @brief waitmoving - wait until moving by both axiss stops at least for N cycles
  * @param N - amount of stopped cycles
  */
 void waitmoving(int N){

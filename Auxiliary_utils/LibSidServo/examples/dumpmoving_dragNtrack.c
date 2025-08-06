@@ -120,16 +120,13 @@ static coordpair_t lastTag = {0}, lastSpeed = {0};
 
 // slew to given position and start tracking
 // pos/speed in deg and deg/s
-static mcc_errcodes_t gotos(coordpair_t *target, coordpair_t *speed){
+static mcc_errcodes_t gotos(const coordpair_t *target, const coordpair_t *speed){
     short_command_t cmd = {0};
     DBG("Try to move to (%g, %g) with speed (%g, %g)",
         target->X, target->Y, speed->X, speed->Y);
-    target->X = DEG2RAD(target->X);
-    target->Y = DEG2RAD(target->Y);
-    speed->X = DEG2RAD(speed->X);
-    speed->Y = DEG2RAD(speed->Y);
-    cmd.Xmot = target->X; cmd.Ymot = target->Y;
-    cmd.Xspeed = speed->X; cmd.Yspeed = speed->Y;
+    cmd.Xmot = DEG2RAD(target->X); cmd.Ymot = DEG2RAD(target->Y);
+    cmd.Xspeed = DEG2RAD(speed->X);
+    cmd.Yspeed = DEG2RAD(speed->Y);
     lastTag = *target;
     lastSpeed = *speed;
     /*cmd.xychange = 1;
@@ -142,7 +139,8 @@ static mcc_errcodes_t return2zero(){
     short_command_t cmd = {0};
     DBG("Try to move to zero");
     cmd.Xmot = 0.; cmd.Ymot = 0.;
-    cmd.Xspeed = DEG2RAD(10.); cmd.Yspeed = DEG2RAD(10.);
+    cmd.Xspeed = MCC_MAX_X_SPEED;
+    cmd.Yspeed = MCC_MAX_Y_SPEED;
     /*cmd.xychange = 1;
     cmd.XBits = 100;
     cmd.YBits = 20;*/
@@ -151,11 +149,11 @@ static mcc_errcodes_t return2zero(){
 
 static mcc_errcodes_t mkcorr(coordpair_t *adder, coordpair_t *time){
     long_command_t cmd = {0};
-    cmd.Xspeed = lastSpeed.X;
-    cmd.Yspeed = lastSpeed.Y;
-    cmd.Xmot = lastTag.X;
-    cmd.Ymot = lastTag.Y;
-    cmd.Xadder = adder->X; cmd.Yadder = adder->Y;
+    cmd.Xspeed = DEG2RAD(lastSpeed.X);
+    cmd.Yspeed = DEG2RAD(lastSpeed.Y);
+    cmd.Xmot = DEG2RAD(lastTag.X);
+    cmd.Ymot = DEG2RAD(lastTag.Y);
+    cmd.Xadder = DEG2RAD(adder->X); cmd.Yadder = DEG2RAD(adder->Y);
     cmd.Xatime = time->X; cmd.Yatime = time->Y;
     return Mount.longCmd(&cmd);
 }
@@ -218,7 +216,7 @@ int main(int argc, char **argv){
     sleep(5);
     // return to zero and wait
     green("Return 2 zero and wait\n");
-    return2zero();
+    if(!return2zero()) ERRX("Can't return");
     Wait(0., 0);
     Wait(0., 1);
     // wait moving ends

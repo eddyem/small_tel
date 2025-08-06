@@ -51,10 +51,10 @@ static sl_option_t confopts[] = {
     end_option
 };
 
-static void dumpaxe(char axe, axe_config_t *c){
+static void dumpaxis(char axis, axis_config_t *c){
 #define STRUCTPAR(p)    (c)->p
-#define DUMP(par) do{printf("%c%s=%g\n", axe, #par, STRUCTPAR(par));}while(0)
-#define DUMPD(par) do{printf("%c%s=%g\n", axe, #par, RAD2DEG(STRUCTPAR(par)));}while(0)
+#define DUMP(par) do{printf("%c%s=%g\n", axis, #par, STRUCTPAR(par));}while(0)
+#define DUMPD(par) do{printf("%c%s=%g\n", axis, #par, RAD2DEG(STRUCTPAR(par)));}while(0)
     DUMPD(accel);
     DUMPD(backlash);
     DUMPD(errlimit);
@@ -99,14 +99,15 @@ static void dumpHWconf(){
 #define DUMPD(par) do{printf("%s=%g\n", #par, RAD2DEG(STRUCTPAR(par)));}while(0)
 #define DUMPU8(par) do{printf("%s=%u\n", #par, (uint8_t)STRUCTPAR(par));}while(0)
 #define DUMPU32(par) do{printf("%s=%u\n", #par, (uint32_t)STRUCTPAR(par));}while(0)
-    green("X axe configuration:\n");
-    dumpaxe('X', &HW.Xconf);
+    green("X axis configuration:\n");
+    dumpaxis('X', &HW.Xconf);
     green("X bits:\n");
     dumpxbits(&HW.xbits);
-    green("Y axe configuration:\n");
-    dumpaxe('Y', &HW.Yconf);
+    green("Y axis configuration:\n");
+    dumpaxis('Y', &HW.Yconf);
     green("Y bits:\n");
     dumpybits(&HW.ybits);
+    green("Other:\n");
     printf("address=%d\n", HW.address);
     DUMP(eqrate);
     DUMP(eqadj);
@@ -142,10 +143,12 @@ int main(int argc, char** argv){
     }
     if(MCC_E_OK != Mount.init(sconf)) ERRX("Can't init mount");
     if(MCC_E_OK != Mount.getHWconfig(&HW)) ERRX("Can't read configuration");
+    /*
     char *c = sl_print_opts(confopts, TRUE);
     green("Got configuration:\n");
     printf("%s\n", c);
     FREE(c);
+    */
     dumpHWconf();
     /*
     if(G.hwconffile && G.writeconf){

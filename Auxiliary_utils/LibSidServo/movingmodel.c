@@ -18,33 +18,14 @@
 
 #include <math.h>
 #include <stdio.h>
-#include <usefull_macros.h>
+#include <string.h>
 #include <pthread.h>
-#include <time.h>
 
-#include "moving.h"
-#include "moving_private.h"
-#include "Tramp.h"
+#include "main.h"
+#include "movingmodel.h"
+#include "ramp.h"
 
-static movemodel_t *model = &trapez;
-double coord_tolerance = COORD_TOLERANCE_DEFAULT;
-double time_tick = TIME_TICK_DEFAULT;
-
-// difference of time from first call, using nanoseconds
-double nanot(){
-    static struct timespec *start = NULL;
-    struct timespec now;
-    if(!start){
-        start = MALLOC(struct timespec, 1);
-        if(!start) return -1.;
-        if(clock_gettime(CLOCK_REALTIME, start)) return -1.;
-    }
-    if(clock_gettime(CLOCK_REALTIME, &now)) return -1.;
-    //DBG("was: %ld, now: %ld", start->tv_nsec, now.tv_nsec);
-    double nd = ((double)now.tv_nsec - (double)start->tv_nsec) * 1e-9;
-    double sd = (double)now.tv_sec - (double)start->tv_sec;
-    return sd + nd;
-}
+extern movemodel_t trapez;
 
 static void chkminmax(double *min, double *max){
     if(*min <= *max) return;
@@ -53,9 +34,13 @@ static void chkminmax(double *min, double *max){
     *max = t;
 }
 
-movemodel_t *init_moving(limits_t *l){
+movemodel_t *model_init(limits_t *l){
     if(!l) return FALSE;
-    if(!model->init_limits) return NULL;
+    movemodel_t *m = calloc(1, sizeof(movemodel_t));
+    // we can't use memcpy or assign as Times/Params would be common for all
+    *m = trapez;
+    m->Times = calloc(STAGE_AMOUNT, sizeof(double));
+    m->Params = calloc(STAGE_AMOUNT, sizeof(moveparam_t));
     moveparam_t *max = &l->max, *min = &l->min;
     if(min->speed < 0.) min->speed = -min->speed;
     if(max->speed < 0.) max->speed = -max->speed;
@@ -64,26 +49,20 @@ movemodel_t *init_moving(limits_t *l){
     chkminmax(&min->coord, &max->coord);
     chkminmax(&min->speed, &max->speed);
     chkminmax(&min->accel, &max->accel);
-    if(!model->init_limits(l)) return NULL;
-    return model;
+    m->Min = l->min;
+    m->Max = l->max;
+    m->movingstage = STAGE_STOPPED;
+    m->state = ST_STOP;
+    pthread_mutex_init(&m->mutex, NULL);
+    DBG("model inited");
+    return m;
 }
 
-int move_to(moveparam_t *target, double t){
+int model_move2(movemodel_t *model, moveparam_t *target, double t){
     if(!target || !model) return FALSE;
     DBG("MOVE to %g at speed %g", target->coord, target->speed);
     // only positive velocity
     if(target->speed < 0.) target->speed = -target->speed;
     // don't mind about acceleration - user cannot set it now
-    return model->calculate(target, t);
-}
-
-int init_coordtol(double tolerance){
-    if(tolerance < COORD_TOLERANCE_MIN || tolerance > COORD_TOLERANCE_MAX) return FALSE;
-    coord_tolerance = tolerance;
-    return TRUE;
-}
-int init_timetick(double tick){
-    if(tick < TIME_TICK_MIN || tick > TIME_TICK_MAX) return FALSE;
-    time_tick = tick;
-    return TRUE;
+    return model->calculate(model, target, t);
 }

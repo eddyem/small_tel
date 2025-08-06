@@ -31,6 +31,18 @@ static conf_t Config = {
     .EncoderReqInterval = 0.05,
     .SepEncoder = 2,
     .EncoderSpeedInterval = 0.1,
+    .XPIDC.P = 0.8,
+    .XPIDC.I = 0.1,
+    .XPIDC.D = 0.3,
+    .XPIDV.P = 1.,
+    .XPIDV.I = 0.01,
+    .XPIDV.D = 0.2,
+    .YPIDC.P = 0.8,
+    .YPIDC.I = 0.1,
+    .YPIDC.D = 0.3,
+    .YPIDV.P = 0.5,
+    .YPIDV.I = 0.2,
+    .YPIDV.D = 0.5,
 };
 
 static sl_option_t opts[] = {
@@ -44,6 +56,19 @@ static sl_option_t opts[] = {
     {"EncoderXDevPath", NEED_ARG,   NULL,   0,  arg_string, APTR(&Config.EncoderXDevPath),  "path to X encoder (/dev/encoderX0)"},
     {"EncoderYDevPath", NEED_ARG,   NULL,   0,  arg_string, APTR(&Config.EncoderYDevPath),  "path to Y encoder (/dev/encoderY0)"},
     {"EncoderSpeedInterval", NEED_ARG,NULL, 0,  arg_double, APTR(&Config.EncoderSpeedInterval),"interval of speed calculations, s"},
+    {"RunModel",        NEED_ARG,   NULL,   0,  arg_int,    APTR(&Config.RunModel),         "instead of real hardware run emulation"},
+    {"XPIDCP",          NEED_ARG,   NULL,   0,  arg_double, APTR(&Config.XPIDC.P),          "P of X PID (coordinate driven)"},
+    {"XPIDCI",          NEED_ARG,   NULL,   0,  arg_double, APTR(&Config.XPIDC.I),          "I of X PID (coordinate driven)"},
+    {"XPIDCD",          NEED_ARG,   NULL,   0,  arg_double, APTR(&Config.XPIDC.D),          "D of X PID (coordinate driven)"},
+    {"YPIDCP",          NEED_ARG,   NULL,   0,  arg_double, APTR(&Config.YPIDC.P),          "P of Y PID (coordinate driven)"},
+    {"YPIDCI",          NEED_ARG,   NULL,   0,  arg_double, APTR(&Config.YPIDC.I),          "I of Y PID (coordinate driven)"},
+    {"YPIDCD",          NEED_ARG,   NULL,   0,  arg_double, APTR(&Config.YPIDC.D),          "D of Y PID (coordinate driven)"},
+    {"XPIDVP",          NEED_ARG,   NULL,   0,  arg_double, APTR(&Config.XPIDV.P),          "P of X PID (velocity driven)"},
+    {"XPIDVI",          NEED_ARG,   NULL,   0,  arg_double, APTR(&Config.XPIDV.I),          "I of X PID (velocity driven)"},
+    {"XPIDVD",          NEED_ARG,   NULL,   0,  arg_double, APTR(&Config.XPIDV.D),          "D of X PID (velocity driven)"},
+    {"YPIDVP",          NEED_ARG,   NULL,   0,  arg_double, APTR(&Config.YPIDV.P),          "P of Y PID (velocity driven)"},
+    {"YPIDVI",          NEED_ARG,   NULL,   0,  arg_double, APTR(&Config.YPIDV.I),          "I of Y PID (velocity driven)"},
+    {"YPIDVD",          NEED_ARG,   NULL,   0,  arg_double, APTR(&Config.YPIDV.D),          "D of Y PID (velocity driven)"},
     end_option
 };
 

@@ -55,7 +55,7 @@ static sl_option_t cmdlnopts[] = {
     {"coordsfile",  NEED_ARG,   NULL,   'o',    arg_string, APTR(&G.coordsoutput),"output file with coordinates log"},
     {"axis",        NEED_ARG,   NULL,   'a',    arg_string, APTR(&G.axis),      "axis to move (X or Y)"},
     {"period",      NEED_ARG,   NULL,   'p',    arg_double, APTR(&G.period),    "swinging period (could be not reached if amplitude is too small) - not more than 900s (default: 1)"},
-    {"amplitude",   NEED_ARG,   NULL,   'A',    arg_double, APTR(&G.amplitude), "max amplitude (could be not reaced if period is too small) - not more than 45deg (default: 5)"},
+    {"amplitude",   NEED_ARG,   NULL,   'A',    arg_double, APTR(&G.amplitude), "max amplitude (could be not reached if period is too small): [-45:45]deg (default: 5)"},
     {"nswings",     NEED_ARG,   NULL,   'N',    arg_int,    APTR(&G.Nswings),   "amount of swing periods (default: 10)"},
     {"conffile",    NEED_ARG,   NULL,   'C',    arg_int,    APTR(&G.conffile),  "configuration file name"},
     end_option
@@ -89,12 +89,12 @@ void waithalf(double t){
         if(mdata.millis == millis) continue;
         millis = mdata.millis;
         if(mdata.motXposition.val != xlast || mdata.motYposition.val != ylast){
-            DBG("NEQ: old=%g, now=%g", RAD2DEG(ylast), RAD2DEG(mdata.motYposition.val));
+            //DBG("NEQ: old=%g, now=%g", RAD2DEG(ylast), RAD2DEG(mdata.motYposition.val));
             xlast = mdata.motXposition.val;
             ylast = mdata.motYposition.val;
             ctr = 0;
         }else{
-            DBG("EQ: old=%g, now=%g", RAD2DEG(ylast), RAD2DEG(mdata.motYposition.val));
+            //DBG("EQ: old=%g, now=%g", RAD2DEG(ylast), RAD2DEG(mdata.motYposition.val));
             ++ctr;
         }
     }
@@ -114,7 +114,8 @@ int main(int argc, char **argv){
             ERRX("Can't open %s", G.coordsoutput);
     }else fcoords = stdout;
     if(G.Ncycles < 7) ERRX("Ncycles should be >7");
-    if(G.amplitude < 0.01 || G.amplitude > 45.)
+    double absamp = fabs(G.amplitude);
+    if(absamp < 0.01 || absamp > 45.)
         ERRX("Amplitude should be from 0.01 to 45 degrees");
     if(G.period < 0.1 || G.period > 900.)
         ERRX("Period should be from 0.1 to 900s");
@@ -162,9 +163,13 @@ int main(int argc, char **argv){
         DBG("Moved to -, t=%g", t-t0);
         DBG("CMD: %g", Mount.currentT()-t0);
     }
-    tag = (coordpair_t){.X = 0., .Y = 0.};
+    green("Move to zero @ %g\n", Mount.currentT());
+    tag = (coordpair_t){0};
     // be sure to move @ 0,0
-    Mount.moveTo(&tag);
+    if(MCC_E_OK != Mount.moveTo(&tag)){
+        Mount.emergStop();
+        Mount.moveTo(&tag);
+    }
     // wait moving ends
     pthread_join(dthr, NULL);
 #undef SCMD

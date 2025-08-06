@@ -16,6 +16,10 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+/*
+ * This file contains stuff for sidereal-servo specific protocol
+ */
+
 #pragma once
 
 #include <math.h>
@@ -169,17 +173,31 @@
 #define SITECH_LOOP_FREQUENCY   (1953.)
 
 // amount of consequent same coordinates to detect stop
-#define MOTOR_STOPPED_CNT       (20)
+#define MOTOR_STOPPED_CNT       (4)
 
+// TODO: take it from settings?
 // steps per revolution (SSI - x4 - for SSI)
-// 13312000 / 4 = 3328000
 #define X_MOT_STEPSPERREV_SSI   (13312000.)
-//#define X_MOT_STEPSPERREV   (3325952.)
+// 13312000 / 4 = 3328000
 #define X_MOT_STEPSPERREV   (3328000.)
-// 17578668 / 4 = 4394667
 #define Y_MOT_STEPSPERREV_SSI (17578668.)
-//#define Y_MOT_STEPSPERREV   (4394960.)
+// 17578668 / 4 = 4394667
 #define Y_MOT_STEPSPERREV   (4394667.)
+
+// encoder per revolution
+#define X_ENC_STEPSPERREV   (67108864.)
+#define Y_ENC_STEPSPERREV   (67108864.)
+// encoder zero position
+#define X_ENC_ZERO          (61245239)
+#define Y_ENC_ZERO          (36999830)
+// encoder reversed (no: +1)
+#define X_ENC_SIGN          (-1.)
+#define Y_ENC_SIGN          (-1.)
+// encoder position to radians and back
+#define X_ENC2RAD(n)    ang2half(X_ENC_SIGN * 2.*M_PI * ((double)((n)-X_ENC_ZERO)) / X_ENC_STEPSPERREV)
+#define Y_ENC2RAD(n)    ang2half(Y_ENC_SIGN * 2.*M_PI * ((double)((n)-Y_ENC_ZERO)) / Y_ENC_STEPSPERREV)
+#define X_RAD2ENC(r)    ((uint32_t)((r) / 2./M_PI * X_ENC_STEPSPERREV))
+#define Y_RAD2ENC(r)    ((uint32_t)((r) / 2./M_PI * Y_ENC_STEPSPERREV))
 
 // convert angle in radians to +-pi
 static inline double ang2half(double ang){
@@ -213,21 +231,6 @@ static inline double ang2full(double ang){
 // adder time to seconds vice versa
 #define ADDER2S(a)  ((a) / SITECH_LOOP_FREQUENCY)
 #define S2ADDER(s)  ((s) * SITECH_LOOP_FREQUENCY)
-
-// encoder per revolution
-#define X_ENC_STEPSPERREV   (67108864.)
-#define Y_ENC_STEPSPERREV   (67108864.)
-// encoder zero position
-#define X_ENC_ZERO          (61245239)
-#define Y_ENC_ZERO          (36999830)
-// encoder reversed (no: +1)
-#define X_ENC_SIGN          (-1.)
-#define Y_ENC_SIGN          (-1.)
-// encoder position to radians and back
-#define X_ENC2RAD(n)    ang2half(X_ENC_SIGN * 2.*M_PI * ((double)(n-X_ENC_ZERO)) / X_ENC_STEPSPERREV)
-#define Y_ENC2RAD(n)    ang2half(Y_ENC_SIGN * 2.*M_PI * ((double)(n-Y_ENC_ZERO)) / Y_ENC_STEPSPERREV)
-#define X_RAD2ENC(r)    ((uint32_t)((r) / 2./M_PI * X_ENC_STEPSPERREV))
-#define Y_RAD2ENC(r)    ((uint32_t)((r) / 2./M_PI * Y_ENC_STEPSPERREV))
 
 // encoder's tolerance (ticks)
 #define YencTOL    (25.)
@@ -334,5 +337,4 @@ int SSrawcmd(const char *cmd, data_t *answer);
 int SSgetint(const char *cmd, int64_t *ans);
 int SSsetterI(const char *cmd, int32_t ival);
 int SSstop(int emerg);
-int SSshortCmd(SSscmd *cmd);
 mcc_errcodes_t updateMotorPos();
