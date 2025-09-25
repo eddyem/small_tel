@@ -204,16 +204,21 @@ static void flagparsing(const char *str){
     printf("\n");
 }
 
+static void showflags(const char *flags, const char **meaning, int nfields){
+    for(int i = 0; i < nfields; ++i)
+        printf("\t%s: %s\n", meaning[i], flags[i]=='1' ? "on/yes" : "off/no");
+}
+
 // 230.0 50.0 232.0 50.0 0000 0000 000 409 26.99 000 100 0489 0000 000.0 00.00 00000 10011101 00 03 00000 100
 // b      c    d     e    f    g    h   i   j     k   o   t    e1    u    w      p     x       [unknown shit]
 static void statusparsing(const char *str){
     float b, c, d, e, j, u, w;
-    int f, g, h, i, k, o, t, e1, p, S, H, I, T;
+    int f, g, h, i, k, o, t, e1, p, S, H, I;
     //int l = strlen(str);
     //for(int i = 0; i < l; ++i){char c = str[i]; if(isalnum(c)||c==' '||c=='.') printf("%c", c); else printf("\\x%02X", c); }
-    char x[9];
-    int N = sscanf(str, "%f %f %f %f %d %d %d %d %f %d %d %d %d %f %f %d %8s %d %d %d %d",
-                    &b, &c, &d, &e, &f, &g, &h, &i, &j, &k, &o, &t, &e1, &u, &w, &p, x, &S, &H, &I, &T);
+    char x[9], T[4];
+    int N = sscanf(str, "%f %f %f %f %d %d %d %d %f %d %d %d %d %f %f %d %8s %d %d %d %3s",
+                    &b, &c, &d, &e, &f, &g, &h, &i, &j, &k, &o, &t, &e1, &u, &w, &p, x, &S, &H, &I, T);
     DBG("N=%d", N);
     if(N >= 17){
         printf("Grid voltage: %g\nGrid frequency: %g\nAC output voltage: %g\nAC output frequency: %g\n",
@@ -224,9 +229,12 @@ static void statusparsing(const char *str){
         printf("Battery voltage from SCC: %g\nBattery discharge current: %d\nDevice status:\n", w, p);
         static const char *sf[] = {"AC charging", "SCC charging", "Charging", "Steady batt voltage while charging",
                                 "Load status", "SCC firmware updated", "configuration changed", "SBU priority version"};
-        for(int i = 0; i < 8; ++i) printf("\t%s: %s\n", sf[i], x[i]=='1' ? "on/yes" : "off/no");
+        showflags(x, sf, 8);
         if(N > 17){
-            printf("Unknown values: %d, %d, %d, %d\n", S, H, I, T);
+            printf("Battery offset for fans on: %d\nEEPROM version: %d\nPV charging power: %d\n", S, H, I);
+            printf("Inverter status:\n");
+            static const char *is[] = {"Charging to floating mode", "Switch", "Dustproof installed"};
+            showflags(T, is, 3);
         }
     }else WARNX("Get not full answer: %d instead of 17", N);
 }
