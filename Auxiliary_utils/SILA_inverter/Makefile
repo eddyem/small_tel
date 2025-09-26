@@ -1,5 +1,5 @@
 # run `make DEF=...` to add extra defines
-PROGRAM := getparams
+PROGRAM := invertercmd
 LDFLAGS := -fdata-sections -ffunction-sections -Wl,--gc-sections -Wl,--discard-all
 LDFLAGS += -lusefull_macros
 SRCS := $(wildcard *.c)
