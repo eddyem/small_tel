@@ -51,18 +51,16 @@ static mcc_errcodes_t shortcmd(short_command_t *cmd);
  * @return time in seconds
  */
 double nanotime(){
-    //static struct timespec *start = NULL;
+    static double t0 = -1.;
     struct timespec now;
-    /*if(!start){
-        start = malloc(sizeof(struct timespec));
-        if(!start) return -1.;
-        if(clock_gettime(CLOCK_MONOTONIC, start)) return -1.;
-    }*/
     if(clock_gettime(CLOCK_MONOTONIC, &now)) return -1.;
-    /*double nd = ((double)now.tv_nsec - (double)start->tv_nsec) * 1e-9;
-    double sd = (double)now.tv_sec - (double)start->tv_sec;
-    return sd + nd;*/
-    return (double)now.tv_sec + (double)now.tv_nsec * 1e-9;
+    if(t0 < 0.){
+        struct timespec start;
+        if(clock_gettime(CLOCK_REALTIME, &start)) return -1.;
+        t0 = (double)start.tv_sec + (double)start.tv_nsec * 1e-9
+             - (double)now.tv_sec + (double)now.tv_nsec * 1e-9;
+    }
+    return (double)now.tv_sec + (double)now.tv_nsec * 1e-9 + t0;
 }
 
 /**
