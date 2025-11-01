@@ -63,6 +63,11 @@ int model_move2(movemodel_t *model, moveparam_t *target, double t){
     DBG("MOVE to %g at speed %g", target->coord, target->speed);
     // only positive velocity
     if(target->speed < 0.) target->speed = -target->speed;
+    if(fabs(target->speed) < model->Min.speed){
+        DBG("STOP");
+        model->stop(model, t);
+        return TRUE;
+    }
     // don't mind about acceleration - user cannot set it now
     return model->calculate(model, target, t);
 }

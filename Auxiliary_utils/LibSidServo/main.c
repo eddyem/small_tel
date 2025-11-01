@@ -51,17 +51,18 @@ static mcc_errcodes_t shortcmd(short_command_t *cmd);
  * @return time in seconds
  */
 double nanotime(){
-    static struct timespec *start = NULL;
+    //static struct timespec *start = NULL;
     struct timespec now;
-    if(!start){
+    /*if(!start){
         start = malloc(sizeof(struct timespec));
         if(!start) return -1.;
         if(clock_gettime(CLOCK_MONOTONIC, start)) return -1.;
-    }
+    }*/
     if(clock_gettime(CLOCK_MONOTONIC, &now)) return -1.;
-    double nd = ((double)now.tv_nsec - (double)start->tv_nsec) * 1e-9;
+    /*double nd = ((double)now.tv_nsec - (double)start->tv_nsec) * 1e-9;
     double sd = (double)now.tv_sec - (double)start->tv_sec;
-    return sd + nd;
+    return sd + nd;*/
+    return (double)now.tv_sec + (double)now.tv_nsec * 1e-9;
 }
 
 /**
@@ -75,10 +76,8 @@ static void quit(){
     DBG("Exit");
 }
 
-void getModData(mountdata_t *mountdata){
-    if(!mountdata || !Xmodel || !Ymodel) return;
-    static double oldmt = -100.; // old `millis measurement` time
-    static uint32_t oldmillis = 0;
+void getModData(coordval_pair_t *c, movestate_t *xst, movestate_t *yst){
+    if(!c || !Xmodel || !Ymodel) return;
     double tnow = nanotime();
     moveparam_t Xp, Yp;
     movestate_t Xst = Xmodel->get_state(Xmodel, &Xp);
@@ -86,14 +85,11 @@ void getModData(mountdata_t *mountdata){
     if(Xst == ST_MOVE) Xst = Xmodel->proc_move(Xmodel, &Xp, tnow);
     movestate_t Yst = Ymodel->get_state(Ymodel, &Yp);
     if(Yst == ST_MOVE) Yst = Ymodel->proc_move(Ymodel, &Yp, tnow);
-    mountdata->motXposition.t = mountdata->encXposition.t = mountdata->motYposition.t = mountdata->encYposition.t = tnow;
-    mountdata->motXposition.val = mountdata->encXposition.val  = Xp.coord;
-    mountdata->motYposition.val  = mountdata->encYposition.val  = Yp.coord;
-    getXspeed(); getYspeed();
-    if(tnow - oldmt > Conf.MountReqInterval){
-        oldmillis = mountdata->millis = (uint32_t)(tnow * 1e3);
-        oldmt = tnow;
-    }else mountdata->millis = oldmillis;
+    c->X.t = c->Y.t = tnow;
+    c->X.val = Xp.coord;
+    c->Y.val =  Yp.coord;
+    if(xst) *xst = Xst;
+    if(yst) *yst = Yst;
 }
 
 /**

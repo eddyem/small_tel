@@ -216,7 +216,7 @@ int main(int argc, char **argv){
     sleep(5);
     // return to zero and wait
     green("Return 2 zero and wait\n");
-    if(!return2zero()) ERRX("Can't return");
+    if(MCC_E_OK != return2zero()) ERRX("Can't return");
     Wait(0., 0);
     Wait(0., 1);
     // wait moving ends

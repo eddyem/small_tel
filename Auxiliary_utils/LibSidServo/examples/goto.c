@@ -61,12 +61,13 @@ static FILE* fcoords = NULL;
 static pthread_t dthr;
 
 void signals(int sig){
-    pthread_cancel(dthr);
     if(sig){
         signal(sig, SIG_IGN);
         DBG("Get signal %d, quit.\n", sig);
     }
+    DBG("Quit");
     Mount.quit();
+    DBG("close");
     if(fcoords) fclose(fcoords);
     exit(sig);
 }
@@ -90,11 +91,10 @@ int main(int _U_ argc, char _U_ **argv){
     if(MCC_E_OK != Mount.init(Config)) ERRX("Can't init mount");
     coordval_pair_t M, E;
     if(!getPos(&M, &E)) ERRX("Can't get current position");
+    DBG("xt: %g, x: %g", M.X.t, M.X.val);
     if(G.coordsoutput){
-        if(!G.wait) green("When logging I should wait until moving ends; added '-w'");
+        if(!G.wait) green("When logging I should wait until moving ends; added '-w'\n");
         G.wait = 1;
-    }
-    if(G.coordsoutput){
         if(!(fcoords = fopen(G.coordsoutput, "w")))
             ERRX("Can't open %s", G.coordsoutput);
         logmnt(fcoords, NULL);

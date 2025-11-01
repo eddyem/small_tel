@@ -23,12 +23,14 @@
 
 #include "main.h"
 #include "ramp.h"
-/*
+
 #ifdef EBUG
 #undef DBG
 #define DBG(...)
+#undef FNAME
+#define FNAME()
 #endif
-*/
+
 static double coord_tolerance = COORD_TOLERANCE_DEFAULT;
 
 static void emstop(movemodel_t *m, double _U_ t){
@@ -120,7 +122,7 @@ static void unlockedcalc(movemodel_t *m, moveparam_t *x, double t){
         }
     }else{
         // if we are here, we have the worst case: change speed direction
-        DBG("Hardest case: change speed direction");
+       // DBG("Hardest case: change speed direction");
         // now we should calculate coordinate at which model stops and biuld new trapezium from that point
         double x0 = m->curparams.coord, v0 = m->curparams.speed;
         double xstop = x0 + sign_v0 * abs_dx_stop, tstop = t + abs_v0 / abs_a;
@@ -132,7 +134,7 @@ static void unlockedcalc(movemodel_t *m, moveparam_t *x, double t){
         m->Times[STAGE_ACCEL] = t;
         m->Params[STAGE_ACCEL].coord = x0;
         m->Params[STAGE_ACCEL].speed = v0;
-        DBG("NOW t[0]=%g, X[0]=%g, V[0]=%g", t, x0, v0);
+       // DBG("NOW t[0]=%g, X[0]=%g, V[0]=%g", t, x0, v0);
         return;
     }
     m->state = ST_MOVE;
@@ -210,11 +212,10 @@ static movestate_t proc(movemodel_t *m, moveparam_t *next, double t){
     if(m->movingstage == STAGE_STOPPED){
         m->curparams.coord = m->Params[STAGE_STOPPED].coord;
         pthread_mutex_unlock(&m->mutex);
-        DBG("REACHED STOPping stage @ t=%g", t);
+       /* DBG("REACHED STOPping stage @ t=%g", t);
         for(int s = STAGE_STOPPED; s >= 0; --s){
             DBG("T[%d]=%g, ", s, m->Times[s]);
-        }
-        fflush(stdout);
+        }*/
         emstop(m, t);
         goto ret;
     }

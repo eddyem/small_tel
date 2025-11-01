@@ -29,6 +29,7 @@ PIDController_t *pid_create(const PIDpar_t *gain, size_t Iarrsz){
     if(!gain || Iarrsz < 3) return NULL;
     PIDController_t *pid = (PIDController_t*)calloc(1, sizeof(PIDController_t));
     pid->gain = *gain;
+    DBG("Created PID with P=%g, I=%g, D=%g\n", gain->P, gain->I, gain->D);
     pid->pidIarrSize = Iarrsz;
     pid->pidIarray = (double*)calloc(Iarrsz, sizeof(double));
     return pid;
@@ -141,9 +142,9 @@ static double getspeed(const coordval_t *tagpos, PIDpair_t *pidpair, axisdata_t 
     double dt = tagpos->t - pid->prevT;
     if(dt > MCC_PID_MAX_DT) dt = MCC_PID_CYCLE_TIME;
     pid->prevT = tagpos->t;
-    //DBG("CALC PID (er=%g, dt=%g)", error, dt);
+    DBG("CALC PID (er=%g, dt=%g), state=%d", error, dt, axis->state);
     double tagspeed = pid_calculate(pid, error, dt);
-    if(axis->state == AXIS_GUIDING) return axis->speed.val + tagspeed; // velocity-based
+    if(axis->state == AXIS_GUIDING) return axis->speed.val + tagspeed / dt; // velocity-based
     return tagspeed; // coordinate-based
 }
 
@@ -176,13 +177,15 @@ mcc_errcodes_t correct2(const coordval_pair_t *target, const coordpair_t *endpoi
     axis.position = m.encXposition;
     axis.speed = m.encXspeed;
     tagspeed.X = getspeed(&target->X, &pidX, &axis);
-    if(tagspeed.X < 0. || tagspeed.X > MCC_MAX_X_SPEED) tagspeed.X = MCC_MAX_X_SPEED;
+    if(tagspeed.X < 0.) tagspeed.X = -tagspeed.X;
+    if(tagspeed.X > MCC_MAX_X_SPEED) tagspeed.X = MCC_MAX_X_SPEED;
     axis_status_t xstate = axis.state;
     axis.state = m.Ystate;
     axis.position = m.encYposition;
     axis.speed = m.encYspeed;
     tagspeed.Y = getspeed(&target->Y, &pidY, &axis);
-    if(tagspeed.Y < 0. || tagspeed.Y > MCC_MAX_Y_SPEED) tagspeed.Y = MCC_MAX_Y_SPEED;
+    if(tagspeed.Y < 0.) tagspeed.Y = -tagspeed.Y;
+    if(tagspeed.Y > MCC_MAX_Y_SPEED) tagspeed.Y = MCC_MAX_Y_SPEED;
     axis_status_t ystate = axis.state;
     if(m.Xstate != xstate || m.Ystate != ystate){
         DBG("State changed");

@@ -76,6 +76,7 @@ int telpos(coordval_pair_t *curpos){
     }
     if(ntries == 10) return FALSE;
     coordval_pair_t pt;
+    //DBG("\n\nTELPOS: %g'/%g' measured @ %.6f", RAD2AMIN(mdata.encXposition.val), RAD2AMIN(mdata.encYposition.val), mdata.encXposition.t);
     pt.X.val = mdata.encXposition.val;
     pt.Y.val = mdata.encYposition.val;
     pt.X.t = mdata.encXposition.t;

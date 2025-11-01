@@ -56,9 +56,10 @@ extern "C"
 // normal PID refresh interval
 #define MCC_PID_REFRESH_DT      (0.1)
 // boundary conditions for axis state: "slewing/pointing/guiding"
-// if angle < MCC_MAX_POINTING_ERR, change state from "slewing" to "pointing": 5 degrees
+// if angle < MCC_MAX_POINTING_ERR, change state from "slewing" to "pointing": 8 degrees
 //#define MCC_MAX_POINTING_ERR    (0.20943951)
-#define MCC_MAX_POINTING_ERR    (0.08726646)
+//#define MCC_MAX_POINTING_ERR    (0.08726646)
+#define MCC_MAX_POINTING_ERR    (0.13962634)
 // if angle < MCC_MAX_GUIDING_ERR, chane state from "pointing" to "guiding": 1.5 deg
 #define MCC_MAX_GUIDING_ERR     (0.026179939)
 // if error less than this value we suppose that target is captured and guiding is good: 0.1''

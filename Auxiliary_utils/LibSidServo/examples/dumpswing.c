@@ -110,16 +110,28 @@ int main(int argc, char **argv){
         return 1;
     }
     if(G.coordsoutput){
-        if(!(fcoords = fopen(G.coordsoutput, "w")))
-            ERRX("Can't open %s", G.coordsoutput);
+        if(!(fcoords = fopen(G.coordsoutput, "w"))){
+            WARNX("Can't open %s", G.coordsoutput);
+            return 1;
+        }
     }else fcoords = stdout;
-    if(G.Ncycles < 7) ERRX("Ncycles should be >7");
+    if(G.Ncycles < 2){
+        WARNX("Ncycles should be >2");
+        return 1;
+    }
     double absamp = fabs(G.amplitude);
-    if(absamp < 0.01 || absamp > 45.)
-        ERRX("Amplitude should be from 0.01 to 45 degrees");
-    if(G.period < 0.1 || G.period > 900.)
-        ERRX("Period should be from 0.1 to 900s");
-    if(G.Nswings < 1) ERRX("Nswings should be more than 0");
+    if(absamp < 0.01 || absamp > 45.){
+        WARNX("Amplitude should be from 0.01 to 45 degrees");
+        return 1;
+    }
+    if(G.period < 0.1 || G.period > 900.){
+        WARNX("Period should be from 0.1 to 900s");
+        return 1;
+    }
+    if(G.Nswings < 1){
+        WARNX("Nswings should be more than 0");
+        return 1;
+    }
     conf_t *Config = readServoConf(G.conffile);
     if(!Config){
         dumpConf();

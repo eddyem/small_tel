@@ -52,7 +52,7 @@ static sl_option_t opts[] = {
     {"EncoderDevSpeed", NEED_ARG,   NULL,   0,  arg_int,    APTR(&Config.EncoderDevSpeed),  "serial speed of encoder device"},
     {"MountReqInterval",NEED_ARG,   NULL,   0,  arg_double, APTR(&Config.MountReqInterval), "interval of mount requests (not less than 0.05s)"},
     {"EncoderReqInterval",NEED_ARG, NULL,   0,  arg_double, APTR(&Config.EncoderReqInterval),"interval of encoder requests (in case of sep=2)"},
-    {"SepEncoder",      NO_ARGS,    NULL,   0,  arg_int,    APTR(&Config.SepEncoder),       "encoder is separate device (1 - one device, 2 - two devices)"},
+    {"SepEncoder",      NEED_ARG,   NULL,   0,  arg_int,    APTR(&Config.SepEncoder),       "encoder is separate device (1 - one device, 2 - two devices)"},
     {"EncoderXDevPath", NEED_ARG,   NULL,   0,  arg_string, APTR(&Config.EncoderXDevPath),  "path to X encoder (/dev/encoderX0)"},
     {"EncoderYDevPath", NEED_ARG,   NULL,   0,  arg_string, APTR(&Config.EncoderYDevPath),  "path to Y encoder (/dev/encoderY0)"},
     {"EncoderSpeedInterval", NEED_ARG,NULL, 0,  arg_double, APTR(&Config.EncoderSpeedInterval),"interval of speed calculations, s"},

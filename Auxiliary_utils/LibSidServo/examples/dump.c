@@ -23,6 +23,9 @@
 #include "dump.h"
 #include "simpleconv.h"
 
+// starting dump time (to conform different logs)
+static double dumpT0 = -1.;
+
 #if 0
 // amount of elements used for encoders' data filtering
 #define NFILT	(10)
@@ -59,6 +62,10 @@ static double filter(double val, int idx){
 }
 #endif
 
+// return starting time of dump
+double dumpt0(){ return dumpT0; }
+
+
 /**
  * @brief logmnt - log mount data into file
  * @param fcoords - file to dump
@@ -67,17 +74,13 @@ static double filter(double val, int idx){
 void logmnt(FILE *fcoords, mountdata_t *m){
     if(!fcoords) return;
     //DBG("LOG %s", m ? "data" : "header");
-    static double t0 = -1.;
     if(!m){ // write header
         fprintf(fcoords, "#     time    Xmot(deg)   Ymot(deg) Xenc(deg)  Yenc(deg)   VX(d/s)    VY(d/s)     millis\n");
         return;
-    }
-    double tnow = (m->encXposition.t + m->encYposition.t) / 2.;
-    if(t0 < 0.) t0 = tnow;
-    double t = tnow - t0;
+    }else if(dumpT0 < 0.) dumpT0 = m->encXposition.t;
     // write data
     fprintf(fcoords, "%12.6f %10.6f %10.6f %10.6f %10.6f %10.6f %10.6f %10u\n",
-            t, RAD2DEG(m->motXposition.val), RAD2DEG(m->motYposition.val),
+            m->encXposition.t - dumpT0, RAD2DEG(m->motXposition.val), RAD2DEG(m->motYposition.val),
             RAD2DEG(m->encXposition.val), RAD2DEG(m->encYposition.val),
             RAD2DEG(m->encXspeed.val), RAD2DEG(m->encYspeed.val),
             m->millis);
@@ -143,6 +146,7 @@ void waitmoving(int N){
         if(mdata.motXposition.val != xlast || mdata.motYposition.val != ylast){
             xlast = mdata.motXposition.val;
             ylast = mdata.motYposition.val;
+            //DBG("x/y: %g/%g", RAD2DEG(xlast), RAD2DEG(ylast));
             ctr = 0;
         }else ++ctr;
     }

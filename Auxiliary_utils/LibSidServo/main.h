@@ -24,11 +24,12 @@
 
 #include <stdlib.h>
 
+#include "movingmodel.h"
 #include "sidservo.h"
 
 extern conf_t Conf;
 double nanotime();
-void getModData(mountdata_t *mountdata);
+void getModData(coordval_pair_t *c, movestate_t *xst, movestate_t *yst);
 typedef struct{
     double *x, *t, *t2, *xt; // arrays of coord/time and multiply
     double xsum, tsum, t2sum, xtsum; // sums of coord/time and their multiply

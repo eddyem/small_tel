@@ -27,3 +27,4 @@ void dumpmoving(FILE *fcoords, double t, int N);
 void waitmoving(int N);
 int getPos(coordval_pair_t *mot, coordval_pair_t *enc);
 void chk0(int ncycles);
+double dumpt0();

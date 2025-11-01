@@ -59,16 +59,20 @@ typedef struct __attribute__((packed)){
 
 // calculate current X/Y speeds
 void getXspeed(){
+    static double t0 = -1.; // time of start - eliminate problem of very large times in squares
+    if(t0 < 0.) t0 = mountdata.encXposition.t;
     static less_square_t *ls = NULL;
     if(!ls){
         ls = LS_init(Conf.EncoderSpeedInterval / Conf.EncoderReqInterval);
         if(!ls) return;
     }
-    double speed = LS_calc_slope(ls, mountdata.encXposition.val, mountdata.encXposition.t);
+    pthread_mutex_lock(&datamutex);
+    double speed = LS_calc_slope(ls, mountdata.encXposition.val, mountdata.encXposition.t - t0);
     if(fabs(speed) < 1.5 * MCC_MAX_X_SPEED){
         mountdata.encXspeed.val = speed;
         mountdata.encXspeed.t = mountdata.encXposition.t;
     }
+    pthread_mutex_unlock(&datamutex);
     //DBG("Xspeed=%g", mountdata.encXspeed.val);
 #if 0
     mountdata.encXspeed.val = (mountdata.encXposition.val - lastXenc.val) / (t - lastXenc.t);
@@ -78,16 +82,20 @@ void getXspeed(){
 #endif
 }
 void getYspeed(){
+    static double t0 = -1.; // time of start - eliminate problem of very large times in squares
+    if(t0 < 0.) t0 = mountdata.encXposition.t;
     static less_square_t *ls = NULL;
     if(!ls){
         ls = LS_init(Conf.EncoderSpeedInterval / Conf.EncoderReqInterval);
         if(!ls) return;
     }
-    double speed = LS_calc_slope(ls, mountdata.encYposition.val, mountdata.encYposition.t);
+    pthread_mutex_lock(&datamutex);
+    double speed = LS_calc_slope(ls, mountdata.encYposition.val, mountdata.encYposition.t - t0);
     if(fabs(speed) < 1.5 * MCC_MAX_Y_SPEED){
         mountdata.encYspeed.val = speed;
         mountdata.encYspeed.t = mountdata.encYposition.t;
     }
+    pthread_mutex_unlock(&datamutex);
 #if 0
     mountdata.encYspeed.val = (mountdata.encYposition.val - lastYenc.val) / (t - lastYenc.t);
     mountdata.encYspeed.t = (lastYenc.t + mountdata.encYposition.t) / 2.;
@@ -325,15 +333,19 @@ static void *encoderthread2(void _U_ *u){
         }
         double v, t;
         if(getencval(encfd[0], &v, &t)){
+            pthread_mutex_lock(&datamutex);
             mountdata.encXposition.val = X_ENC2RAD(v);
             //DBG("encX(%g) = %g", t, mountdata.encXposition.val);
             mountdata.encXposition.t = t;
+            pthread_mutex_unlock(&datamutex);
             //if(t - lastXenc.t > Conf.EncoderSpeedInterval) getXspeed();
             getXspeed();
             if(getencval(encfd[1], &v, &t)){
+                pthread_mutex_lock(&datamutex);
                 mountdata.encYposition.val = Y_ENC2RAD(v);
                 //DBG("encY(%g) = %g", t, mountdata.encYposition.val);
                 mountdata.encYposition.t = t;
+                pthread_mutex_unlock(&datamutex);
                 //if(t - lastYenc.t > Conf.EncoderSpeedInterval) getYspeed();
                 getYspeed();
                 errctr = 0;
@@ -384,12 +396,35 @@ static void *mountthread(void _U_ *u){
     uint8_t buf[2*sizeof(SSstat)];
     SSstat *status = (SSstat*) buf;
     bzero(&mountdata, sizeof(mountdata));
+    double t0 = nanotime(), tstart = t0;
+    static double oldmt = -100.; // old `millis measurement` time
+    static uint32_t oldmillis = 0;
     if(Conf.RunModel) while(1){
-        pthread_mutex_lock(&datamutex);
+        coordval_pair_t c;
+        movestate_t xst, yst;
         // now change data
-        getModData(&mountdata);
+        getModData(&c, &xst, &yst);
+        pthread_mutex_lock(&datamutex);
+        double tnow = c.X.t;
+        mountdata.encXposition.t = mountdata.encYposition.t = tnow;
+        mountdata.encXposition.val = c.X.val;
+        mountdata.encYposition.val = c.Y.val;
+        //DBG("t=%g, X=%g, Y=%g", tnow, c.X.val, c.Y.val);
+        if(tnow - oldmt > Conf.MountReqInterval){
+            oldmillis = mountdata.millis = (uint32_t)((tnow - tstart) * 1e3);
+            mountdata.motYposition.t = mountdata.motXposition.t = tnow;
+            if(xst == ST_MOVE)
+                mountdata.motXposition.val = c.X.val + (c.X.val - mountdata.motXposition.val)*(drand48() - 0.5)/100.;
+            else
+                mountdata.motXposition.val = c.X.val;
+            if(yst == ST_MOVE)
+                mountdata.motYposition.val = c.Y.val + (c.Y.val - mountdata.motYposition.val)*(drand48() - 0.5)/100.;
+            else
+                mountdata.motYposition.val = c.Y.val;
+            oldmt = tnow;
+        }else mountdata.millis = oldmillis;
         pthread_mutex_unlock(&datamutex);
-        double t0 = nanotime();
+        getXspeed(); getYspeed();
         while(nanotime() - t0 < Conf.EncoderReqInterval) usleep(50);
         t0 = nanotime();
     }
@@ -572,7 +607,7 @@ void closeSerial(){
         DBG("close encoder's fd");
         close(encfd[0]);
         encfd[0] = -1;
-        if(Conf.SepEncoder == 2){
+        if(Conf.SepEncoder == 2 && encfd[1] > -1){
             close(encfd[1]);
             encfd[1] = -1;
         }
