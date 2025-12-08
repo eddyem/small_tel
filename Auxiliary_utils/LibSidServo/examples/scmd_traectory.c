@@ -44,6 +44,7 @@ typedef struct{
     char *conffile;
 } parameters;
 
+static conf_t *Config = NULL;
 static FILE *fcoords = NULL, *errlog = NULL;
 static pthread_t dthr;
 static parameters G = {
@@ -96,38 +97,35 @@ static void runtraectory(traectory_fn tfn){
     if(!tfn) return;
     coordval_pair_t telXY;
     coordval_pair_t target;
-    coordpair_t traectXY, endpoint;
-    endpoint.X = G.Xmax, endpoint.Y = G.Ymax;
-    double t0 = dumpt0(), tlast = 0., tstart = Mount.currentT();
-    double tlastX = 0., tlastY = 0.;
+    coordpair_t traectXY;
+    double tlast = 0., tstart = Mount.timeFromStart();
+    long tlastXnsec = 0, tlastYnsec = 0;
+    struct timespec tcur, t0 = {0};
+    dumpt0(&t0);
     while(1){
         if(!telpos(&telXY)){
             WARNX("No next telescope position");
             return;
         }
-        if(telXY.X.t == tlastX && telXY.Y.t == tlastY) continue; // last measure - don't mind
-        DBG("\n\nTELPOS: %g'/%g' (%.6f/%.6f) measured @ %.6f/%.6f", RAD2AMIN(telXY.X.val), RAD2AMIN(telXY.Y.val), RAD2DEG(telXY.X.val), RAD2DEG(telXY.Y.val), telXY.X.t, telXY.Y.t);
-        tlastX = telXY.X.t; tlastY = telXY.Y.t;
-        double t = Mount.currentT();
+        if(!Mount.currentT(&tcur)) continue;
+        if(telXY.X.t.tv_nsec == tlastXnsec && telXY.Y.t.tv_nsec == tlastYnsec) continue; // last measure - don't mind
+        DBG("\n\nTELPOS: %g'/%g' (%.6f/%.6f)", RAD2AMIN(telXY.X.val), RAD2AMIN(telXY.Y.val), RAD2DEG(telXY.X.val), RAD2DEG(telXY.Y.val));
+        tlastXnsec = telXY.X.t.tv_nsec; tlastYnsec = telXY.Y.t.tv_nsec;
+        double t = Mount.timeFromStart();
         if(fabs(telXY.X.val) > G.Xmax || fabs(telXY.Y.val) > G.Ymax || t - tstart > G.tmax) break;
         if(!traectory_point(&traectXY, t)) break;
         target.X.val = traectXY.X; target.Y.val = traectXY.Y;
-        target.X.t = target.Y.t = t;
-        // check whether we should change direction
-        if(telXY.X.val > traectXY.X) endpoint.X = -G.Xmax;
-        else if(telXY.X.val < traectXY.X) endpoint.X = G.Xmax;
-        if(telXY.Y.val > traectXY.Y) endpoint.Y = -G.Ymax;
-        else if(telXY.Y.val < traectXY.Y) endpoint.Y = G.Ymax;
-        if(t0 < 0.) t0 = dumpt0();
+        target.X.t = target.Y.t = tcur;
+        if(t0.tv_nsec == 0 && t0.tv_sec == 0) dumpt0(&t0);
         else{
             //DBG("target: %g'/%g'", RAD2AMIN(traectXY.X), RAD2AMIN(traectXY.Y));
-            DBG("%g: dX=%.4f'', dY=%.4f''", t-t0, RAD2ASEC(traectXY.X-telXY.X.val), RAD2ASEC(traectXY.Y-telXY.Y.val));
+            DBG("%g: dX=%.4f'', dY=%.4f''", t-tstart, RAD2ASEC(traectXY.X-telXY.X.val), RAD2ASEC(traectXY.Y-telXY.Y.val));
             //DBG("Correct to: %g/%g with EP %g/%g", RAD2DEG(target.X.val), RAD2DEG(target.Y.val), RAD2DEG(endpoint.X), RAD2DEG(endpoint.Y));
             if(errlog)
-                fprintf(errlog, "%10.4f  %10.4f  %10.4f\n", telXY.X.t-t0, RAD2ASEC(traectXY.X-telXY.X.val), RAD2ASEC(traectXY.Y-telXY.Y.val));
+                fprintf(errlog, "%10.4f  %10.4f  %10.4f\n", Mount.timeDiff(&telXY.X.t, &t0), RAD2ASEC(traectXY.X-telXY.X.val), RAD2ASEC(traectXY.Y-telXY.Y.val));
         }
-        if(MCC_E_OK != Mount.correctTo(&target, &endpoint)) WARNX("Error of correction!");
-        while((t = Mount.currentT()) - tlast < MCC_PID_REFRESH_DT) usleep(50);
+        if(MCC_E_OK != Mount.correctTo(&target)) WARNX("Error of correction!");
+        while((t = Mount.timeFromStart()) - tlast < Config->PIDRefreshDt) usleep(500);
         tlast = t;
     }
     WARNX("No next traectory point or emulation ends");
@@ -153,7 +151,7 @@ int main(int argc, char **argv){
         if(!(fcoords = fopen(G.coordsoutput, "w")))
             ERRX("Can't open %s", G.coordsoutput);
     }else fcoords = stdout;
-    conf_t *Config = readServoConf(G.conffile);
+    Config = readServoConf(G.conffile);
     if(!Config || G.dumpconf){
         dumpConf();
         return 1;

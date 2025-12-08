@@ -24,25 +24,32 @@
 static conf_t Config = {
     .MountDevPath = "/dev/ttyUSB0",
     .MountDevSpeed = 19200,
-    .EncoderXDevPath = "/dev/encoderX0",
-    .EncoderYDevPath = "/dev/encoderY0",
+    .EncoderXDevPath = "/dev/encoder_X0",
+    .EncoderYDevPath = "/dev/encoder_Y0",
     .EncoderDevSpeed = 153000,
     .MountReqInterval = 0.1,
-    .EncoderReqInterval = 0.05,
+    .EncoderReqInterval = 0.001,
     .SepEncoder = 2,
-    .EncoderSpeedInterval = 0.1,
-    .XPIDC.P = 0.8,
+    .EncoderSpeedInterval = 0.05,
+    .EncodersDisagreement = 1e-5, // 2''
+    .PIDMaxDt = 1.,
+    .PIDRefreshDt = 0.1,
+    .PIDCycleDt = 5.,
+    .XPIDC.P = 0.5,
     .XPIDC.I = 0.1,
-    .XPIDC.D = 0.3,
-    .XPIDV.P = 1.,
-    .XPIDV.I = 0.01,
-    .XPIDV.D = 0.2,
-    .YPIDC.P = 0.8,
+    .XPIDC.D = 0.2,
+    .XPIDV.P = 0.09,
+    .XPIDV.I = 0.0,
+    .XPIDV.D = 0.05,
+    .YPIDC.P = 0.5,
     .YPIDC.I = 0.1,
-    .YPIDC.D = 0.3,
-    .YPIDV.P = 0.5,
-    .YPIDV.I = 0.2,
-    .YPIDV.D = 0.5,
+    .YPIDC.D = 0.2,
+    .YPIDV.P = 0.09,
+    .YPIDV.I = 0.0,
+    .YPIDV.D = 0.05,
+    .MaxPointingErr = 0.13962634,
+    .MaxFinePointingErr = 0.026179939,
+    .MaxGuidingErr = 4.8481368e-7,
 };
 
 static sl_option_t opts[] = {
@@ -50,13 +57,17 @@ static sl_option_t opts[] = {
     {"MountDevSpeed",   NEED_ARG,   NULL,   0,  arg_int,    APTR(&Config.MountDevSpeed),    "serial speed of mount device"},
     {"EncoderDevPath",  NEED_ARG,   NULL,   0,  arg_string, APTR(&Config.EncoderDevPath),   "path to encoder device"},
     {"EncoderDevSpeed", NEED_ARG,   NULL,   0,  arg_int,    APTR(&Config.EncoderDevSpeed),  "serial speed of encoder device"},
-    {"MountReqInterval",NEED_ARG,   NULL,   0,  arg_double, APTR(&Config.MountReqInterval), "interval of mount requests (not less than 0.05s)"},
-    {"EncoderReqInterval",NEED_ARG, NULL,   0,  arg_double, APTR(&Config.EncoderReqInterval),"interval of encoder requests (in case of sep=2)"},
     {"SepEncoder",      NEED_ARG,   NULL,   0,  arg_int,    APTR(&Config.SepEncoder),       "encoder is separate device (1 - one device, 2 - two devices)"},
     {"EncoderXDevPath", NEED_ARG,   NULL,   0,  arg_string, APTR(&Config.EncoderXDevPath),  "path to X encoder (/dev/encoderX0)"},
     {"EncoderYDevPath", NEED_ARG,   NULL,   0,  arg_string, APTR(&Config.EncoderYDevPath),  "path to Y encoder (/dev/encoderY0)"},
+    {"EncodersDisagreement", NEED_ARG,NULL, 0,  arg_double, APTR(&Config.EncodersDisagreement),"acceptable disagreement between motor and axis encoders"},
+    {"MountReqInterval",NEED_ARG,   NULL,   0,  arg_double, APTR(&Config.MountReqInterval), "interval of mount requests (not less than 0.05s)"},
+    {"EncoderReqInterval",NEED_ARG, NULL,   0,  arg_double, APTR(&Config.EncoderReqInterval),"interval of encoder requests (in case of sep=2)"},
     {"EncoderSpeedInterval", NEED_ARG,NULL, 0,  arg_double, APTR(&Config.EncoderSpeedInterval),"interval of speed calculations, s"},
     {"RunModel",        NEED_ARG,   NULL,   0,  arg_int,    APTR(&Config.RunModel),         "instead of real hardware run emulation"},
+    {"PIDMaxDt",        NEED_ARG,   NULL,   0,  arg_double, APTR(&Config.PIDMaxDt),         "maximal PID refresh time interval (if larger all old data will be cleared)"},
+    {"PIDRefreshDt",    NEED_ARG,   NULL,   0,  arg_double, APTR(&Config.PIDRefreshDt),     "normal PID refresh interval by master process"},
+    {"PIDCycleDt",      NEED_ARG,   NULL,   0,  arg_double, APTR(&Config.PIDCycleDt),       "PID I cycle time (analog of \"RC\" for PID on opamps)"},
     {"XPIDCP",          NEED_ARG,   NULL,   0,  arg_double, APTR(&Config.XPIDC.P),          "P of X PID (coordinate driven)"},
     {"XPIDCI",          NEED_ARG,   NULL,   0,  arg_double, APTR(&Config.XPIDC.I),          "I of X PID (coordinate driven)"},
     {"XPIDCD",          NEED_ARG,   NULL,   0,  arg_double, APTR(&Config.XPIDC.D),          "D of X PID (coordinate driven)"},
@@ -69,6 +80,10 @@ static sl_option_t opts[] = {
     {"YPIDVP",          NEED_ARG,   NULL,   0,  arg_double, APTR(&Config.YPIDV.P),          "P of Y PID (velocity driven)"},
     {"YPIDVI",          NEED_ARG,   NULL,   0,  arg_double, APTR(&Config.YPIDV.I),          "I of Y PID (velocity driven)"},
     {"YPIDVD",          NEED_ARG,   NULL,   0,  arg_double, APTR(&Config.YPIDV.D),          "D of Y PID (velocity driven)"},
+    {"MaxPointingErr",  NEED_ARG,   NULL,   0,  arg_double, APTR(&Config.MaxPointingErr),   "if angle < this, change state from \"slewing\" to \"pointing\" (coarse pointing): 8 degrees"},
+    {"MaxFinePointingErr",NEED_ARG, NULL,   0,  arg_double, APTR(&Config.MaxFinePointingErr), "if angle < this, chane state from \"pointing\" to \"guiding\" (fine poinging): 1.5 deg"},
+    {"MaxGuidingErr",   NEED_ARG,   NULL,   0,  arg_double, APTR(&Config.MaxGuidingErr),    "if error less than this value we suppose that target is captured and guiding is good (true guiding): 0.1''"},
+    // {"",NEED_ARG,   NULL,   0,  arg_double, APTR(&Config.), ""},
     end_option
 };
 
@@ -93,5 +108,5 @@ void dumpConf(){
 }
 
 void confHelp(){
-    sl_showhelp(-1, opts);
+    sl_conf_showhelp(-1, opts);
 }

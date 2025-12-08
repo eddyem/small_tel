@@ -41,7 +41,7 @@ int init_traectory(traectory_fn f, coordpair_t *XY0){
     if(!f || !XY0) return FALSE;
     cur_traectory = f;
     XYstart = *XY0;
-    tstart = Mount.currentT();
+    tstart = Mount.timeFromStart();
     mountdata_t mdata;
     int ntries = 0;
     for(; ntries < 10; ++ntries){

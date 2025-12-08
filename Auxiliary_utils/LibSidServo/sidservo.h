@@ -32,38 +32,13 @@ extern "C"
 #include <stdint.h>
 #include <sys/time.h>
 
-// acceptable position error - 0.1''
-#define MCC_POSITION_ERROR      (5e-7)
-// acceptable disagreement between motor and axis encoders - 2''
-#define MCC_ENCODERS_ERROR      (1e-7)
-
-// max speeds (rad/s): xs=10 deg/s, ys=8 deg/s
-#define MCC_MAX_X_SPEED         (0.174533)
-#define MCC_MAX_Y_SPEED         (0.139626)
-// accelerations by both axis (for model); TODO: move speeds/accelerations into config?
-// xa=12.6 deg/s^2, ya= 9.5 deg/s^2
-#define MCC_X_ACCELERATION      (0.219911)
-#define MCC_Y_ACCELERATION      (0.165806)
-
+// minimal serial speed of mount device
+#define MOUNT_BAUDRATE_MIN      (1200)
 // max speed interval, seconds
 #define MCC_CONF_MAX_SPEEDINT   (2.)
 // minimal speed interval in parts of EncoderReqInterval
 #define MCC_CONF_MIN_SPEEDC     (3.)
-// PID I cycle time (analog of "RC" for PID on opamps)
-#define MCC_PID_CYCLE_TIME      (5.)
-// maximal PID refresh time interval (if larger all old data will be cleared)
-#define MCC_PID_MAX_DT          (1.)
-// normal PID refresh interval
-#define MCC_PID_REFRESH_DT      (0.1)
-// boundary conditions for axis state: "slewing/pointing/guiding"
-// if angle < MCC_MAX_POINTING_ERR, change state from "slewing" to "pointing": 8 degrees
-//#define MCC_MAX_POINTING_ERR    (0.20943951)
-//#define MCC_MAX_POINTING_ERR    (0.08726646)
-#define MCC_MAX_POINTING_ERR    (0.13962634)
-// if angle < MCC_MAX_GUIDING_ERR, chane state from "pointing" to "guiding": 1.5 deg
-#define MCC_MAX_GUIDING_ERR     (0.026179939)
-// if error less than this value we suppose that target is captured and guiding is good: 0.1''
-#define MCC_MAX_ATTARGET_ERR    (4.8481368e-7)
+
 
 // error codes
 typedef enum{
@@ -87,14 +62,21 @@ typedef struct{
     int     SepEncoder;             // ==1 if encoder works as separate serial device, ==2 if there's new version with two devices
     char*   EncoderXDevPath;        // paths to new controller devices
     char*   EncoderYDevPath;
+    double  EncodersDisagreement;   // acceptable disagreement between motor and axis encoders
     double  MountReqInterval;       // interval between subsequent mount requests (seconds)
     double  EncoderReqInterval;     // interval between subsequent encoder requests (seconds)
     double  EncoderSpeedInterval;   // interval between speed calculations
     int     RunModel;               // == 1 if you want to use model instead of real mount
+    double  PIDMaxDt;               // maximal PID refresh time interval (if larger all old data will be cleared)
+    double  PIDRefreshDt;           // normal PID refresh interval
+    double  PIDCycleDt;             // PID I cycle time (analog of "RC" for PID on opamps)
     PIDpar_t XPIDC;                 // gain parameters of PID for both axiss (C - coordinate driven, V - velocity driven)
     PIDpar_t XPIDV;
     PIDpar_t YPIDC;
     PIDpar_t YPIDV;
+    double MaxPointingErr;          // if angle < this, change state from "slewing" to "pointing" (coarse pointing): 8 degrees
+    double MaxFinePointingErr;      // if angle < this, chane state from "pointing" to "guiding" (fine poinging): 1.5 deg
+    double MaxGuidingErr;           // if error less than this value we suppose that target is captured and guiding is good (true guiding): 0.1''
 } conf_t;
 
 // coordinates/speeds in degrees or d/s: X, Y
@@ -105,7 +87,7 @@ typedef struct{
 // coordinate/speed and time of last measurement
 typedef struct{
     double val;
-    double t;
+    struct timespec t;
 } coordval_t;
 
 typedef struct{
@@ -247,7 +229,7 @@ typedef struct{
     void            (*quit)(); // deinit
     mcc_errcodes_t  (*getMountData)(mountdata_t *d); // get last data
 //    mcc_errcodes_t  (*slewTo)(const coordpair_t *target, slewflags_t flags);
-    mcc_errcodes_t  (*correctTo)(const coordval_pair_t *target, const coordpair_t *endpoint);
+    mcc_errcodes_t  (*correctTo)(const coordval_pair_t *target);
     mcc_errcodes_t  (*moveTo)(const coordpair_t *target); // move to given position and stop
     mcc_errcodes_t  (*moveWspeed)(const coordpair_t *target, const  coordpair_t *speed); // move with given max speed
     mcc_errcodes_t  (*setSpeed)(const coordpair_t *tagspeed); // set speed
@@ -257,7 +239,13 @@ typedef struct{
     mcc_errcodes_t  (*longCmd)(long_command_t *cmd); // send/get long command
     mcc_errcodes_t  (*getHWconfig)(hardware_configuration_t *c); // get hardware configuration
     mcc_errcodes_t  (*saveHWconfig)(hardware_configuration_t *c); // save hardware configuration
-    double          (*currentT)(); // current time
+    int             (*currentT)(struct timespec *t); // current time
+    double          (*timeFromStart)(); // amount of seconds from last init
+    double          (*timeDiff)(const struct timespec *time1, const struct timespec *time0); // difference of times
+    double          (*timeDiff0)(const struct timespec *time1); // difference between current time and last init time
+    mcc_errcodes_t  (*getMaxSpeed)(coordpair_t *v); // maximal speed by both axis
+    mcc_errcodes_t  (*getMinSpeed)(coordpair_t *v); // minimal -//-
+    mcc_errcodes_t  (*getAcceleration)(coordpair_t *a); // acceleration/deceleration
 } mount_t;
 
 extern mount_t Mount;

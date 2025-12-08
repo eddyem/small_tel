@@ -91,8 +91,7 @@ int main(int _U_ argc, char _U_ **argv){
     if(MCC_E_OK != Mount.init(Config)) ERRX("Can't init mount");
     coordval_pair_t M, E;
     if(!getPos(&M, &E)) ERRX("Can't get current position");
-    printf("Current time: %.10f\n", Mount.currentT());
-    DBG("xt: %g, x: %g", M.X.t, M.X.val);
+    printf("Current time: %.10f\n", Mount.timeFromStart());
     if(G.coordsoutput){
         if(!G.wait) green("When logging I should wait until moving ends; added '-w'\n");
         G.wait = 1;

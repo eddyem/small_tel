@@ -83,7 +83,7 @@ void waithalf(double t){
     uint32_t millis = 0;
     double xlast = 0., ylast = 0.;
     while(ctr < 5){
-        if(Mount.currentT() >= t) return;
+        if(Mount.timeFromStart() >= t) return;
         usleep(1000);
         if(MCC_E_OK != Mount.getMountData(&mdata)){ WARNX("Can't get data"); continue;}
         if(mdata.millis == millis) continue;
@@ -158,24 +158,24 @@ int main(int argc, char **argv){
     }else{
         tagX = 0.; tagY = DEG2RAD(G.amplitude);
     }
-    double t = Mount.currentT(), t0 = t;
+    double t = Mount.timeFromStart(), t0 = t;
     coordpair_t tag = {.X = tagX, .Y = tagY}, rtag = {.X = -tagX, .Y = -tagY};
     double divide = 2.;
     for(int i = 0; i < G.Nswings; ++i){
         Mount.moveTo(&tag);
-        DBG("CMD: %g", Mount.currentT()-t0);
+        DBG("CMD: %g", Mount.timeFromStart()-t0);
         t += G.period / divide;
         divide = 1.;
         waithalf(t);
         DBG("Moved to +, t=%g", t-t0);
-        DBG("CMD: %g", Mount.currentT()-t0);
+        DBG("CMD: %g", Mount.timeFromStart()-t0);
         Mount.moveTo(&rtag);
         t += G.period;
         waithalf(t);
         DBG("Moved to -, t=%g", t-t0);
-        DBG("CMD: %g", Mount.currentT()-t0);
+        DBG("CMD: %g", Mount.timeFromStart()-t0);
     }
-    green("Move to zero @ %g\n", Mount.currentT());
+    green("Move to zero @ %g\n", Mount.timeFromStart());
     tag = (coordpair_t){0};
     // be sure to move @ 0,0
     if(MCC_E_OK != Mount.moveTo(&tag)){

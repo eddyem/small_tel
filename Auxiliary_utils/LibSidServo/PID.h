@@ -27,7 +27,7 @@ typedef struct {
     double prev_error;  // Previous error
     double integral;    // Integral term
     double *pidIarray;  // array for Integral
-    double prevT;       // time of previous correction
+    struct timespec prevT; // time of previous correction
     size_t pidIarrSize; // it's size
     size_t curIidx;     // and index of current element
 } PIDController_t;
@@ -37,4 +37,4 @@ void pid_clear(PIDController_t *pid);
 void pid_delete(PIDController_t **pid);
 double pid_calculate(PIDController_t *pid, double error, double dt);
 
-mcc_errcodes_t  correct2(const coordval_pair_t *target, const coordpair_t *endpoint);
+mcc_errcodes_t  correct2(const coordval_pair_t *target);

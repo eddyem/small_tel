@@ -24,7 +24,7 @@
 #include "simpleconv.h"
 
 // starting dump time (to conform different logs)
-static double dumpT0 = -1.;
+static struct timespec dumpT0 = {0};
 
 #if 0
 // amount of elements used for encoders' data filtering
@@ -63,7 +63,9 @@ static double filter(double val, int idx){
 #endif
 
 // return starting time of dump
-double dumpt0(){ return dumpT0; }
+void dumpt0(struct timespec *t){
+    if(t) *t = dumpT0;
+}
 
 
 /**
@@ -75,12 +77,12 @@ void logmnt(FILE *fcoords, mountdata_t *m){
     if(!fcoords) return;
     //DBG("LOG %s", m ? "data" : "header");
     if(!m){ // write header
-        fprintf(fcoords, "#     time    Xmot(deg)   Ymot(deg) Xenc(deg)  Yenc(deg)   VX(d/s)    VY(d/s)     millis\n");
+        fprintf(fcoords, "      time    Xmot(deg)   Ymot(deg) Xenc(deg)  Yenc(deg)   VX(d/s)    VY(d/s)     millis\n");
         return;
-    }else if(dumpT0 < 0.) dumpT0 = m->encXposition.t;
+    }else if(dumpT0.tv_sec == 0) dumpT0 = m->encXposition.t;
     // write data
     fprintf(fcoords, "%12.6f %10.6f %10.6f %10.6f %10.6f %10.6f %10.6f %10u\n",
-            m->encXposition.t - dumpT0, RAD2DEG(m->motXposition.val), RAD2DEG(m->motYposition.val),
+            Mount.timeDiff(&m->encXposition.t, &dumpT0), RAD2DEG(m->motXposition.val), RAD2DEG(m->motYposition.val),
             RAD2DEG(m->encXposition.val), RAD2DEG(m->encYposition.val),
             RAD2DEG(m->encXspeed.val), RAD2DEG(m->encYspeed.val),
             m->millis);
@@ -106,16 +108,17 @@ void dumpmoving(FILE *fcoords, double t, int N){
         LOGWARN("Can't get mount data");
     }
     uint32_t mdmillis = mdata.millis;
-    double enct = (mdata.encXposition.t + mdata.encYposition.t) / 2.;
+    struct timespec encXt = mdata.encXposition.t;
     int ctr = -1;
     double xlast = mdata.motXposition.val, ylast = mdata.motYposition.val;
-    double t0 = Mount.currentT();
-    while(Mount.currentT() - t0 < t && ctr < N){
+    double t0 = Mount.timeFromStart();
+    while(Mount.timeFromStart() - t0 < t && ctr < N){
         usleep(1000);
         if(MCC_E_OK != Mount.getMountData(&mdata)){ WARNX("Can't get data"); continue;}
-        double tmsr = (mdata.encXposition.t + mdata.encYposition.t) / 2.;
-        if(tmsr == enct) continue;
-        enct = tmsr;
+        //double tmsr = (mdata.encXposition.t + mdata.encYposition.t) / 2.;
+        struct timespec msrt = mdata.encXposition.t;
+        if(msrt.tv_nsec == encXt.tv_nsec) continue;
+        encXt = msrt;
         if(fcoords) logmnt(fcoords, &mdata);
         if(mdata.millis == mdmillis) continue;
         //DBG("ctr=%d, motpos=%g/%g", ctr, mdata.motXposition.val, mdata.motYposition.val);
@@ -126,7 +129,7 @@ void dumpmoving(FILE *fcoords, double t, int N){
             ctr = 0;
         }else ++ctr;
     }
-    DBG("Exit dumping; tend=%g, tmon=%g", t, Mount.currentT() - t0);
+    DBG("Exit dumping; tend=%g, tmon=%g", t, Mount.timeFromStart() - t0);
 }
 
 /**
@@ -137,18 +140,15 @@ void waitmoving(int N){
     mountdata_t mdata;
     int ctr = -1;
     uint32_t millis = 0;
-    double xlast = 0., ylast = 0.;
+    //double xlast = 0., ylast = 0.;
+    DBG("Wait moving for %d stopped times", N);
     while(ctr < N){
         usleep(10000);
         if(MCC_E_OK != Mount.getMountData(&mdata)){ WARNX("Can't get data"); continue;}
         if(mdata.millis == millis) continue;
         millis = mdata.millis;
-        if(mdata.motXposition.val != xlast || mdata.motYposition.val != ylast){
-            xlast = mdata.motXposition.val;
-            ylast = mdata.motYposition.val;
-            //DBG("x/y: %g/%g", RAD2DEG(xlast), RAD2DEG(ylast));
-            ctr = 0;
-        }else ++ctr;
+        if(mdata.Xstate != AXIS_STOPPED || mdata.Ystate != AXIS_STOPPED) ctr = 0;
+        else ++ctr;
     }
 }
 

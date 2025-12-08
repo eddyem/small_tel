@@ -60,7 +60,7 @@ movemodel_t *model_init(limits_t *l){
 
 int model_move2(movemodel_t *model, moveparam_t *target, double t){
     if(!target || !model) return FALSE;
-    DBG("MOVE to %g at speed %g", target->coord, target->speed);
+    DBG("MOVE to %g (deg) at speed %g (deg/s)", target->coord/M_PI*180., target->speed/M_PI*180.);
     // only positive velocity
     if(target->speed < 0.) target->speed = -target->speed;
     if(fabs(target->speed) < model->Min.speed){

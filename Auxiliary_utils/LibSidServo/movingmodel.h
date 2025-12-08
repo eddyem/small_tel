@@ -44,7 +44,7 @@ typedef struct{
 typedef struct{
     moveparam_t min;
     moveparam_t max;
-    double acceleration;
+    //double acceleration;
 } limits_t;
 
 typedef enum{

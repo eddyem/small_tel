@@ -139,8 +139,10 @@ static mcc_errcodes_t return2zero(){
     short_command_t cmd = {0};
     DBG("Try to move to zero");
     cmd.Xmot = 0.; cmd.Ymot = 0.;
-    cmd.Xspeed = MCC_MAX_X_SPEED;
-    cmd.Yspeed = MCC_MAX_Y_SPEED;
+    coordpair_t maxspd;
+    if(MCC_E_OK != Mount.getMaxSpeed(&maxspd)) return MCC_E_FAILED;
+    cmd.Xspeed = maxspd.X;
+    cmd.Yspeed = maxspd.Y;
     /*cmd.xychange = 1;
     cmd.XBits = 100;
     cmd.YBits = 20;*/

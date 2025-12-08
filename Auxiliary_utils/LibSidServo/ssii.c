@@ -67,17 +67,17 @@ static void ChkStopped(const SSstat *s, mountdata_t *m){
  * @param m (o) - output
  * @param t - measurement time
  */
-void SSconvstat(const SSstat *s, mountdata_t *m, double t){
-    if(!s || !m) return;
+void SSconvstat(const SSstat *s, mountdata_t *m, struct timespec *t){
+    if(!s || !m || !t) return;
     m->motXposition.val = X_MOT2RAD(s->Xmot);
     m->motYposition.val = Y_MOT2RAD(s->Ymot);
     ChkStopped(s, m);
-    m->motXposition.t = m->motYposition.t = t;
+    m->motXposition.t = m->motYposition.t = *t;
     // fill encoder data from here, as there's no separate enc thread
     if(!Conf.SepEncoder){
         m->encXposition.val = X_ENC2RAD(s->Xenc);
         m->encYposition.val = Y_ENC2RAD(s->Yenc);
-        m->encXposition.t = m->encYposition.t = t;
+        m->encXposition.t = m->encYposition.t = *t;
         getXspeed(); getYspeed();
     }
     m->keypad = s->keypad;
@@ -176,33 +176,37 @@ int SSstop(int emerg){
 mcc_errcodes_t updateMotorPos(){
     mountdata_t md = {0};
     if(Conf.RunModel) return MCC_E_OK;
-    double t0 = nanotime(), t = 0.;
+    double t0 = timefromstart(), t = 0.;
+    struct timespec curt;
     DBG("start @ %g", t0);
     do{
-        t = nanotime();
+        t = timefromstart();
+        if(!curtime(&curt)){
+            usleep(10000);
+            continue;
+        }
         if(MCC_E_OK == getMD(&md)){
-            if(md.encXposition.t == 0 || md.encYposition.t == 0){
+            if(md.encXposition.t.tv_sec == 0 || md.encYposition.t.tv_sec == 0){
                 DBG("Just started, t-t0 = %g!", t - t0);
-                sleep(1);
-                DBG("t-t0 = %g", nanotime() - t0);
-                //usleep(10000);
+                usleep(10000);
                 continue;
             }
-            DBG("got; t pos x/y: %g/%g; tnow: %g", md.encXposition.t, md.encYposition.t, t);
+            if(md.Xstate != AXIS_STOPPED || md.Ystate != AXIS_STOPPED) return MCC_E_OK;
+            DBG("got; t pos x/y: %ld/%ld; tnow: %ld", md.encXposition.t.tv_sec, md.encYposition.t.tv_sec, curt.tv_sec);
             mcc_errcodes_t OK = MCC_E_OK;
-            if(fabs(md.motXposition.val - md.encXposition.val) > MCC_ENCODERS_ERROR && md.Xstate == AXIS_STOPPED){
+            if(fabs(md.motXposition.val - md.encXposition.val) > Conf.EncodersDisagreement && md.Xstate == AXIS_STOPPED){
                 DBG("NEED to sync X: motors=%g, axiss=%g", md.motXposition.val, md.encXposition.val);
                 if(!SSsetterI(CMD_MOTXSET, X_RAD2MOT(md.encXposition.val))){
                     DBG("Xpos sync failed!");
                     OK = MCC_E_FAILED;
-                }else DBG("Xpos sync OK, Dt=%g", nanotime() - t0);
+                }else DBG("Xpos sync OK, Dt=%g", t - t0);
             }
-            if(fabs(md.motYposition.val - md.encYposition.val) > MCC_ENCODERS_ERROR && md.Xstate == AXIS_STOPPED){
+            if(fabs(md.motYposition.val - md.encYposition.val) > Conf.EncodersDisagreement && md.Ystate == AXIS_STOPPED){
                 DBG("NEED to sync Y: motors=%g, axiss=%g", md.motYposition.val, md.encYposition.val);
                 if(!SSsetterI(CMD_MOTYSET, Y_RAD2MOT(md.encYposition.val))){
                     DBG("Ypos sync failed!");
                     OK = MCC_E_FAILED;
-                }else DBG("Ypos sync OK, Dt=%g", nanotime() - t0);
+                }else DBG("Ypos sync OK, Dt=%g", t - t0);
             }
             if(MCC_E_OK == OK){
                 DBG("Encoders synced");

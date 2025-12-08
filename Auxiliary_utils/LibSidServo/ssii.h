@@ -173,7 +173,7 @@
 #define SITECH_LOOP_FREQUENCY   (1953.)
 
 // amount of consequent same coordinates to detect stop
-#define MOTOR_STOPPED_CNT       (4)
+#define MOTOR_STOPPED_CNT       (19)
 
 // TODO: take it from settings?
 // steps per revolution (SSI - x4 - for SSI)
@@ -331,7 +331,7 @@ typedef struct{
 } __attribute__((packed)) SSconfig;
 
 uint16_t SScalcChecksum(uint8_t *buf, int len);
-void SSconvstat(const SSstat *status, mountdata_t *mountdata, double t);
+void SSconvstat(const SSstat *status, mountdata_t *mountdata, struct timespec *t);
 int SStextcmd(const char *cmd, data_t *answer);
 int SSrawcmd(const char *cmd, data_t *answer);
 int SSgetint(const char *cmd, int64_t *ans);

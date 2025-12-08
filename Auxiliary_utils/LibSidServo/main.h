@@ -28,8 +28,12 @@
 #include "sidservo.h"
 
 extern conf_t Conf;
-double nanotime();
-void getModData(coordval_pair_t *c, movestate_t *xst, movestate_t *yst);
+extern limits_t Xlimits, Ylimits;
+int curtime(struct timespec *t);
+double timediff(const struct timespec *time1, const struct timespec *time0);
+double timediff0(const struct timespec *time1);
+double timefromstart();
+void getModData(coordpair_t *c, movestate_t *xst, movestate_t *yst);
 typedef struct{
     double *x, *t, *t2, *xt; // arrays of coord/time and multiply
     double xsum, tsum, t2sum, xtsum; // sums of coord/time and their multiply
@@ -43,10 +47,6 @@ double LS_calc_slope(less_square_t *l, double x, double t);
 
 // unused arguments of functions
 #define _U_         __attribute__((__unused__))
-// break absent in `case`
-#define FALLTHRU    __attribute__ ((fallthrough))
-// and synonym for FALLTHRU
-#define NOBREAKHERE __attribute__ ((fallthrough))
 // weak functions
 #define WEAK        __attribute__ ((weak))
 

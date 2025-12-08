@@ -32,39 +32,80 @@
 #include "ssii.h"
 #include "PID.h"
 
+// adder for monotonic time by realtime: inited any call of init()
+static struct timespec timeadder = {0}, // adder of CLOCK_REALTIME to CLOCK_MONOTONIC
+    t0 = {0},           // curtime() for initstarttime() call
+    starttime = {0};    // starting time by monotonic (for timefromstart())
+
 conf_t Conf = {0};
 // parameters for model
 static movemodel_t *Xmodel, *Ymodel;
+// limits for model and/or real mount (in latter case data should be read from mount on init)
 // radians, rad/sec, rad/sec^2
-static limits_t
+// max speeds (rad/s): xs=10 deg/s, ys=8 deg/s
+// accelerations: xa=12.6 deg/s^2, ya= 9.5 deg/s^2
+limits_t
     Xlimits = {
         .min = {.coord = -3.1241, .speed = 1e-10, .accel = 1e-6},
-        .max = {.coord = 3.1241, .speed = MCC_MAX_X_SPEED, .accel = MCC_X_ACCELERATION}},
+        .max = {.coord = 3.1241, .speed = 0.174533, .accel = 0.219911}},
     Ylimits = {
         .min = {.coord = -3.1241, .speed = 1e-10, .accel = 1e-6},
-        .max = {.coord = 3.1241, .speed = MCC_MAX_Y_SPEED, .accel = MCC_Y_ACCELERATION}}
+        .max = {.coord = 3.1241, .speed = 0.139626, .accel = 0.165806}}
 ;
 static mcc_errcodes_t shortcmd(short_command_t *cmd);
 
 /**
- * @brief nanotime - monotonic time from first run
- * @return time in seconds
+ * @brief curtime - monotonic time from first run
+ * @param t - struct timespec by CLOCK_MONOTONIC but with setpoint by CLOCK_REALTIME on observations start
+ * @return TRUE if all OK
+ * FIXME: double -> struct timespec; on init: init t0 by CLOCK_REALTIME
  */
-double nanotime(){
-    static double t0 = -1.;
+int curtime(struct timespec *t){
+    struct timespec now;
+    if(clock_gettime(CLOCK_MONOTONIC, &now)) return FALSE;
+    now.tv_sec += timeadder.tv_sec;
+    now.tv_nsec += timeadder.tv_nsec;
+    if(now.tv_nsec > 999999999L){
+        ++now.tv_sec;
+        now.tv_nsec -= 1000000000L;
+    }
+    if(t) *t = now;
+    return TRUE;
+}
+
+// init starttime; @return TRUE if all OK
+static int initstarttime(){
+    struct timespec start;
+    if(clock_gettime(CLOCK_MONOTONIC, &starttime)) return FALSE;
+    if(clock_gettime(CLOCK_REALTIME, &start)) return FALSE;
+    timeadder.tv_sec = start.tv_sec - starttime.tv_sec;
+    timeadder.tv_nsec = start.tv_nsec - starttime.tv_nsec;
+    if(timeadder.tv_nsec < 0){
+        --timeadder.tv_sec;
+        timeadder.tv_nsec += 1000000000L;
+    }
+    curtime(&t0);
+    return TRUE;
+}
+// return difference (in seconds) between time1 and time0
+double timediff(const struct timespec *time1, const struct timespec *time0){
+    if(!time1 || !time0) return -1.;
+    return (time1->tv_sec - time0->tv_sec) + (time1->tv_nsec - time0->tv_nsec) / 1e9;
+}
+// difference between given time and  last initstarttime() call
+double timediff0(const struct timespec *time1){
+    return timediff(time1, &t0);
+}
+// time from last initstarttime() call
+double timefromstart(){
     struct timespec now;
     if(clock_gettime(CLOCK_MONOTONIC, &now)) return -1.;
-    if(t0 < 0.){
-        struct timespec start;
-        if(clock_gettime(CLOCK_REALTIME, &start)) return -1.;
-        t0 = (double)start.tv_sec + (double)start.tv_nsec * 1e-9
-             - (double)now.tv_sec + (double)now.tv_nsec * 1e-9;
-    }
-    return (double)now.tv_sec + (double)now.tv_nsec * 1e-9 + t0;
+    return (now.tv_sec - starttime.tv_sec) + (now.tv_nsec - starttime.tv_nsec) / 1e9;
 }
 
 /**
  * @brief quit - close all opened and return to default state
+ * TODO: close serial devices even in "model" mode
  */
 static void quit(){
     if(Conf.RunModel) return;
@@ -74,18 +115,17 @@ static void quit(){
     DBG("Exit");
 }
 
-void getModData(coordval_pair_t *c, movestate_t *xst, movestate_t *yst){
+void getModData(coordpair_t *c, movestate_t *xst, movestate_t *yst){
     if(!c || !Xmodel || !Ymodel) return;
-    double tnow = nanotime();
+    double tnow = timefromstart();
     moveparam_t Xp, Yp;
     movestate_t Xst = Xmodel->get_state(Xmodel, &Xp);
     //DBG("Xstate = %d", Xst);
     if(Xst == ST_MOVE) Xst = Xmodel->proc_move(Xmodel, &Xp, tnow);
     movestate_t Yst = Ymodel->get_state(Ymodel, &Yp);
     if(Yst == ST_MOVE) Yst = Ymodel->proc_move(Ymodel, &Yp, tnow);
-    c->X.t = c->Y.t = tnow;
-    c->X.val = Xp.coord;
-    c->Y.val =  Yp.coord;
+    c->X = Xp.coord;
+    c->Y = Yp.coord;
     if(xst) *xst = Xst;
     if(yst) *yst = Yst;
 }
@@ -136,7 +176,6 @@ double LS_calc_slope(less_square_t *l, double x, double t){
     return (numerator / denominator);
 }
 
-
 /**
  * @brief init - open serial devices and do other job
  * @param c - initial configuration
@@ -145,15 +184,20 @@ double LS_calc_slope(less_square_t *l, double x, double t){
 static mcc_errcodes_t init(conf_t *c){
     FNAME();
     if(!c) return MCC_E_BADFORMAT;
+    if(!initstarttime()) return MCC_E_FAILED;
     Conf = *c;
     mcc_errcodes_t ret = MCC_E_OK;
     Xmodel = model_init(&Xlimits);
     Ymodel = model_init(&Ylimits);
+    if(Conf.MountReqInterval > 1. || Conf.MountReqInterval < 0.05){
+        DBG("Bad value of MountReqInterval");
+        ret = MCC_E_BADFORMAT;
+    }
     if(Conf.RunModel){
         if(!Xmodel || !Ymodel || !openMount()) return MCC_E_FAILED;
         return MCC_E_OK;
     }
-    if(!Conf.MountDevPath || Conf.MountDevSpeed < 1200){
+    if(!Conf.MountDevPath || Conf.MountDevSpeed < MOUNT_BAUDRATE_MIN){
         DBG("Define mount device path and speed");
         ret = MCC_E_BADFORMAT;
     }else if(!openMount()){
@@ -169,16 +213,11 @@ static mcc_errcodes_t init(conf_t *c){
             ret = MCC_E_ENCODERDEV;
         }
     }
-    if(Conf.MountReqInterval > 1. || Conf.MountReqInterval < 0.05){
-        DBG("Bad value of MountReqInterval");
-        ret = MCC_E_BADFORMAT;
-    }
+    // TODO: read hardware configuration on init
     if(Conf.EncoderSpeedInterval < Conf.EncoderReqInterval * MCC_CONF_MIN_SPEEDC || Conf.EncoderSpeedInterval > MCC_CONF_MAX_SPEEDINT){
         DBG("Wrong speed interval");
         ret = MCC_E_BADFORMAT;
     }
-    //uint8_t buf[1024];
-    //data_t d = {.buf = buf, .len = 0, .maxlen = 1024};
     if(!SSrawcmd(CMD_EXITACM, NULL)) ret = MCC_E_FAILED;
     if(ret != MCC_E_OK) return ret;
     return updateMotorPos();
@@ -187,19 +226,19 @@ static mcc_errcodes_t init(conf_t *c){
 // check coordinates (rad) and speeds (rad/s); return FALSE if failed
 // TODO fix to real limits!!!
 static int chkX(double X){
-    if(X > 2.*M_PI || X < -2.*M_PI) return FALSE;
+    if(X > Xlimits.max.coord || X < Xlimits.min.coord) return FALSE;
     return TRUE;
 }
 static int chkY(double Y){
-    if(Y > 2.*M_PI || Y < -2.*M_PI) return FALSE;
+    if(Y > Ylimits.max.coord || Y < Ylimits.min.coord) return FALSE;
     return TRUE;
 }
 static int chkXs(double s){
-    if(s < 0. || s > MCC_MAX_X_SPEED) return FALSE;
+    if(s < Xlimits.min.speed || s > Xlimits.max.speed) return FALSE;
     return TRUE;
 }
 static int chkYs(double s){
-    if(s < 0. || s > MCC_MAX_Y_SPEED) return FALSE;
+    if(s < Ylimits.min.speed || s > Ylimits.max.speed) return FALSE;
     return TRUE;
 }
 
@@ -246,8 +285,8 @@ static mcc_errcodes_t move2(const coordpair_t *target){
     DBG("x,y: %g, %g", target->X, target->Y);
     cmd.Xmot = target->X;
     cmd.Ymot = target->Y;
-    cmd.Xspeed = MCC_MAX_X_SPEED;
-    cmd.Yspeed = MCC_MAX_Y_SPEED;
+    cmd.Xspeed = Xlimits.max.speed;
+    cmd.Yspeed = Ylimits.max.speed;
     mcc_errcodes_t r = shortcmd(&cmd);
     if(r != MCC_E_OK) return r;
     setslewingstate();
@@ -280,6 +319,7 @@ static mcc_errcodes_t move2s(const coordpair_t *target, const coordpair_t *speed
     if(!target || !speed) return MCC_E_BADFORMAT;
     if(!chkX(target->X) || !chkY(target->Y)) return MCC_E_BADFORMAT;
     if(!chkXs(speed->X) || !chkYs(speed->Y)) return MCC_E_BADFORMAT;
+    // updateMotorPos() here can make a problem; TODO: remove?
     if(MCC_E_OK != updateMotorPos()) return MCC_E_FAILED;
     short_command_t cmd = {0};
     cmd.Xmot = target->X;
@@ -299,7 +339,7 @@ static mcc_errcodes_t move2s(const coordpair_t *target, const coordpair_t *speed
 static mcc_errcodes_t emstop(){
     FNAME();
     if(Conf.RunModel){
-        double curt = nanotime();
+        double curt = timefromstart();
         Xmodel->emergency_stop(Xmodel, curt);
         Ymodel->emergency_stop(Ymodel, curt);
         return MCC_E_OK;
@@ -311,7 +351,7 @@ static mcc_errcodes_t emstop(){
 static mcc_errcodes_t stop(){
     FNAME();
     if(Conf.RunModel){
-        double curt = nanotime();
+        double curt = timefromstart();
         Xmodel->stop(Xmodel, curt);
         Ymodel->stop(Ymodel,curt);
         return MCC_E_OK;
@@ -328,7 +368,7 @@ static mcc_errcodes_t stop(){
 static mcc_errcodes_t shortcmd(short_command_t *cmd){
     if(!cmd) return MCC_E_BADFORMAT;
     if(Conf.RunModel){
-        double curt = nanotime();
+        double curt = timefromstart();
         moveparam_t param = {0};
         param.coord = cmd->Xmot; param.speed = cmd->Xspeed;
         if(!model_move2(Xmodel, &param, curt)) return MCC_E_FAILED;
@@ -360,7 +400,7 @@ static mcc_errcodes_t shortcmd(short_command_t *cmd){
 static mcc_errcodes_t longcmd(long_command_t *cmd){
     if(!cmd) return MCC_E_BADFORMAT;
     if(Conf.RunModel){
-        double curt = nanotime();
+        double curt = timefromstart();
         moveparam_t param = {0};
         param.coord = cmd->Xmot; param.speed = cmd->Xspeed;
         if(!model_move2(Xmodel, &param, curt)) return MCC_E_FAILED;
@@ -498,10 +538,30 @@ static mcc_errcodes_t write_hwconf(hardware_configuration_t *hwConfig){
     config.backlspd = X_RS2MOTSPD(hwConfig->backlspd);
     config.Xsetpr = __bswap_32(hwConfig->Xsetpr);
     config.Ysetpr = __bswap_32(hwConfig->Ysetpr);
-    config.Xmetpr = __bswap_32(hwConfig->Xmetpr);
-    config.Ymetpr = __bswap_32(hwConfig->Ymetpr);
+    config.Xmetpr = __bswap_32(hwConfig->Xmetpr * 4);
+    config.Ymetpr = __bswap_32(hwConfig->Ymetpr * 4);
     // TODO - next
     (void) config;
+    return MCC_E_OK;
+}
+
+// getters of max/min speed and acceleration
+mcc_errcodes_t maxspeed(coordpair_t *v){
+    if(!v) return MCC_E_BADFORMAT;
+    v->X = Xlimits.max.speed;
+    v->Y = Ylimits.max.speed;
+    return MCC_E_OK;
+}
+mcc_errcodes_t minspeed(coordpair_t *v){
+    if(!v) return MCC_E_BADFORMAT;
+    v->X = Xlimits.min.speed;
+    v->Y = Ylimits.min.speed;
+    return MCC_E_OK;
+}
+mcc_errcodes_t acceleration(coordpair_t *a){
+    if(!a) return MCC_E_BADFORMAT;
+    a->X = Xlimits.max.accel;
+    a->Y = Ylimits.max.accel;
     return MCC_E_OK;
 }
 
@@ -510,7 +570,6 @@ mount_t Mount = {
     .init = init,
     .quit = quit,
     .getMountData = getMD,
-//    .slewTo = slew2,
     .moveTo = move2,
     .moveWspeed = move2s,
     .setSpeed = setspeed,
@@ -520,7 +579,13 @@ mount_t Mount = {
     .longCmd = longcmd,
     .getHWconfig = get_hwconf,
     .saveHWconfig = write_hwconf,
-    .currentT = nanotime,
+    .currentT = curtime,
+    .timeFromStart = timefromstart,
+    .timeDiff = timediff,
+    .timeDiff0 = timediff0,
     .correctTo = correct2,
+    .getMaxSpeed = maxspeed,
+    .getMinSpeed = minspeed,
+    .getAcceleration = acceleration,
 };
 

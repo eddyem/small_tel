@@ -73,6 +73,7 @@ int main(int argc, char **argv){
     conf_t *Config = readServoConf(G.conffile);
     if(!Config){
         dumpConf();
+        confHelp();
         return 1;
     }
     if(G.coordsoutput){

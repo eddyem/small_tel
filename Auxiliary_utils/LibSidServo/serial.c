@@ -59,49 +59,35 @@ typedef struct __attribute__((packed)){
 
 // calculate current X/Y speeds
 void getXspeed(){
-    static double t0 = -1.; // time of start - eliminate problem of very large times in squares
-    if(t0 < 0.) t0 = mountdata.encXposition.t;
     static less_square_t *ls = NULL;
     if(!ls){
         ls = LS_init(Conf.EncoderSpeedInterval / Conf.EncoderReqInterval);
         if(!ls) return;
     }
     pthread_mutex_lock(&datamutex);
-    double speed = LS_calc_slope(ls, mountdata.encXposition.val, mountdata.encXposition.t - t0);
-    if(fabs(speed) < 1.5 * MCC_MAX_X_SPEED){
+    double dt = timediff0(&mountdata.encXposition.t);
+    double speed = LS_calc_slope(ls, mountdata.encXposition.val, dt);
+    if(fabs(speed) < 1.5 * Xlimits.max.speed){
         mountdata.encXspeed.val = speed;
         mountdata.encXspeed.t = mountdata.encXposition.t;
     }
     pthread_mutex_unlock(&datamutex);
     //DBG("Xspeed=%g", mountdata.encXspeed.val);
-#if 0
-    mountdata.encXspeed.val = (mountdata.encXposition.val - lastXenc.val) / (t - lastXenc.t);
-    mountdata.encXspeed.t = (lastXenc.t + mountdata.encXposition.t) / 2.;
-    lastXenc.val = mountdata.encXposition.val;
-    lastXenc.t = t;
-#endif
 }
 void getYspeed(){
-    static double t0 = -1.; // time of start - eliminate problem of very large times in squares
-    if(t0 < 0.) t0 = mountdata.encXposition.t;
     static less_square_t *ls = NULL;
     if(!ls){
         ls = LS_init(Conf.EncoderSpeedInterval / Conf.EncoderReqInterval);
         if(!ls) return;
     }
     pthread_mutex_lock(&datamutex);
-    double speed = LS_calc_slope(ls, mountdata.encYposition.val, mountdata.encYposition.t - t0);
-    if(fabs(speed) < 1.5 * MCC_MAX_Y_SPEED){
+    double dt = timediff0(&mountdata.encYposition.t);
+    double speed = LS_calc_slope(ls, mountdata.encYposition.val, dt);
+    if(fabs(speed) < 1.5 * Ylimits.max.speed){
         mountdata.encYspeed.val = speed;
         mountdata.encYspeed.t = mountdata.encYposition.t;
     }
     pthread_mutex_unlock(&datamutex);
-#if 0
-    mountdata.encYspeed.val = (mountdata.encYposition.val - lastYenc.val) / (t - lastYenc.t);
-    mountdata.encYspeed.t = (lastYenc.t + mountdata.encYposition.t) / 2.;
-    lastYenc.val = mountdata.encYposition.val;
-    lastYenc.t = t;
-#endif
 }
 
 /**
@@ -109,7 +95,8 @@ void getYspeed(){
  * @param databuf - input buffer with 13 bytes of data
  * @param t - time when databuf[0] got
  */
-static void parse_encbuf(uint8_t databuf[ENC_DATALEN], double t){
+static void parse_encbuf(uint8_t databuf[ENC_DATALEN], struct timespec *t){
+    if(!t) return;
     enc_t *edata = (enc_t*) databuf;
 /*
 #ifdef EBUG
@@ -147,12 +134,12 @@ static void parse_encbuf(uint8_t databuf[ENC_DATALEN], double t){
     mountdata.encXposition.val = X_ENC2RAD(edata->encX);
     mountdata.encYposition.val = Y_ENC2RAD(edata->encY);
     DBG("Got positions X/Y= %.6g / %.6g", mountdata.encXposition.val, mountdata.encYposition.val);
-    mountdata.encXposition.t = t;
-    mountdata.encYposition.t = t;
+    mountdata.encXposition.t = *t;
+    mountdata.encYposition.t = *t;
+    pthread_mutex_unlock(&datamutex);
     //if(t - lastXenc.t > Conf.EncoderSpeedInterval) getXspeed();
     //if(t - lastYenc.t > Conf.EncoderSpeedInterval) getYspeed();
     getXspeed(); getYspeed();
-    pthread_mutex_unlock(&datamutex);
     //DBG("time = %zd+%zd/1e6, X=%g deg, Y=%g deg", tv->tv_sec, tv->tv_usec, mountdata.encposition.X*180./M_PI, mountdata.encposition.Y*180./M_PI);
 }
 
@@ -163,11 +150,11 @@ static void parse_encbuf(uint8_t databuf[ENC_DATALEN], double t){
  * @param t - measurement time
  * @return amount of data read or 0 if problem
  */
-static int getencval(int fd, double *val, double *t){
+static int getencval(int fd, double *val, struct timespec *t){
     if(fd < 0) return FALSE;
     char buf[128];
     int got = 0, Lmax = 127;
-    double t0 = nanotime();
+    double t0 = timefromstart();
     do{
         fd_set rfds;
         FD_ZERO(&rfds);
@@ -186,7 +173,7 @@ static int getencval(int fd, double *val, double *t){
             buf[got] = 0;
         } else continue;
         if(strchr(buf, '\n')) break;
-    }while(Lmax && nanotime() - t0 < Conf.EncoderReqInterval);
+    }while(Lmax && timefromstart() - t0 < Conf.EncoderReqInterval);
     if(got == 0) return 0; // WTF?
     char *estr = strrchr(buf, '\n');
     if(!estr) return 0;
@@ -201,7 +188,7 @@ static int getencval(int fd, double *val, double *t){
         return 0; // wrong number
     }
     if(val) *val = (double) data;
-    if(t) *t = t0;
+    if(t){ if(!curtime(t)) return 0; }
     return got;
 }
 // try to read 1 byte from encoder; return -1 if nothing to read or -2 if device seems to be disconnected
@@ -265,8 +252,6 @@ static void clrmntbuf(){
     if(mntfd < 0) return;
     uint8_t byte;
     fd_set rfds;
-    //double t0 = nanotime();
-    //int n = 0;
     do{
         FD_ZERO(&rfds);
         FD_SET(mntfd, &rfds);
@@ -280,10 +265,8 @@ static void clrmntbuf(){
         if(FD_ISSET(mntfd, &rfds)){
             ssize_t l = read(mntfd, &byte, 1);
             if(l != 1) break;
-            //++n;
         } else break;
     }while(1);
-    //DBG("Cleared by %g (got %d bytes)", nanotime() - t0, n);
 }
 
 // main encoder thread (for separate encoder): read next data and make parsing
@@ -291,7 +274,7 @@ static void *encoderthread1(void _U_ *u){
     if(Conf.SepEncoder != 1) return NULL;
     uint8_t databuf[ENC_DATALEN];
     int wridx = 0, errctr = 0;
-    double t = 0.;
+    struct timespec tcur;
     while(encfd[0] > -1 && errctr < MAX_ERR_CTR){
         int b = getencbyte();
         if(b == -2) ++errctr;
@@ -302,13 +285,14 @@ static void *encoderthread1(void _U_ *u){
             if((uint8_t)b == ENC_MAGICK){
 //                DBG("Got magic -> start filling packet");
                 databuf[wridx++] = (uint8_t) b;
-                t = nanotime();
             }
             continue;
         }else databuf[wridx++] = (uint8_t) b;
         if(wridx == ENC_DATALEN){
-            parse_encbuf(databuf, t);
-            wridx = 0;
+            if(curtime(&tcur)){
+                parse_encbuf(databuf, &tcur);
+                wridx = 0;
+            }
         }
     }
     if(encfd[0] > -1){
@@ -323,30 +307,28 @@ static void *encoderthread2(void _U_ *u){
     if(Conf.SepEncoder != 2) return NULL;
     DBG("Thread started");
     int errctr = 0;
-    double t0 = nanotime();
+    double t0 = timefromstart();
     const char *req = "\n";
     int need2ask = 0; // need or not to ask encoder for new data
     while(encfd[0] > -1 && encfd[1] > -1 && errctr < MAX_ERR_CTR){
+        struct timespec t;
+        if(!curtime(&t)) continue;
         if(need2ask){
             if(1 != write(encfd[0], req, 1)) { ++errctr; continue; }
             else if(1 != write(encfd[1], req, 1)) { ++errctr; continue; }
         }
-        double v, t;
+        double v;
         if(getencval(encfd[0], &v, &t)){
             pthread_mutex_lock(&datamutex);
             mountdata.encXposition.val = X_ENC2RAD(v);
-            //DBG("encX(%g) = %g", t, mountdata.encXposition.val);
             mountdata.encXposition.t = t;
             pthread_mutex_unlock(&datamutex);
-            //if(t - lastXenc.t > Conf.EncoderSpeedInterval) getXspeed();
             getXspeed();
             if(getencval(encfd[1], &v, &t)){
                 pthread_mutex_lock(&datamutex);
                 mountdata.encYposition.val = Y_ENC2RAD(v);
-                //DBG("encY(%g) = %g", t, mountdata.encYposition.val);
                 mountdata.encYposition.t = t;
                 pthread_mutex_unlock(&datamutex);
-                //if(t - lastYenc.t > Conf.EncoderSpeedInterval) getYspeed();
                 getYspeed();
                 errctr = 0;
                 need2ask = 0;
@@ -360,9 +342,8 @@ static void *encoderthread2(void _U_ *u){
             else need2ask = 1;
             continue;
         }
-        while(nanotime() - t0 < Conf.EncoderReqInterval){ usleep(50); }
-        //DBG("DT=%g (RI=%g)", nanotime()-t0, Conf.EncoderReqInterval);
-        t0 = nanotime();
+        while(timefromstart() - t0 < Conf.EncoderReqInterval){ usleep(50); }
+        t0 = timefromstart();
     }
     DBG("ERRCTR=%d", errctr);
     for(int i = 0; i < 2; ++i){
@@ -390,43 +371,67 @@ void data_free(data_t **x){
     *x = NULL;
 }
 
+static void chkModStopped(double *prev, double cur, int *nstopped, axis_status_t *stat){
+    if(!prev || !nstopped || !stat) return;
+    if(isnan(*prev)){
+        *stat = AXIS_STOPPED;
+        DBG("START");
+    }else if(*stat != AXIS_STOPPED){
+        if(fabs(*prev - cur) < DBL_EPSILON && ++(*nstopped) > MOTOR_STOPPED_CNT){
+            *stat = AXIS_STOPPED;
+            DBG("AXIS stopped; prev=%g, cur=%g; nstopped=%d", *prev/M_PI*180., cur/M_PI*180., *nstopped);
+        }
+    }else if(*prev != cur){
+        DBG("AXIS moving");
+        *nstopped = 0;
+    }
+    *prev = cur;
+}
+
 // main mount thread
 static void *mountthread(void _U_ *u){
     int errctr = 0;
     uint8_t buf[2*sizeof(SSstat)];
     SSstat *status = (SSstat*) buf;
     bzero(&mountdata, sizeof(mountdata));
-    double t0 = nanotime(), tstart = t0;
-    static double oldmt = -100.; // old `millis measurement` time
+    double t0 = timefromstart(), tstart = t0, tcur = t0;
+    double oldmt = -100.; // old `millis measurement` time
     static uint32_t oldmillis = 0;
-    if(Conf.RunModel) while(1){
-        coordval_pair_t c;
-        movestate_t xst, yst;
-        // now change data
-        getModData(&c, &xst, &yst);
-        pthread_mutex_lock(&datamutex);
-        double tnow = c.X.t;
-        mountdata.encXposition.t = mountdata.encYposition.t = tnow;
-        mountdata.encXposition.val = c.X.val;
-        mountdata.encYposition.val = c.Y.val;
-        //DBG("t=%g, X=%g, Y=%g", tnow, c.X.val, c.Y.val);
-        if(tnow - oldmt > Conf.MountReqInterval){
-            oldmillis = mountdata.millis = (uint32_t)((tnow - tstart) * 1e3);
-            mountdata.motYposition.t = mountdata.motXposition.t = tnow;
-            if(xst == ST_MOVE)
-                mountdata.motXposition.val = c.X.val + (c.X.val - mountdata.motXposition.val)*(drand48() - 0.5)/100.;
-            else
-                mountdata.motXposition.val = c.X.val;
-            if(yst == ST_MOVE)
-                mountdata.motYposition.val = c.Y.val + (c.Y.val - mountdata.motYposition.val)*(drand48() - 0.5)/100.;
-            else
-                mountdata.motYposition.val = c.Y.val;
-            oldmt = tnow;
-        }else mountdata.millis = oldmillis;
-        pthread_mutex_unlock(&datamutex);
-        getXspeed(); getYspeed();
-        while(nanotime() - t0 < Conf.EncoderReqInterval) usleep(50);
-        t0 = nanotime();
+    if(Conf.RunModel){
+        double Xprev = NAN, Yprev = NAN; // previous coordinates
+        int xcnt = 0, ycnt = 0;
+        while(1){
+            coordpair_t c;
+            movestate_t xst, yst;
+            // now change data
+            getModData(&c, &xst, &yst);
+            struct timespec tnow;
+            if(!curtime(&tnow) || (tcur = timefromstart()) < 0.) continue;
+            pthread_mutex_lock(&datamutex);
+            mountdata.encXposition.t = mountdata.encYposition.t = tnow;
+            mountdata.encXposition.val = c.X;
+            mountdata.encYposition.val = c.Y;
+            //DBG("t=%g, X=%g, Y=%g", tnow, c.X.val, c.Y.val);
+            if(tcur - oldmt > Conf.MountReqInterval){
+                oldmillis = mountdata.millis = (uint32_t)((tcur - tstart) * 1e3);
+                mountdata.motYposition.t = mountdata.motXposition.t = tnow;
+                if(xst == ST_MOVE)
+                    mountdata.motXposition.val = c.X + (c.X - mountdata.motXposition.val)*(drand48() - 0.5)/100.;
+                else
+                    mountdata.motXposition.val = c.X;
+                if(yst == ST_MOVE)
+                    mountdata.motYposition.val = c.Y + (c.Y - mountdata.motYposition.val)*(drand48() - 0.5)/100.;
+                else
+                    mountdata.motYposition.val = c.Y;
+                oldmt = tcur;
+            }else mountdata.millis = oldmillis;
+            chkModStopped(&Xprev, c.X, &xcnt, &mountdata.Xstate);
+            chkModStopped(&Yprev, c.Y, &ycnt, &mountdata.Ystate);
+            pthread_mutex_unlock(&datamutex);
+            getXspeed(); getYspeed();
+            while(timefromstart() - t0 < Conf.EncoderReqInterval) usleep(50);
+            t0 = timefromstart();
+        }
     }
     // data to get
     data_t d = {.buf = buf, .maxlen = sizeof(buf)};
@@ -435,31 +440,8 @@ static void *mountthread(void _U_ *u){
     if(!cmd_getstat) goto failed;
     while(mntfd > -1 && errctr < MAX_ERR_CTR){
         // read data to status
-        double t0 = nanotime();
-#if 0
-// 127 milliseconds to get answer on X/Y commands!!!
-        int64_t ans;
-        int ctr = 0;
-        if(SSgetint(CMD_MOTX, &ans)){
-            pthread_mutex_lock(&datamutex);
-            mountdata.motXposition.t = tgot;
-            mountdata.motXposition.val = X_MOT2RAD(ans);
-            pthread_mutex_unlock(&datamutex);
-            ++ctr;
-        }
-        tgot = nanotime();
-        if(SSgetint(CMD_MOTY, &ans)){
-            pthread_mutex_lock(&datamutex);
-            mountdata.motXposition.t = tgot;
-            mountdata.motXposition.val = X_MOT2RAD(ans);
-            pthread_mutex_unlock(&datamutex);
-            ++ctr;
-        }
-        if(ctr == 2){
-            mountdata.millis = (uint32_t)(1e3 * tgot);
-            DBG("Got both coords; millis=%d", mountdata.millis);
-        }
-#endif
+        struct timespec tcur;
+        if(!curtime(&tcur)) continue;
         // 80 milliseconds to get answer on GETSTAT
         if(!MountWriteRead(cmd_getstat, &d) || d.len != sizeof(SSstat)){
 #ifdef EBUG
@@ -476,14 +458,13 @@ static void *mountthread(void _U_ *u){
         errctr = 0;
         pthread_mutex_lock(&datamutex);
         // now change data
-        SSconvstat(status, &mountdata, t0);
+        SSconvstat(status, &mountdata, &tcur);
         pthread_mutex_unlock(&datamutex);
-        //DBG("GOT FULL stat by %g", nanotime() - t0);
         // allow writing & getters
         do{
             usleep(500);
-        }while(nanotime() - t0 < Conf.MountReqInterval);
-        t0 = nanotime();
+        }while(timefromstart() - t0 < Conf.MountReqInterval);
+        t0 = timefromstart();
     }
     data_free(&cmd_getstat);
 failed:
@@ -589,6 +570,7 @@ create_thread:
 
 // close all opened serial devices and quit threads
 void closeSerial(){
+    // TODO: close devices in "model" mode too!
     if(Conf.RunModel) return;
     if(mntfd > -1){
         DBG("Cancel mount thread");
@@ -638,30 +620,23 @@ static int wr(const data_t *out, data_t *in, int needeol){
         return FALSE;
     }
     clrmntbuf();
-    //double t0 = nanotime();
     if(out){
         if(out->len != (size_t)write(mntfd, out->buf, out->len)){
             DBG("written bytes not equal to need");
             return FALSE;
         }
-        //DBG("Send to mount %zd bytes: %s", out->len, out->buf);
         if(needeol){
             int g = write(mntfd, "\r", 1); // add EOL
             (void) g;
         }
     }
-    //DBG("sent by %g", nanotime() - t0);
-    //uint8_t buf[256];
-    //data_t dumb = {.buf = buf, .maxlen = 256};
     if(!in) return TRUE;
-    //if(!in) in = &dumb; // even if user don't ask for answer, try to read to clear trash
     in->len = 0;
     for(size_t i = 0; i < in->maxlen; ++i){
         int b = getmntbyte();
         if(b < 0) break; // nothing to read -> go out
         in->buf[in->len++] = (uint8_t) b;
     }
-    //DBG("got %zd bytes by %g", in->len, nanotime() - t0);
     while(getmntbyte() > -1);
     return TRUE;
 }
@@ -768,13 +743,14 @@ int cmdC(SSconfig *conf, int rw){
         d.len = 0; d.maxlen = sizeof(SSconfig);
         ret = wr(rcmd, &d, 1);
         DBG("wr returned %s; got %zd bytes of %zd", ret ? "TRUE" : "FALSE", d.len, d.maxlen);
-        if(d.len != d.maxlen) return FALSE;
+        if(d.len != d.maxlen){ ret = FALSE; goto rtn; }
         // simplest checksum
         uint16_t sum = 0;
         for(uint32_t i = 0; i < sizeof(SSconfig)-2; ++i) sum += d.buf[i];
         if(sum != conf->checksum){
             DBG("got sum: %u, need: %u", conf->checksum, sum);
-            return FALSE;
+            ret = FALSE;
+            goto rtn;
         }
     }
 rtn:
