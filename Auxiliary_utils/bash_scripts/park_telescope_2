@@ -1,0 +1,33 @@
+#!/bin/bash
+
+A="00:00:00"
+H="2:00:00"
+
+function sendcmd(){
+	echo $1 | nc localhost 10001 -q10 || (echo "Can't connect" >&2; exit 1)
+}
+
+#lower limit is 0
+sendcmd ":So0#"
+sendcmd ":Sz${A}#"
+sendcmd ":Sa${H}#"
+sendcmd ":MA#" # || exit 1
+
+errctr=0
+
+while true; do
+	sleep 2
+	ANS=$(sendcmd ":Gstat#")
+	if [ "x$ANS" == "x" ]; then
+		[[ $((++errctr)) < 5 ]] && continue
+		echo "No connection to server" >&2
+		exit 1
+	fi
+	echo $ANS
+	[ $ANS == "0#" -o $ANS == "7#" ] && break
+done
+
+# stop tracking
+sendcmd ":AL#"
+
+echo -e "\n\nTelescope parked\n"
