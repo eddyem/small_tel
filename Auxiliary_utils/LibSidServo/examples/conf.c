@@ -83,6 +83,8 @@ static sl_option_t opts[] = {
     {"MaxPointingErr",  NEED_ARG,   NULL,   0,  arg_double, APTR(&Config.MaxPointingErr),   "if angle < this, change state from \"slewing\" to \"pointing\" (coarse pointing): 8 degrees"},
     {"MaxFinePointingErr",NEED_ARG, NULL,   0,  arg_double, APTR(&Config.MaxFinePointingErr), "if angle < this, chane state from \"pointing\" to \"guiding\" (fine poinging): 1.5 deg"},
     {"MaxGuidingErr",   NEED_ARG,   NULL,   0,  arg_double, APTR(&Config.MaxGuidingErr),    "if error less than this value we suppose that target is captured and guiding is good (true guiding): 0.1''"},
+    {"XEncZero",        NEED_ARG,   NULL,   0,  arg_int,    APTR(&Config.XEncZero),         "X axis encoder approximate zero position"},
+    {"YEncZero",        NEED_ARG,   NULL,   0,  arg_int,    APTR(&Config.YEncZero),         "Y axis encoder approximate zero position"},
     // {"",NEED_ARG,   NULL,   0,  arg_double, APTR(&Config.), ""},
     end_option
 };
@@ -109,4 +111,18 @@ void dumpConf(){
 
 void confHelp(){
     sl_conf_showhelp(-1, opts);
+}
+
+const char* errcodes[MCC_E_AMOUNT] = {
+    [MCC_E_OK] = "OK",
+    [MCC_E_FATAL] = "Fatal error",
+    [MCC_E_BADFORMAT] = "Wrong data format",
+    [MCC_E_ENCODERDEV] = "Encoder error",
+    [MCC_E_MOUNTDEV] = "Mount error",
+    [MCC_E_FAILED] = "Failed to run"
+};
+// return string with error code
+const char *EcodeStr(mcc_errcodes_t e){
+    if(e >= MCC_E_AMOUNT) return "Wrong error code";
+    return errcodes[e];
 }

@@ -120,7 +120,11 @@ int main(int _U_ argc, char _U_ **argv){
     }
     printf("Moving to X=%gdeg, Y=%gdeg\n", G.X, G.Y);
     tag.X = DEG2RAD(G.X); tag.Y = DEG2RAD(G.Y);
-    Mount.moveTo(&tag);
+    mcc_errcodes_t e = Mount.moveTo(&tag);
+    if(MCC_E_OK != e){
+        WARNX("Cant go to given coordinates: %s\n", EcodeStr(e));
+        goto out;
+    }
     if(G.wait){
         sleep(1);
         waitmoving(G.Ncycles);
@@ -132,7 +136,9 @@ out:
     if(G.coordsoutput) pthread_join(dthr, NULL);
     DBG("QUIT");
     if(G.wait){
-        if(getPos(&M, NULL)) printf("Mount position: X=%g, Y=%g\n", RAD2DEG(M.X.val), RAD2DEG(M.Y.val));
+        usleep(250000); // pause to refresh coordinates
+        if(getPos(&M, &E)) printf("Mount position: X=%g, Y=%g; encoders: X=%g, Y=%g\n", RAD2DEG(M.X.val), RAD2DEG(M.Y.val),
+            RAD2DEG(E.X.val), RAD2DEG(E.Y.val));
         Mount.quit();
     }
     return 0;

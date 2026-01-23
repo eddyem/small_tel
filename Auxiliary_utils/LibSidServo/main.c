@@ -25,6 +25,7 @@
 #include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 #include "main.h"
 #include "movingmodel.h"
@@ -53,6 +54,7 @@ limits_t
         .max = {.coord = 3.1241, .speed = 0.139626, .accel = 0.165806}}
 ;
 static mcc_errcodes_t shortcmd(short_command_t *cmd);
+static mcc_errcodes_t get_hwconf(hardware_configuration_t *hwConfig);
 
 /**
  * @brief curtime - monotonic time from first run
@@ -87,6 +89,7 @@ static int initstarttime(){
     curtime(&t0);
     return TRUE;
 }
+
 // return difference (in seconds) between time1 and time0
 double timediff(const struct timespec *time1, const struct timespec *time0){
     if(!time1 || !time0) return -1.;
@@ -220,7 +223,18 @@ static mcc_errcodes_t init(conf_t *c){
     }
     if(!SSrawcmd(CMD_EXITACM, NULL)) ret = MCC_E_FAILED;
     if(ret != MCC_E_OK) return ret;
-    return updateMotorPos();
+    // read HW config to update constants
+    hardware_configuration_t HW;
+    if(MCC_E_OK != get_hwconf(&HW)) return MCC_E_FAILED;
+    // make a pause for actual encoder's values
+    double t0 = timefromstart();
+    while(timefromstart() - t0 < Conf.EncoderReqInterval) usleep(1000);
+    mcc_errcodes_t e = updateMotorPos();
+    // and refresh data after updating
+    DBG("Wait for next mount reading");
+    t0 = timefromstart();
+    while(timefromstart() - t0 < Conf.MountReqInterval * 3.) usleep(1000);
+    return e;
 }
 
 // check coordinates (rad) and speeds (rad/s); return FALSE if failed
@@ -242,7 +256,7 @@ static int chkYs(double s){
     return TRUE;
 }
 
-// set SLEWING state if axis was stopped later
+// set SLEWING state if axis was stopped
 static void setslewingstate(){
     //FNAME();
     mountdata_t d;
@@ -257,19 +271,6 @@ static void setslewingstate(){
         }
     }else DBG("CAN't GET MOUNT DATA!");
 }
-
-/*
-static mcc_errcodes_t slew2(const coordpair_t *target, slewflags_t flags){
-    (void)target;
-    (void)flags;
-    //if(Conf.RunModel) return ... ;
-    if(MCC_E_OK != updateMotorPos()) return MCC_E_FAILED;
-    //...
-    setStat(AXIS_SLEWING, AXIS_SLEWING);
-    //...
-    return MCC_E_FAILED;
-}
-*/
 
 /**
  * @brief move2 - simple move to given point and stop
@@ -287,10 +288,11 @@ static mcc_errcodes_t move2(const coordpair_t *target){
     cmd.Ymot = target->Y;
     cmd.Xspeed = Xlimits.max.speed;
     cmd.Yspeed = Ylimits.max.speed;
-    mcc_errcodes_t r = shortcmd(&cmd);
+    /*mcc_errcodes_t r = shortcmd(&cmd);
     if(r != MCC_E_OK) return r;
     setslewingstate();
-    return MCC_E_OK;
+    return MCC_E_OK;*/
+    return shortcmd(&cmd);
 }
 
 /**
@@ -427,6 +429,7 @@ static mcc_errcodes_t get_hwconf(hardware_configuration_t *hwConfig){
     if(!hwConfig) return MCC_E_BADFORMAT;
     if(Conf.RunModel) return MCC_E_FAILED;
     SSconfig config;
+    DBG("Read HW configuration");
     if(!cmdC(&config, FALSE)) return MCC_E_FAILED;
     // Convert acceleration (ticks per loop^2 to rad/s^2)
     hwConfig->Xconf.accel = X_MOTACC2RS(config.Xconf.accel);
@@ -466,8 +469,8 @@ static mcc_errcodes_t get_hwconf(hardware_configuration_t *hwConfig){
     // Copy ticks per revolution
     hwConfig->Xsetpr = __bswap_32(config.Xsetpr);
     hwConfig->Ysetpr = __bswap_32(config.Ysetpr);
-    hwConfig->Xmetpr = __bswap_32(config.Xmetpr) / 4; // as documentation said, real ticks are 4 times less
-    hwConfig->Ymetpr = __bswap_32(config.Ymetpr) / 4;
+    hwConfig->Xmetpr = __bswap_32(config.Xmetpr); // as documentation said, real ticks are 4 times less
+    hwConfig->Ymetpr = __bswap_32(config.Ymetpr);
     // Convert slew rates (ticks per loop to rad/s)
     hwConfig->Xslewrate = X_MOTSPD2RS(config.Xslewrate);
     hwConfig->Yslewrate = Y_MOTSPD2RS(config.Yslewrate);
@@ -485,6 +488,30 @@ static mcc_errcodes_t get_hwconf(hardware_configuration_t *hwConfig){
     hwConfig->locsspeed = (double)config.locsspeed * M_PI / (180.0 * 3600.0);
     // Convert backlash speed (ticks per loop to rad/s)
     hwConfig->backlspd = X_MOTSPD2RS(config.backlspd);
+    // now read text commands
+    int64_t i64;
+    double Xticks, Yticks;
+    DBG("SERIAL");
+    // motor's encoder ticks per rev
+    if(!SSgetint(CMD_MEPRX, &i64)) return MCC_E_FAILED;
+    Xticks = ((double) i64); // divide by 4 as these values stored ???
+    if(!SSgetint(CMD_MEPRY, &i64)) return MCC_E_FAILED;
+    Yticks = ((double) i64);
+    X_ENC_ZERO = Conf.XEncZero;
+    Y_ENC_ZERO = Conf.YEncZero;
+    DBG("xyrev: %d/%d", config.xbits.motrev, config.ybits.motrev);
+    X_MOT_STEPSPERREV = hwConfig->Xconf.motor_stepsperrev = Xticks; // (config.xbits.motrev) ? -Xticks : Xticks;
+    Y_MOT_STEPSPERREV = hwConfig->Yconf.motor_stepsperrev = Yticks; //(config.ybits.motrev) ? -Yticks : Yticks;
+    DBG("zero: %d/%d; motsteps: %.10g/%.10g", X_ENC_ZERO, Y_ENC_ZERO, X_MOT_STEPSPERREV, Y_MOT_STEPSPERREV);
+    // axis encoder ticks per rev
+    if(!SSgetint(CMD_AEPRX, &i64)) return MCC_E_FAILED;
+    Xticks = (double) i64;
+    if(!SSgetint(CMD_AEPRY, &i64)) return MCC_E_FAILED;
+    Yticks = (double) i64;
+    DBG("xyencrev: %d/%d", config.xbits.encrev, config.ybits.encrev);
+    X_ENC_STEPSPERREV = hwConfig->Xconf.axis_stepsperrev = (config.xbits.encrev) ? -Xticks : Xticks;
+    Y_ENC_STEPSPERREV = hwConfig->Yconf.axis_stepsperrev = (config.ybits.encrev) ? -Yticks : Yticks;
+    DBG("encsteps: %.10g/%.10g", X_ENC_STEPSPERREV, Y_ENC_STEPSPERREV);
     return MCC_E_OK;
 }
 
@@ -538,8 +565,9 @@ static mcc_errcodes_t write_hwconf(hardware_configuration_t *hwConfig){
     config.backlspd = X_RS2MOTSPD(hwConfig->backlspd);
     config.Xsetpr = __bswap_32(hwConfig->Xsetpr);
     config.Ysetpr = __bswap_32(hwConfig->Ysetpr);
-    config.Xmetpr = __bswap_32(hwConfig->Xmetpr * 4);
-    config.Ymetpr = __bswap_32(hwConfig->Ymetpr * 4);
+    config.Xmetpr = __bswap_32(hwConfig->Xmetpr);
+    config.Ymetpr = __bswap_32(hwConfig->Ymetpr);
+    // todo - also write text params
     // TODO - next
     (void) config;
     return MCC_E_OK;

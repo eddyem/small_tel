@@ -1,3 +1,3 @@
-1. PID: slew2
-2. add model & config "model ON"
-
+fix encoders opening for several tries
+encoderthread2() - change main cycle (remove pause, read data independently, ask for new only after timeout after last request)
+Read HW config even in model mode

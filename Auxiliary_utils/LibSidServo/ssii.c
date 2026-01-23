@@ -26,6 +26,9 @@
 #include "serial.h"
 #include "ssii.h"
 
+int X_ENC_ZERO, Y_ENC_ZERO;
+double X_MOT_STEPSPERREV = 1., Y_MOT_STEPSPERREV = 1., X_ENC_STEPSPERREV = 1., Y_ENC_STEPSPERREV = 1.;
+
 uint16_t SScalcChecksum(uint8_t *buf, int len){
     uint16_t checksum = 0;
     for(int i = 0; i < len; i++){
@@ -75,8 +78,9 @@ void SSconvstat(const SSstat *s, mountdata_t *m, struct timespec *t){
     m->motXposition.t = m->motYposition.t = *t;
     // fill encoder data from here, as there's no separate enc thread
     if(!Conf.SepEncoder){
-        m->encXposition.val = X_ENC2RAD(s->Xenc);
-        m->encYposition.val = Y_ENC2RAD(s->Yenc);
+        m->encXposition.val = Xenc2rad(s->Xenc);
+        DBG("encx: %g", m->encXposition.val);
+        m->encYposition.val = Yenc2rad(s->Yenc);
         m->encXposition.t = m->encYposition.t = *t;
         getXspeed(); getYspeed();
     }
@@ -185,9 +189,10 @@ mcc_errcodes_t updateMotorPos(){
             usleep(10000);
             continue;
         }
+        //DBG("XENC2RAD: %g (xez=%d, xesr=%.10g)", Xenc2rad(32424842), X_ENC_ZERO, X_ENC_STEPSPERREV);
         if(MCC_E_OK == getMD(&md)){
             if(md.encXposition.t.tv_sec == 0 || md.encYposition.t.tv_sec == 0){
-                DBG("Just started, t-t0 = %g!", t - t0);
+                DBG("Just started? t-t0 = %g!", t - t0);
                 usleep(10000);
                 continue;
             }
@@ -195,14 +200,15 @@ mcc_errcodes_t updateMotorPos(){
             DBG("got; t pos x/y: %ld/%ld; tnow: %ld", md.encXposition.t.tv_sec, md.encYposition.t.tv_sec, curt.tv_sec);
             mcc_errcodes_t OK = MCC_E_OK;
             if(fabs(md.motXposition.val - md.encXposition.val) > Conf.EncodersDisagreement && md.Xstate == AXIS_STOPPED){
-                DBG("NEED to sync X: motors=%g, axiss=%g", md.motXposition.val, md.encXposition.val);
+                DBG("NEED to sync X: motors=%g, axis=%g", md.motXposition.val, md.encXposition.val);
+                DBG("new motsteps: %d", X_RAD2MOT(md.encXposition.val));
                 if(!SSsetterI(CMD_MOTXSET, X_RAD2MOT(md.encXposition.val))){
                     DBG("Xpos sync failed!");
                     OK = MCC_E_FAILED;
                 }else DBG("Xpos sync OK, Dt=%g", t - t0);
             }
             if(fabs(md.motYposition.val - md.encYposition.val) > Conf.EncodersDisagreement && md.Ystate == AXIS_STOPPED){
-                DBG("NEED to sync Y: motors=%g, axiss=%g", md.motYposition.val, md.encYposition.val);
+                DBG("NEED to sync Y: motors=%g, axis=%g", md.motYposition.val, md.encYposition.val);
                 if(!SSsetterI(CMD_MOTYSET, Y_RAD2MOT(md.encYposition.val))){
                     DBG("Ypos sync failed!");
                     OK = MCC_E_FAILED;

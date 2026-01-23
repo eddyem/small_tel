@@ -175,62 +175,70 @@
 // amount of consequent same coordinates to detect stop
 #define MOTOR_STOPPED_CNT       (19)
 
+// replace macros with global variables inited when config read
+extern int X_ENC_ZERO, Y_ENC_ZERO;
+extern double X_MOT_STEPSPERREV, Y_MOT_STEPSPERREV, X_ENC_STEPSPERREV, Y_ENC_STEPSPERREV;
+
 // TODO: take it from settings?
 // steps per revolution (SSI - x4 - for SSI)
-#define X_MOT_STEPSPERREV_SSI   (13312000.)
+// -> hwconf.Xconf.mot/enc_stepsperrev
+//#define X_MOT_STEPSPERREV_SSI   (13312000.)
 // 13312000 / 4 = 3328000
-#define X_MOT_STEPSPERREV   (3328000.)
-#define Y_MOT_STEPSPERREV_SSI (17578668.)
+//#define X_MOT_STEPSPERREV   (3328000.)
+//#define Y_MOT_STEPSPERREV_SSI (17578668.)
 // 17578668 / 4 = 4394667
-#define Y_MOT_STEPSPERREV   (4394667.)
+//#define Y_MOT_STEPSPERREV   (4394667.)
 
 // encoder per revolution
-#define X_ENC_STEPSPERREV   (67108864.)
-#define Y_ENC_STEPSPERREV   (67108864.)
+//#define X_ENC_STEPSPERREV   (67108864.)
+//#define Y_ENC_STEPSPERREV   (67108864.)
 // encoder zero position
-#define X_ENC_ZERO          (61245239)
-#define Y_ENC_ZERO          (36999830)
-// encoder reversed (no: +1)
-#define X_ENC_SIGN          (-1.)
-#define Y_ENC_SIGN          (-1.)
+// -> conf.XEncZero/YEncZero
+//#define X_ENC_ZERO          (61245239)
+//#define Y_ENC_ZERO          (36999830)
+// encoder reversed (no: +1) -> sign of ...stepsperrev
+//#define X_ENC_SIGN          (-1.)
+//#define Y_ENC_SIGN          (-1.)
+
+
 // encoder position to radians and back
-#define X_ENC2RAD(n)    ang2half(X_ENC_SIGN * 2.*M_PI * ((double)((n)-X_ENC_ZERO)) / X_ENC_STEPSPERREV)
-#define Y_ENC2RAD(n)    ang2half(Y_ENC_SIGN * 2.*M_PI * ((double)((n)-Y_ENC_ZERO)) / Y_ENC_STEPSPERREV)
-#define X_RAD2ENC(r)    ((uint32_t)((r) / 2./M_PI * X_ENC_STEPSPERREV))
-#define Y_RAD2ENC(r)    ((uint32_t)((r) / 2./M_PI * Y_ENC_STEPSPERREV))
+#define Xenc2rad(n)    ang2half(2.*M_PI * ((double)((n)-(X_ENC_ZERO))) / (X_ENC_STEPSPERREV))
+#define Yenc2rad(n)    ang2half(2.*M_PI * ((double)((n)-(Y_ENC_ZERO))) / (Y_ENC_STEPSPERREV))
+#define Xrad2enc(r)    ((uint32_t)((r) / 2./M_PI * (X_ENC_STEPSPERREV)))
+#define Yrad2enc(r)    ((uint32_t)((r) / 2./M_PI * (Y_ENC_STEPSPERREV)))
 
 // convert angle in radians to +-pi
-static inline double ang2half(double ang){
+static inline __attribute__((always_inline)) double ang2half(double ang){
     if(ang < -M_PI) ang += 2.*M_PI;
     else if(ang > M_PI) ang -= 2.*M_PI;
     return ang;
 }
 // convert to only positive: 0..2pi
-static inline double ang2full(double ang){
+static inline __attribute__((always_inline)) double ang2full(double ang){
     if(ang < 0.) ang += 2.*M_PI;
     else if(ang > 2.*M_PI) ang -= 2.*M_PI;
     return ang;
 }
 
 // motor position to radians and back
-#define X_MOT2RAD(n)    ang2half(2. * M_PI * ((double)(n)) / X_MOT_STEPSPERREV)
-#define Y_MOT2RAD(n)    ang2half(2. * M_PI * ((double)(n)) / Y_MOT_STEPSPERREV)
-#define X_RAD2MOT(r)    ((int32_t)((r) / (2. * M_PI) * X_MOT_STEPSPERREV))
-#define Y_RAD2MOT(r)    ((int32_t)((r) / (2. * M_PI) * Y_MOT_STEPSPERREV))
+#define X_MOT2RAD(n)    ang2half(2. * M_PI * ((double)(n)) / (X_MOT_STEPSPERREV))
+#define Y_MOT2RAD(n)    ang2half(2. * M_PI * ((double)(n)) / (Y_MOT_STEPSPERREV))
+#define X_RAD2MOT(r)    ((int32_t)((r) / (2. * M_PI) * (X_MOT_STEPSPERREV)))
+#define Y_RAD2MOT(r)    ((int32_t)((r) / (2. * M_PI) * (Y_MOT_STEPSPERREV)))
 // motor speed in rad/s and back
-#define X_MOTSPD2RS(n)  (X_MOT2RAD(n) / 65536. * SITECH_LOOP_FREQUENCY)
-#define Y_MOTSPD2RS(n)  (Y_MOT2RAD(n) / 65536. * SITECH_LOOP_FREQUENCY)
-#define X_RS2MOTSPD(r)  ((int32_t)(X_RAD2MOT(r) * 65536. / SITECH_LOOP_FREQUENCY))
-#define Y_RS2MOTSPD(r)  ((int32_t)(Y_RAD2MOT(r) * 65536. / SITECH_LOOP_FREQUENCY))
+#define X_MOTSPD2RS(n)  (X_MOT2RAD(n) / 65536. * (SITECH_LOOP_FREQUENCY))
+#define Y_MOTSPD2RS(n)  (Y_MOT2RAD(n) / 65536. * (SITECH_LOOP_FREQUENCY))
+#define X_RS2MOTSPD(r)  ((int32_t)(X_RAD2MOT(r) * 65536. / (SITECH_LOOP_FREQUENCY)))
+#define Y_RS2MOTSPD(r)  ((int32_t)(Y_RAD2MOT(r) * 65536. / (SITECH_LOOP_FREQUENCY)))
 // motor acceleration -//-
-#define X_MOTACC2RS(n)  (X_MOT2RAD(n) / 65536. * SITECH_LOOP_FREQUENCY * SITECH_LOOP_FREQUENCY)
-#define Y_MOTACC2RS(n)  (Y_MOT2RAD(n) / 65536. * SITECH_LOOP_FREQUENCY * SITECH_LOOP_FREQUENCY)
-#define X_RS2MOTACC(r)  ((int32_t)(X_RAD2MOT(r) * 65536. / SITECH_LOOP_FREQUENCY / SITECH_LOOP_FREQUENCY))
-#define Y_RS2MOTACC(r)  ((int32_t)(Y_RAD2MOT(r) * 65536. / SITECH_LOOP_FREQUENCY / SITECH_LOOP_FREQUENCY))
+#define X_MOTACC2RS(n)  (X_MOT2RAD(n) / 65536. * (SITECH_LOOP_FREQUENCY) * (SITECH_LOOP_FREQUENCY))
+#define Y_MOTACC2RS(n)  (Y_MOT2RAD(n) / 65536. * (SITECH_LOOP_FREQUENCY) * (SITECH_LOOP_FREQUENCY))
+#define X_RS2MOTACC(r)  ((int32_t)(X_RAD2MOT(r) * 65536. / (SITECH_LOOP_FREQUENCY) / (SITECH_LOOP_FREQUENCY)))
+#define Y_RS2MOTACC(r)  ((int32_t)(Y_RAD2MOT(r) * 65536. / (SITECH_LOOP_FREQUENCY) / (SITECH_LOOP_FREQUENCY)))
 
 // adder time to seconds vice versa
-#define ADDER2S(a)  ((a) / SITECH_LOOP_FREQUENCY)
-#define S2ADDER(s)  ((s) * SITECH_LOOP_FREQUENCY)
+#define ADDER2S(a)  ((a) / (SITECH_LOOP_FREQUENCY))
+#define S2ADDER(s)  ((s) * (SITECH_LOOP_FREQUENCY))
 
 // encoder's tolerance (ticks)
 #define YencTOL    (25.)

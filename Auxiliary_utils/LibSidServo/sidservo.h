@@ -48,6 +48,7 @@ typedef enum{
     MCC_E_ENCODERDEV,   // encoder device error or can't open
     MCC_E_MOUNTDEV,     // mount device error or can't open
     MCC_E_FAILED,       // failed to run command - protocol error
+    MCC_E_AMOUNT        // Just amount of errors
 } mcc_errcodes_t;
 
 typedef struct{
@@ -74,9 +75,11 @@ typedef struct{
     PIDpar_t XPIDV;
     PIDpar_t YPIDC;
     PIDpar_t YPIDV;
-    double MaxPointingErr;          // if angle < this, change state from "slewing" to "pointing" (coarse pointing): 8 degrees
-    double MaxFinePointingErr;      // if angle < this, chane state from "pointing" to "guiding" (fine poinging): 1.5 deg
-    double MaxGuidingErr;           // if error less than this value we suppose that target is captured and guiding is good (true guiding): 0.1''
+    double  MaxPointingErr;         // if angle < this, change state from "slewing" to "pointing" (coarse pointing): 8 degrees
+    double  MaxFinePointingErr;     // if angle < this, chane state from "pointing" to "guiding" (fine poinging): 1.5 deg
+    double  MaxGuidingErr;          // if error less than this value we suppose that target is captured and guiding is good (true guiding): 0.1''
+    int     XEncZero;               // encoders' zero position
+    int     YEncZero;
 } conf_t;
 
 // coordinates/speeds in degrees or d/s: X, Y
@@ -188,6 +191,9 @@ typedef struct{
     double outplimit;   // Output Limit, percent (0..100)
     double currlimit;   // Current Limit (A)
     double intlimit;    // Integral Limit (???)
+    // these params are taken from mount by text commands (don't save negative values - better save these marks in xybits
+    double motor_stepsperrev;// encoder's steps per revolution: motor and axis
+    double axis_stepsperrev; // negative sign of these values means reverse direction
 } __attribute__((packed)) axis_config_t;
 
 // hardware configuration

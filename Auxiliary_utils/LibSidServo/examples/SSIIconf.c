@@ -34,7 +34,9 @@ typedef struct{
 
 static hardware_configuration_t HW = {0};
 
-static parameters G = {0};
+static parameters G = {
+    .conffile = "servo.conf",
+};
 
 static sl_option_t cmdlnopts[] = {
     {"help",        NO_ARGS,    NULL,   'h',    arg_int,    APTR(&G.help),      "show this help"},
@@ -53,7 +55,7 @@ static sl_option_t confopts[] = {
 
 static void dumpaxis(char axis, axis_config_t *c){
 #define STRUCTPAR(p)    (c)->p
-#define DUMP(par) do{printf("%c%s=%g\n", axis, #par, STRUCTPAR(par));}while(0)
+#define DUMP(par) do{printf("%c%s=%.10g\n", axis, #par, STRUCTPAR(par));}while(0)
 #define DUMPD(par) do{printf("%c%s=%g\n", axis, #par, RAD2DEG(STRUCTPAR(par)));}while(0)
     DUMPD(accel);
     DUMPD(backlash);
@@ -64,6 +66,8 @@ static void dumpaxis(char axis, axis_config_t *c){
     DUMP(outplimit);
     DUMP(currlimit);
     DUMP(intlimit);
+    DUMP(motor_stepsperrev);
+    DUMP(axis_stepsperrev);
 #undef DUMP
 #undef DUMPD
 }

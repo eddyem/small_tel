@@ -25,3 +25,4 @@
 void confHelp();
 conf_t *readServoConf(const char *filename);
 void dumpConf();
+const char *EcodeStr(mcc_errcodes_t e);
