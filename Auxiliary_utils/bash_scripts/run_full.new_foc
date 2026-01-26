@@ -1,0 +1,165 @@
+#!/bin/bash
+RA="17:17:08.86"
+DEC="+67:57:11.4"
+OBJ="GALEX171708.5"
+EXPTIME=31000
+FLATTIME=40000
+OBS="Fatkhullin T.A."
+BADWEATHER=1300
+DATEEND=$(sunrise 14)
+# focus each N seconds
+FOCUST=7200
+
+FNO=1
+FDATE=0
+
+#
+# NOTE: THIS IS A NEW VERSION OF THE OBSERVATION SCRIPT!
+# CHAGLELOG: 
+#   Oct 2024: replace focussing algorithm (T. Fatkhullin)
+#             At the night start the first focussing run
+#             uses of two-step algorithm:
+#               1) rough focus astimation along full season-to-season
+#                  focus range (as it was implemented in the old obs. script)
+#               2) precise focussing along narrow range computed from
+#                  previous rough estimation
+#             Next focussing runs compute range from the current focus value.
+#             (new function 'focustel_new')
+#
+#  May 2025: rewrite detection of running this script process (T. Fatkhullin)
+#            (use of '-c' commandline option for 'pgrep' command)
+
+function focustel_new(){
+    rm focus*.fit 2>/dev/null
+    echo "Focussing..."
+
+    let fno=$1
+    if [[ $fno -gt 1 ]]; then
+        let curr_foc=`fli_control | tail -n 5 | head -n 1 | cut -d "=" -f 2`
+        let lowf=$curr_foc-1500
+        let highf=$curr_foc+1500
+        focus_seq_FLI.py -v -c focus$(printf "%02d" $1).jpg $lowf $highf 500
+        
+        if [[ $? -ne 0 ]]; then
+            echo -e "\nFOCUSSING SCRIPT RETURNED: $?"
+            echo -e "SOMETHING WAS WRONG IN FOCUSSING SEQUENCE!!! SET FOCUS TO PREVIOUS VALUE!!\n"
+            fli_control -g $curr_foc
+        fi
+    else
+        focus_seq_FLI.py --guess -v -N 7 -c focus$(printf "%02d" $1).jpg 47000 60000 500
+    fi 
+
+    FDATE=$(date +%s)
+}
+
+function sendcmd(){
+    echo $1 | nc 192.168.70.33 10001 -q10
+}
+
+function point_tel(){
+	touch lastpointing
+	send_coords -r $1 -d $2
+}
+
+#c=$(pgrep run_full | wc -l)
+# $ will run another run_full, so c=2 for single run
+#if [[ $c -gt 1 ]]; then
+#    echo "Another process is running; exiting"
+#    exit 1
+#fi
+
+if [[ $(pgrep -c run_full) -gt 1 ]]; then
+    echo "Another process is running! Exit!"
+    exit 1
+fi
+
+export http_proxy=""
+
+# set lower limit to 5degr
+send_command2mount ":So5#"
+
+echo "Time diff: $(($DATEEND-$(date +%s)))"
+if [ $(($DATEEND-$(date +%s))) -lt 3600 ]; then
+	echo "There's less an hour for observation!"
+	exit 2
+fi
+
+if [ $(($DATEEND-$(date +%s))) -gt 53200 ]; then
+	echo "There's more than 12 hours till closing, check script data!"
+	exit 3
+fi
+
+#STARTobs
+
+#send_coords
+#echo "Wait a little"
+#sleep 10
+
+echo "GoTo object: ${RA} ${DEC}"
+send_coords -r${RA} -d${DEC}
+
+echo "Start taking object"
+
+badweather=0
+while true; do
+	now=$(date +%s)
+	ANS=$(curl localhost:55555/status 2>/dev/null)
+	echo "Dome status: $ANS"
+	if [ $ANS != "opened" ]; then
+		echo "Closed"
+		curl localhost:55555/weather 2>/dev/null > DomeClosed
+		break;
+	fi
+	chkweather ${BADWEATHER} > lastweather && badweather=0 || badweather=$((badweather+1))
+	[ $badweather -gt 5 ] && break
+	[ -f stopobs ] && break
+	[ -f exitjob ] && exit 0
+	if [ "$now" -lt "$DATEEND" ]; then
+		est=$(sendcmd ":Gmte#"|sed -e 's/^0*//' -e 's/#//')
+		echo -e "\n\n\n\n\nEstimated time to flip: $est minutes"
+		if [[ ("x$est" == "x") || ($est -lt 3) ]]; then
+			point_tel "${RA}" "${DEC}"
+			continue
+		fi
+		ST=$(send_coords | awk '{print $4}')
+		[ "x$ST" == "x" ] && break
+		if [ $ST -ne "0" ]; then
+			point_tel "${RA}" "${DEC}"
+			continue
+		else
+			[ $(($(date +%s) - $FDATE)) -gt $FOCUST ] && focustel_new $((FNO++))
+#			[ $(($(date +%s) - $FDATE)) -gt $FOCUST ] && focustel $((FNO++))
+			preflash
+			fli_control -r /tmp/10micron.fitsheader -x $EXPTIME -N "${OBS}" -O "${OBJ}" "$OBJ"
+		fi
+	else
+		break
+	fi
+done
+
+echo "Dome closed @ $(date)" >> closed
+curl localhost:55555/close
+
+relay_manage -s1
+park_telescope
+
+for x in $(seq 1 10); do
+	preflash
+	fli_control -r /tmp/10micron.fitsheader -x1 -N "${OBS}" -O "bias" -d bias
+	preflash
+	fli_control -r /tmp/10micron.fitsheader -x $EXPTIME -N "${OBS}" -O "dark" -d dark
+	preflash
+	fli_control -r /tmp/10micron.fitsheader -n3 -x $FLATTIME -N "${OBS}" -O "flat" flat
+done
+
+relay_manage -r1
+echo "Closed @ $(date)" >> closed
+
+STOPobs || true
+
+DIR=$(basename $PWD)
+echo "TAR: $DIR"
+cd ..
+./copy_and_xz.sh $DIR
+echo "Archived, end"
+echo "$DIR archived @ $(date)"  >> archived
