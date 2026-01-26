@@ -321,7 +321,7 @@ static void printheader(){
 }
 
 int main(int argc, char **argv) {
-    initial_setup();
+    sl_init();
     G = parse_args(argc, argv);
     if(G->pressure < 0.) ERRX("Pressure should be greater than zero");
     if(G->temperature < -100. || G->temperature > 100.) ERRX("Temperature over the range -100..+100");

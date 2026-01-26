@@ -40,7 +40,7 @@ glob_pars const Gdefault = {
  * Define command line options by filling structure:
  *  name    has_arg flag    val     type        argptr          help
 */
-static myoption cmdlnopts[] = {
+static sl_option_t cmdlnopts[] = {
     // set 1 to param despite of its repeating number:
     {"help",    NO_ARGS,    NULL,   'h',    arg_int,    APTR(&help),        _("show this help")},
     {"speed",   NEED_ARG,   NULL,   's',    arg_int,    APTR(&G.speed),     _("baudrate (default: 9600)")},
@@ -59,10 +59,10 @@ static myoption cmdlnopts[] = {
 glob_pars *parse_args(int argc, char **argv){
     void *ptr = memcpy(&G, &Gdefault, sizeof(G)); assert(ptr);
     // format of help: "Usage: progname [args]\n"
-    change_helpstring(_("Usage: %s [args]\n\n\tWhere args are:\n"));
+    sl_helpstring(_("Usage: %s [args]\n\n\tWhere args are:\n"));
     // parse arguments
-    parseargs(&argc, &argv, cmdlnopts);
-    if(help) showhelp(-1, cmdlnopts);
+    sl_parseargs(&argc, &argv, cmdlnopts);
+    if(help) sl_showhelp(-1, cmdlnopts);
     if(argc > 0){
         WARNX("Wrong arguments:\n");
         for(int i = 0; i < argc; i++)

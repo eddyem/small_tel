@@ -41,7 +41,7 @@ static glob_pars G = {
  * Define command line options by filling structure:
  *  name        has_arg     flag    val     type        argptr              help
 */
-static myoption cmdlnopts[] = {
+static sl_option_t cmdlnopts[] = {
 // common options
     {"help",    NO_ARGS,    NULL,   'h',    arg_int,    APTR(&help),        "show this help"},
     {"delimeter",NEED_ARG,  NULL,   'd',    arg_string, APTR(&G.delimeter), "coordinates delimeter string (default: ':')"},
@@ -71,10 +71,10 @@ glob_pars *parse_args(int argc, char **argv){
     char helpstring[1024], *hptr = helpstring;
     snprintf(hptr, hlen, "Usage: %%s [args]\n\n\tWhere args are:\n");
     // format of help: "Usage: progname [args]\n"
-    change_helpstring(helpstring);
+    sl_helpstring(helpstring);
     // parse arguments
-    parseargs(&argc, &argv, cmdlnopts);
-    if(help) showhelp(-1, cmdlnopts);
+    sl_parseargs(&argc, &argv, cmdlnopts);
+    if(help) sl_showhelp(-1, cmdlnopts);
     if(argc > 0){
         G.rest_pars_num = argc;
         G.rest_pars = MALLOC(char *, argc);

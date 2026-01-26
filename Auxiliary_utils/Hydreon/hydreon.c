@@ -20,7 +20,7 @@
 
 #include "hydreon.h"
 
-static TTY_descr *dev = NULL;
+static sl_tty_t *dev = NULL;
 
 // regular registers names
 static const char* rregnames[RREGNUM] = {
@@ -121,7 +121,7 @@ int hydreon_getpacket(rg11 *Rregs, slowregs *Sregs){
     if(!dev) return 0;
     static int buflen = 0;
     static char strbuf[BUFLEN];
-    int l = read_tty(dev);
+    int l = sl_tty_read(dev);
     if(l < 1) return FALSE;
     char s = dev->buf[0];
     if(s == 's'){ // start of new packet -> encode old
@@ -146,13 +146,13 @@ int hydreon_getpacket(rg11 *Rregs, slowregs *Sregs){
  * @return TRUE or FALSE if failed
  */
 int hydreon_open(const char *devname){
-    dev = new_tty((char*)devname, 1200, 1);
+    dev = sl_tty_new((char*)devname, 1200, 1);
     if(!dev) return FALSE;
-    dev = tty_open(dev, 1);
+    dev = sl_tty_open(dev, 1);
     if(!dev) return FALSE;
     return TRUE;
 }
 
 void hydreon_close(){
-    if(dev) close_tty(&dev);
+    if(dev) sl_tty_close(&dev);
 }

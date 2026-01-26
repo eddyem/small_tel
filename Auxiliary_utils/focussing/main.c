@@ -32,7 +32,7 @@ typedef struct{
 
 static glob_pars G = {.tolerance = 10.};
 
-static myoption cmdlnopts[] = {
+static sl_option_t cmdlnopts[] = {
     // common options
     {"help",    NO_ARGS,    NULL,   'h',    arg_none,   APTR(&G.help),      _("show this help")},
     {"infile",  NEED_ARG,   NULL,   'i',    arg_string, APTR(&G.input),     _("input file name")},
@@ -158,11 +158,11 @@ static double calcfocus(double coeffs[3]){
 
 int main(int argc, char **argv){
     char helpstring[256];
-    initial_setup();
+    sl_init();
     snprintf(helpstring, 255, "Usage: `cat file | %%s` or with args; file format \"x y\\n..\"\n\tArgs:\n");
-    change_helpstring(helpstring);
-    parseargs(&argc, &argv, cmdlnopts);
-    if(G.help) showhelp(-1, cmdlnopts);
+    sl_helpstring(helpstring);
+    sl_parseargs(&argc, &argv, cmdlnopts);
+    if(G.help) sl_showhelp(-1, cmdlnopts);
     if(G.tolerance <= 0.) ERRX("Tolerance should be > 0");
     FILE *f = stdin;
     if(G.input){

@@ -36,7 +36,7 @@ static const char *radtodeg(double r){
 
 
 int main(){
-    initial_setup();
+    sl_init();
     at_MJD_t mjd;
     if(!at_get_MJDu(time(NULL), &mjd)) ERRX("at_get_MJDu");
     printf("MJD=%g; TAI=%g/%g, TT=%g/%g, UTC=%g/%g\n", mjd.MJD, mjd.tai1, mjd.tai2, mjd.tt1, mjd.tt2, mjd.utc1, mjd.utc2);

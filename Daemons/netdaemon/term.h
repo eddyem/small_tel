@@ -31,7 +31,7 @@
 // Terminal polling timeout - 1 second
 #define     T_POLLING_TMOUT     (1.0)
 
-extern TTY_descr *ttydescr;
+extern sl_tty_t *ttydescr;
 void run_terminal();
 int try_connect(char *device, int baudrate);
 char *poll_device();

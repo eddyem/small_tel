@@ -51,28 +51,28 @@ static int getpar(char *string, double *Val, char *Name){
 
 int main(int argc, char **argv){
     glob_pars *G = NULL; // default parameters see in cmdlnopts.c
-    initial_setup();
+    sl_init();
     G = parse_args(argc, argv);
-    TTY_descr *dev = new_tty(G->ttyname, G->speed, 64);
+    sl_tty_t *dev = sl_tty_new(G->ttyname, G->speed, 64);
     if(!dev) return 1;
     size_t got, L = 0;
     char buff[BUFLEN], *ptr = buff;
     int errctr = 0;
     for(; errctr < ERRCTR_MAX; ++errctr){
-        if(!tty_open(dev, 1)){
+        if(!sl_tty_open(dev, 1)){
             sleep(1);
             continue;
         }
-        while(read_tty(dev)); // clear buffer
-        if(write_tty(dev->comfd, "?U\r\n", 3)){
+        while(sl_tty_read(dev)); // clear buffer
+        if(sl_tty_write(dev->comfd, "?U\r\n", 3)){
             WARNX("write_tty()");
             continue;
         }
-        double t0 = dtime();
-        while(dtime() - t0 < 10.){ // timeout - 10s
-            got = read_tty(dev);
+        double t0 = sl_dtime();
+        while(sl_dtime() - t0 < 10.){ // timeout - 10s
+            got = sl_tty_read(dev);
             if(got == 0) continue;
-            t0 = dtime();
+            t0 = sl_dtime();
             if(L + got > BUFLEN - 1) break;
             L += got;
             buff[L] = 0;
@@ -92,8 +92,8 @@ int main(int argc, char **argv){
             continue;
         }else break;
     }
-    while(read_tty(dev));
-    close_tty(&dev);
+    while(sl_tty_read(dev));
+    sl_tty_close(&dev);
     if(errctr == ERRCTR_MAX){
         ERRX("No connection to meteostation");
     }

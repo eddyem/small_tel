@@ -180,9 +180,10 @@ static void toomuch(int fd){
     LOGWARN("Client fd=%d tried to connect after MAX reached", fd);
 }
 // new connections handler
-static void connected(sl_sock_t *c){
+static int connected(sl_sock_t *c){
     if(c->type == SOCKT_UNIX) LOGMSG("New client fd=%d connected", c->fd);
     else LOGMSG("New client fd=%d, IP=%s connected", c->fd, c->IP);
+    return TRUE;
 }
 // disconnected handler
 static void disconnected(sl_sock_t *c){
@@ -196,12 +197,12 @@ void server_run(sl_socktype_e type, const char *node, sl_tty_t *serial){
         ERRX("server_run(): wrong parameters");
     }
     dome_serialdev(serial);
-    sl_sock_changemaxclients(5);
-    sl_sock_maxclhandler(toomuch);
-    sl_sock_connhandler(connected);
-    sl_sock_dischandler(disconnected);
     s = sl_sock_run_server(type, node, -1, handlers);
     if(!s) ERRX("Can't create socket and/or run threads");
+    sl_sock_changemaxclients(s, 5);
+    sl_sock_maxclhandler(s, toomuch);
+    sl_sock_connhandler(s, connected);
+    sl_sock_dischandler(s, disconnected);
     while(s && s->connected){
         if(!s->rthread){
             LOGERR("Server handlers thread is dead");

@@ -100,7 +100,7 @@ static void savepoints(FILE *f, point *pts, int N, char *delim, int mask){
 }
 
 int main(int argc, char **argv){
-    initial_setup();
+    sl_init();
     glob_pars *G = parse_args(argc, argv);
     FILE *f = NULL;
     if(G->outfile){

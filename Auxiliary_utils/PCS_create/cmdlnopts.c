@@ -40,7 +40,7 @@ glob_pars const Gdefault = {
  * Define command line options by filling structure:
  *  name    has_arg flag    val     type        argptr          help
 */
-static myoption cmdlnopts[] = {
+static sl_option_t cmdlnopts[] = {
     // set 1 to param despite of its repeating number:
     {"help",    NO_ARGS,    NULL,   'h',    arg_int,    APTR(&help),        _("show this help")},
     {"10m",     NO_ARGS,    NULL,   't',    arg_int,    APTR(&G.for10m),    _("make output suitable for 10-micron mount")},
@@ -68,10 +68,10 @@ static myoption cmdlnopts[] = {
 glob_pars *parse_args(int argc, char **argv){
     void *ptr = memcpy(&G, &Gdefault, sizeof(G)); assert(ptr);
     // format of help: "Usage: progname [args]\n"
-    change_helpstring(_("Version: " PACKAGE_VERSION "\nUsage: %s [args] FITS_files\nMake PCS list for equatorial mount\n\tWhere args are:\n"));
+    sl_helpstring(_("Version: " PACKAGE_VERSION "\nUsage: %s [args] FITS_files\nMake PCS list for equatorial mount\n\tWhere args are:\n"));
     // parse arguments
-    parseargs(&argc, &argv, cmdlnopts);
-    if(help) showhelp(-1, cmdlnopts);
+    sl_parseargs(&argc, &argv, cmdlnopts);
+    if(help) sl_showhelp(-1, cmdlnopts);
     G.nfiles = argc;
     G.infiles = MALLOC(char*, argc);
     for(int i = 0; i < argc; i++){

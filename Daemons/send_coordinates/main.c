@@ -36,7 +36,7 @@ void signals(int sig){
         signal(sig, SIG_IGN);
         DBG("Get signal %d, quit.\n", sig);
     }
-    restore_console();
+    sl_restore_con();
     exit(sig);
 }
 
@@ -45,7 +45,7 @@ void iffound_default(pid_t pid){
 }
 
 int main(int argc, char *argv[]){
-    initial_setup();
+    sl_init();
     char *self = strdup(argv[0]);
     GP = parse_args(argc, argv);
     DBG("here");
@@ -66,7 +66,7 @@ int main(int argc, char *argv[]){
     signal(SIGQUIT, signals); // ctrl+\ - quit
     signal(SIGTSTP, SIG_IGN); // ignore ctrl+Z
     DBG("here");
-    setup_con();
+    sl_setup_con();
     /*
     if(GP->rest_pars_num){
         for(int i = 0; i < GP->rest_pars_num; ++i)

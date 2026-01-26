@@ -54,7 +54,7 @@ glob_pars const Gdefault = {
  * Define command line options by filling structure:
  *  name        has_arg     flag    val     type        argptr              help
 */
-myoption cmdlnopts[] = {
+sl_option_t cmdlnopts[] = {
 // common options
     {"help",    NO_ARGS,    NULL,   'h',    arg_int,    APTR(&help),        _("show this help")},
     {"device",  NEED_ARG,   NULL,   'i',    arg_string, APTR(&G.device),    _("serial device name (default: none)")},
@@ -79,10 +79,10 @@ glob_pars *parse_args(int argc, char **argv){
     void *ptr;
     ptr = memcpy(&G, &Gdefault, sizeof(G)); assert(ptr);
     // format of help: "Usage: progname [args]\n"
-    change_helpstring("Usage: %s [args]\n\n\tWhere args are:\n");
+    sl_helpstring("Usage: %s [args]\n\n\tWhere args are:\n");
     // parse arguments
-    parseargs(&argc, &argv, cmdlnopts);
-    if(help) showhelp(-1, cmdlnopts);
+    sl_parseargs(&argc, &argv, cmdlnopts);
+    if(help) sl_showhelp(-1, cmdlnopts);
     if(argc > 0){
         G.rest_pars_num = argc;
         G.rest_pars = calloc(argc, sizeof(char*));

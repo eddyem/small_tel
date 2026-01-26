@@ -56,7 +56,7 @@ void signals(int signo){
     exit(signo);
 }
 
-static myoption cmdlnopts[] = {
+static sl_option_t cmdlnopts[] = {
     {"help",    NO_ARGS,    NULL,   'h',    arg_int,    APTR(&G.help),      "show this help"},
     {"address", NEED_ARG,   NULL,   'a',    arg_string, APTR(&G.server),    "server name or IP"},
     {"port",    NEED_ARG,   NULL,   'p',    arg_string, APTR(&G.port),      "server port"},
@@ -68,19 +68,19 @@ static myoption cmdlnopts[] = {
 
 int main(int argc, char **argv){
     char *self = strdup(argv[0]);
-    initial_setup();
-    parseargs(&argc, &argv, cmdlnopts);
-    if(G.help) showhelp(-1, cmdlnopts);
+    sl_init();
+    sl_parseargs(&argc, &argv, cmdlnopts);
+    if(G.help) sl_showhelp(-1, cmdlnopts);
     if(argc > 0) WARNX("Got %d unused keys", argc);
     if(!G.dbname) ERRX("Point database file name");
     if(!G.server) ERRX("Point server IP or name");
     if(!G.port) ERRX("Point server port");
-    sl_loglevel lvl = LOGLEVEL_ERR + G.v;
+    sl_loglevel_e lvl = LOGLEVEL_ERR + G.v;
     if(lvl > LOGLEVEL_ANY) lvl = LOGLEVEL_ANY;
     if(G.logfile) OPENLOG(G.logfile, lvl, 1);
     LOGMSG("hello, start");
     LOGDBG("SQLite version: %s", sqlite3_libversion());
-    check4running(self, G.pidfile);
+    sl_check4running(self, G.pidfile);
     // signal reactions:
     signal(SIGTERM, signals); // kill (-15) - quit
     signal(SIGHUP, SIG_IGN);  // hup - ignore
@@ -93,11 +93,11 @@ int main(int argc, char **argv){
     while(1){
         childpid = fork();
         if(childpid){ // master
-            double t0 = dtime();
+            double t0 = sl_dtime();
             LOGMSG("Created child with pid %d", childpid);
             wait(NULL);
             LOGWARN("Child %d died", childpid);
-            if(dtime() - t0 < 1.) pause += 5;
+            if(sl_dtime() - t0 < 1.) pause += 5;
             else pause = 1;
             if(pause > 900) pause = 900;
             sleep(pause); // wait a little before respawn

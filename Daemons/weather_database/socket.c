@@ -78,7 +78,7 @@ static void sendmessage(int fd, const char *msg, int l){
         LOGWARN("write()");
         WARN("write()");
     }else{
-        if(globlog){ // logging turned ON
+        if(sl_globlog){ // logging turned ON
             tmpbuf[l-1] = 0; // remove trailing '\n' for logging
             LOGMSG("SEND to fd %d: %s", fd, tmpbuf);
         }
@@ -125,10 +125,10 @@ static int canberead(int fd){
 // collect data and write into database
 // @return FALSE if can't get full data string
 static int getdata(int fd){
-    double t0 = dtime();
+    double t0 = sl_dtime();
     char buf[BUFSIZ];
     int len = 0, leave = BUFSIZ, got = 0;
-    while(dtime() - t0 < ANS_TIMEOUT){
+    while(sl_dtime() - t0 < ANS_TIMEOUT){
         int r = canberead(fd);
         if(r == 0) continue;
         r = read(fd, buf + len, leave);
@@ -169,7 +169,7 @@ static int getdata(int fd){
 void run_socket(int fd){
     double t0 = 0.;
     while(1){
-        double tlast = dtime();
+        double tlast = sl_dtime();
         if(tlast - t0 >= POLLING_INTERVAL){
             sendstrmessage(fd, SERVER_COMMAND);
             if(getdata(fd)) t0 = tlast;

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.0)
+cmake_minimum_required(VERSION 3.30)
 set(PROJ PCS_create)
 set(MINOR_VERSION "0")
 set(MID_VERSION "1")

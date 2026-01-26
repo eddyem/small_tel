@@ -56,7 +56,7 @@ static parameters G = {
     .py = -10000.
 };
 
-static myoption cmdlnopts[] = {
+static sl_option_t cmdlnopts[] = {
     {"help",        NO_ARGS,    NULL,   'h',    arg_int,    APTR(&G.help),      "show this help"},
     {"obsplace",    NO_ARGS,    NULL,   'O',    arg_int,    APTR(&G.obsplace),  "input RA/Dec is observed place"},
     {"JD",          NEED_ARG,   NULL,   'J',    arg_double, APTR(&G.JD),        "Julian date"},
@@ -77,9 +77,9 @@ static myoption cmdlnopts[] = {
 
 
 int main(int argc, char **argv){
-    initial_setup();
-    parseargs(&argc, &argv, cmdlnopts);
-    if(G.help) showhelp(-1, cmdlnopts);
+    sl_init();
+    sl_parseargs(&argc, &argv, cmdlnopts);
+    if(G.help) sl_showhelp(-1, cmdlnopts);
     at_MJD_t MJD;
     G.ra *= ERFA_DD2R;
     G.dec *= ERFA_DD2R;

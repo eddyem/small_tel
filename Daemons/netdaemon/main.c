@@ -30,14 +30,14 @@
 glob_pars *GP;
 
 void signals(int signo){
-    restore_console();
-    if(ttydescr) close_tty(&ttydescr);
+    sl_restore_con();
+    if(ttydescr) sl_tty_close(&ttydescr);
     LOGERR("exit with status %d", signo);
     exit(signo);
 }
 
 int main(int argc, char **argv){
-    initial_setup();
+    sl_init();
     signal(SIGTERM, signals); // kill (-15) - quit
     signal(SIGHUP, SIG_IGN);  // hup - ignore
     signal(SIGINT, signals);  // ctrl+C - quit
@@ -52,7 +52,7 @@ int main(int argc, char **argv){
         signals(0); // never reached!
     }
     if(GP->logfile){
-        sl_loglevel lvl = LOGLEVEL_ERR;
+        sl_loglevel_e lvl = LOGLEVEL_ERR;
         for(; GP->verb && lvl < LOGLEVEL_ANY; --GP->verb) ++lvl;
         DBG("Loglevel: %d", lvl);
         if(!OPENLOG(GP->logfile, lvl, 1)) ERRX("Can't open log file");

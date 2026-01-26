@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.0)
+cmake_minimum_required(VERSION 3.30)
 set(PROJ chkweather)
 set(MINOR_VERSION "1")
 set(MID_VERSION "0")

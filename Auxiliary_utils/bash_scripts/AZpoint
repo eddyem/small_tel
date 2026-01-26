@@ -4,7 +4,7 @@ A="90:00:00"
 H="45:00:00"
 
 function sendcmd(){
-	echo $1 | nc 192.168.70.33 10001 -q10
+	echo $1 | nc localhost 10001 -q10
 }
 
 sendcmd ":Sz${A}#"

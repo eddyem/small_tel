@@ -57,7 +57,7 @@ static void dumpRchanges(rg11 *new, rg11 *old){
     int start = 1;
     for(int i = 0; i < RREGNUM; ++i){
         if(o[i] != n[i]){
-            sl_putlogt(start, globlog, LOGLEVEL_MSG, "%s=%d", regname(i), n[i]);
+            sl_putlogt(start, sl_globlog, LOGLEVEL_MSG, "%s=%d", regname(i), n[i]);
             DBG("%s=%d", regname(i), n[i]);
             if(start) start = 0;
         }
@@ -68,7 +68,7 @@ static void dumpRchanges(rg11 *new, rg11 *old){
         uint8_t f = 1;
         for(int i = 0; i < RGBITNUM; ++i, f <<= 1){
             if(xOr & f){
-                sl_putlogt(start, globlog, LOGLEVEL_MSG, "%s=%d", rgbitname(i), (new->RGBits & f) ? 1 : 0);
+                sl_putlogt(start, sl_globlog, LOGLEVEL_MSG, "%s=%d", rgbitname(i), (new->RGBits & f) ? 1 : 0);
                 DBG("%s=%d", rgbitname(i), (new->RGBits & f) ? 1 : 0);
                 if(start) start = 0;
             }
@@ -82,7 +82,7 @@ static void dumpSchanges(slowregs *new, slowregs *old){
     int start = 1;
     for(int i = 0; i < SREGNUM; ++i){
         if(o[i] != n[i]){
-            sl_putlogt(start, globlog, LOGLEVEL_MSG, "%s=%d", slowname(i), n[i]);
+            sl_putlogt(start, sl_globlog, LOGLEVEL_MSG, "%s=%d", slowname(i), n[i]);
             DBG("%s=%d", slowname(i), n[i]);
             if(start) start = 0;
         }
@@ -147,12 +147,12 @@ static void puttotable(rg11 *R, slowregs *S){
 }
 
 int main(int argc, char **argv){
-    initial_setup();
+    sl_init();
     char *self = strdup(argv[0]);
     G = parse_args(argc, argv);
     if(G->timeout < 5) ERRX("Timeout should be not less than 5 seconds");
     if(!G->logfile && !G->outfile) ERRX("Point at least log or output file name");
-    check4running(self, G->pidfile);
+    sl_check4running(self, G->pidfile);
     if(!hydreon_open(G->device)) return 1;
     if(G->logfile) OPENLOG(G->logfile, LOGLEVEL_ANY, 0);
     if(G->outfile){
@@ -166,9 +166,9 @@ int main(int argc, char **argv){
     signal(SIGINT, signals);  // ctrl+C - quit
     signal(SIGQUIT, signals); // ctrl+\ - quit
     signal(SIGTSTP, SIG_IGN); // ignore ctrl+Z
-    double t0 = dtime();
+    double t0 = sl_dtime();
     puttotable(NULL, NULL);
-    while(dtime() - t0 < (double)G->timeout){ // dump only changes
+    while(sl_dtime() - t0 < (double)G->timeout){ // dump only changes
         if(!hydreon_getpacket(&Rregs, &Sregs)) continue;
         int changes = FALSE;
         if(memcmp(&Rregs, &oRregs, RREGNUM + 1)){ // Rregs changed -> log changes
@@ -182,7 +182,7 @@ int main(int argc, char **argv){
             changes = TRUE;
         }
         if(changes) puttotable(&Rregs, &Sregs);
-        t0 = dtime();
+        t0 = sl_dtime();
     }
     signals(-1); // never reached
     return 0;

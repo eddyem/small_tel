@@ -23,3 +23,6 @@
 *.so
 *.so.*
 
+# build dirs
+mk/
+build/

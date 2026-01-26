@@ -28,7 +28,7 @@
 
 #define BUFLEN 1024
 
-TTY_descr *ttydescr = NULL;
+sl_tty_t *ttydescr = NULL;
 
 static char buf[BUFLEN];
 
@@ -50,14 +50,14 @@ static char *read_string(){
         return ptr;
     }
     ptr = buf;
-    double d0 = dtime();
+    double d0 = sl_dtime();
     do{
-        if((l = read_tty(ttydescr))){
+        if((l = sl_tty_read(ttydescr))){
             r += l; LL -= l; ptr += l;
             if(ptr[-1] == '\n') break;
-            d0 = dtime();
+            d0 = sl_dtime();
         }
-    }while(dtime() - d0 < WAIT_TMOUT && LL);
+    }while(sl_dtime() - d0 < WAIT_TMOUT && LL);
     if(r){
         buf[r] = 0;
         //DBG("r=%zd, got string: %s", r, buf);
@@ -75,10 +75,10 @@ static char *read_string(){
 int try_connect(char *device, int baudrate){
     if(!device) return 0;
     fflush(stdout);
-    ttydescr = new_tty(device, baudrate, 1024);
-    if(ttydescr) ttydescr = tty_open(ttydescr, 1); // exclusive open
+    ttydescr = sl_tty_new(device, baudrate, 1024);
+    if(ttydescr) ttydescr = sl_tty_open(ttydescr, 1); // exclusive open
     if(!ttydescr) return 0;
-    while(read_tty(ttydescr)); // clear rbuf
+    while(sl_tty_read(ttydescr)); // clear rbuf
     LOGMSG("Connected to %s", device);
     return 1;
 }
@@ -91,14 +91,14 @@ void run_terminal(){
     green(_("Work in terminal mode without echo\n"));
     int rb;
     size_t l;
-    setup_con();
+    sl_setup_con();
     while(1){
-        if((l = read_tty(ttydescr))){
+        if((l = sl_tty_read(ttydescr))){
             printf("%s", ttydescr->buf);
         }
-        if((rb = read_console())){
+        if((rb = sl_read_con())){
             char c = (char) rb;
-            write_tty(ttydescr->comfd, &c, 1);
+            sl_tty_write(ttydescr->comfd, &c, 1);
         }
     }
 }
@@ -109,8 +109,8 @@ void run_terminal(){
  */
 char *poll_device(){
     char *ans;
-    double t0 = dtime();
-    while(dtime() - t0 < T_POLLING_TMOUT){
+    double t0 = sl_dtime();
+    while(sl_dtime() - t0 < T_POLLING_TMOUT){
         if((ans = read_string())){ // parse new data
             DBG("got %s", ans);
             /*
