@@ -1,0 +1,9 @@
+cmdlnopts.c
+cmdlnopts.h
+main.c
+plugins/dummy.c
+sensors.c
+sensors.h
+server.c
+server.h
+weathlib.h
