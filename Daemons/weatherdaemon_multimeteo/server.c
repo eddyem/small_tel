@@ -42,13 +42,13 @@ static sl_sock_hresult_e timehandler(sl_sock_t *client, _U_ sl_sock_hitem_t *ite
 // show all connected libraries
 static sl_sock_hresult_e listhandler(sl_sock_t *client, _U_ sl_sock_hitem_t *item, _U_ const char *req){
     if(!client) return RESULT_FAIL;
-    char buf[128];
+    char buf[256];
     int N = get_nplugins();
     if(N < 1) return RESULT_FAIL;
     sensordata_t d;
     for(int i = 0; i < N; ++i){
         if(!get_plugin(&d, i)) continue;
-        snprintf(buf, 127, "PLUGIN[%d]=%s\nNVALUES[%d]=%d\n", i, d.name, i, d.Nvalues);
+        snprintf(buf, 255, "PLUGIN[%d]=%s\nNVALUES[%d]=%d\n", i, d.name, i, d.Nvalues);
         sl_sock_sendstrmessage(client, buf);
     }
     return RESULT_SILENCE;

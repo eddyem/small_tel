@@ -30,6 +30,7 @@ typedef struct{
     char **plugins;         // all plugins connected
     int nplugins;           // amount of plugins
     char *conffile;         // configuration file used instead of long command line
+    int pollt;              // sensors maximal polling interval
 } glob_pars;
 
 

@@ -6,7 +6,7 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(PLUGINS REQUIRED usefull_macros)
 
 include_directories(${PLUGINS_INCLUDE_DIRS} ..)
-link_directories(${PLUGINSLIBRARY_DIRS})
+link_directories(${PLUGINS_LIBRARY_DIRS})
 link_libraries(${$PLUGINS_LIBRARIES} -fPIC)
 
 set(LIBS "")
@@ -14,6 +14,11 @@ set(LIBS "")
 if(DUMMY)
     add_library(wsdummy SHARED dummy.c)
     list(APPEND LIBS wsdummy)
-endif(DUMMY)
+endif()
+
+if(FDEXAMPLE)
+    add_library(fdex SHARED fdexample.c)
+    list(APPEND LIBS fdex)
+endif()
 
 install(TARGETS ${LIBS} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})

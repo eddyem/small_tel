@@ -56,11 +56,12 @@ static glob_pars G;
     {"logfile", NEED_ARG,   NULL,   'l',    arg_string, APTR(&G.logfile),   "save logs to file (default: none)"}, \
     {"pidfile", NEED_ARG,   NULL,   'P',    arg_string, APTR(&G.pidfile),   "pidfile name (default: " DEFAULT_PID ")"}, \
     {"sockpath",NEED_ARG,   NULL,   0,      arg_string, APTR(&G.sockname),  "UNIX socket path (starting from '\\0' for anonimous) of command socket"}, \
-    {"plugin",  MULT_PAR,   NULL,   'p',    arg_string, APTR(&G.plugins),   "add this weather plugin (may be a lot of)"},
+    {"plugin",  MULT_PAR,   NULL,   'p',    arg_string, APTR(&G.plugins),   "add this weather plugin (may be a lot of); FORMAT: \"dlpath:l:dev\", where `dlpath` - path of plugin library; `l` - 'D' for device, 'U' for UNIX-socket or 'N' for INET socket; dev - path to device and speed (like /dev/ttyS0:9600), UNIX socket name or host:port for INET"}, \
+    {"pollt",   NEED_ARG,   NULL,   'T',    arg_int,    APTR(&G.pollt),     "set maximal polling interval (seconds, integer)"},
 
 sl_option_t cmdlnopts[] = {
     {"help",    NO_ARGS,    NULL,   'h',    arg_int,    APTR(&help),        "show this help"},
-    {"conffile",NEED_ARG,   NULL,   'c',    arg_string, APTR(&G.conffile),  "configuration file name (consists all or a part of long-named parameters and their values (e.g. plugin=liboldweather.so)"},
+    {"conffile",NEED_ARG,   NULL,   'c',    arg_string, APTR(&G.conffile),  "configuration file name (consists all or a part of long-named parameters and their values (e.g. plugin=liboldweather.so:D:/dev/ttyS0:115200)"},
     {"verb",    NO_ARGS,    NULL,   'v',    arg_none,   APTR(&G.verb),      "logfile verbocity level (each -v increased)"}, \
     COMMON_OPTS
     end_option

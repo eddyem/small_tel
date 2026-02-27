@@ -28,7 +28,7 @@
 // maximal full length of "KEY=val / comment" (as for sfitsio)
 #define FULL_LEN        (81)
 // name of meteo-plugin
-#define NAME_LEN        (31)
+#define NAME_LEN        (127)
 
 // importance of values
 typedef enum{
@@ -85,7 +85,7 @@ typedef struct sensordata_t{
     char name[NAME_LEN+1];  // max 31 symbol of sensor's name (e.g. "rain sensor")
     int Nvalues;            // amount of values
     int PluginNo;           // plugin number in array (if several)
-    int (*init)(int);       // init meteostation with given PluginNo; return amount of parameters found
+    int (*init)(int, time_t, int); // init meteostation with given PluginNo, poll_interval and fd; return amount of parameters found
     int (*onrefresh)(void (*handler)(const struct sensordata_t* const)); // handler of new data; return TRUE if OK
     int (*get_value)(val_t *, int); // getter of Nth value
     void (*die)();          // close everything and die

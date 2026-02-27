@@ -1,6 +1,6 @@
 /*
  * This file is part of the weatherdaemon project.
- * Copyright 2025 Edward V. Emelianov <edward.emelianoff@gmail.com>.
+ * Copyright 2026 Edward V. Emelianov <edward.emelianoff@gmail.com>.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,15 +18,4 @@
 
 #pragma once
 
-#include "weathlib.h"
-
-// don't allow to set polling time more than 10 minutes
-#define MAX_POLLT   (600)
-
-int openplugins(char **paths, int N);
-void closeplugins();
-int get_plugin(sensordata_t *o, int N);
-int get_nplugins();
-int format_sensval(const val_t *v, char *buf, int buflen, int Np);
-int format_msrmttm(time_t t, char *buf, int buflen);
-int set_pollT(time_t t);
+int getFD(char *path);

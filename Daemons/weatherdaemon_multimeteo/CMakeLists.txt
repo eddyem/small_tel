@@ -14,6 +14,7 @@ message("VER: ${VERSION}")
 # list of options
 option(DEBUG "Compile in debug mode" OFF)
 option(DUMMY "Dummy device plugin" ON)
+option(FDEXAMPLE "Example of file descriptor plugin" ON)
 
 
 # default flags

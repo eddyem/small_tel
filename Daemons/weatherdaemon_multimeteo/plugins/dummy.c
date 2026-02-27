@@ -16,6 +16,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+// dummy meteostation sending data each `dt` seconds
+
 #include <pthread.h>
 #include <signal.h>
 #include <usefull_macros.h>
@@ -25,6 +27,7 @@
 #define NS (6)
 
 extern sensordata_t sensor;
+static double dt = 1.;
 
 static void (*freshdatahandler)(const struct sensordata_t* const) = NULL; // do nothing with fresh data
 static pthread_t thread;
@@ -38,7 +41,7 @@ static val_t values[NS] = { // fields `name` and `comment` have no sense until v
     {.name = "PRECIP", .comment = "precipitations flag (0 - no, 1 - yes)", .sense = VAL_OBLIGATORY, .type = VALT_UINT, .meaning = IS_PRECIP},
 };
 
-void *mainthread(void _U_ *U){
+static void *mainthread(void _U_ *U){
     FNAME();
     double t0 = sl_dtime();
     while(1){
@@ -56,13 +59,13 @@ void *mainthread(void _U_ *U){
         time_t cur = time(NULL);
         for(int i = 0; i < NS; ++i) values[i].time = cur;
         if(freshdatahandler) freshdatahandler(&sensor);
-        while(sl_dtime() - t0 < 1.) usleep(500);
+        while(sl_dtime() - t0 < dt) usleep(500);
         t0 = sl_dtime();
     }
     return NULL;
 }
 
-static int init(int N){
+static int init(int N, time_t pollt, int _U_ fd){
     FNAME();
     values[0].value.f = 1.;
     values[1].value.f = 180.;
@@ -72,6 +75,7 @@ static int init(int N){
     values[5].value.u = 0;
     if(pthread_create(&thread, NULL, mainthread, NULL)) return 0;
     sensor.PluginNo = N;
+    if(pollt) dt = (double) pollt; // refresh each `pollt` seconds
     return NS;
 }
 

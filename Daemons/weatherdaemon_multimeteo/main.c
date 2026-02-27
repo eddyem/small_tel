@@ -41,6 +41,12 @@ void signals(int signo){
     exit(signo);
 }
 
+static void getpipe(int _U_ signo){
+    WARNX("Get sigpipe!");
+    // TODO: check all sensors for disconnected one
+    signal(SIGPIPE, getpipe);
+}
+
 extern const char *__progname;
 
 int main(int argc, char **argv){
@@ -51,6 +57,7 @@ int main(int argc, char **argv){
     signal(SIGINT, signals);  // ctrl+C - quit
     signal(SIGQUIT, signals); // ctrl+\ - quit
     signal(SIGTSTP, SIG_IGN); // ignore ctrl+Z
+    signal(SIGPIPE, getpipe); // socket disconnected
     GP = parse_args(argc, argv);
     if(!GP) ERRX("Error parsing args");
     if(!GP->sockname) ERRX("Point command socket name");
@@ -60,6 +67,9 @@ int main(int argc, char **argv){
         DBG("Loglevel: %d", lvl);
         if(!OPENLOG(GP->logfile, lvl, 1)) ERRX("Can't open log file");
         LOGMSG("Started");
+    }
+    if(GP->pollt > 0){
+        if(!set_pollT((time_t)GP->pollt)) ERRX("Can't set polling time to %d seconds", GP->pollt);
     }
     int nopened = openplugins(GP->plugins, GP->nplugins);
     if(nopened < 1){

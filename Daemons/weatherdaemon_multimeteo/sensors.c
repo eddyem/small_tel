@@ -17,8 +17,10 @@
  */
 
 #include <dlfcn.h>
+#include <string.h>
 #include <usefull_macros.h>
 
+#include "fd.h"
 #include "sensors.h"
 
 #define WARNXL(...) do{ LOGWARN(__VA_ARGS__); WARNX(__VA_ARGS__); } while(0)
@@ -26,11 +28,21 @@
 #define ERRXL(...) do{ LOGERR(__VA_ARGS__); ERRX(__VA_ARGS__); } while(0)
 #define ERRL(...) do{ LOGERR(__VA_ARGS__); ERR(__VA_ARGS__); } while(0)
 
+// poll each `poll_interval` seconds
+static time_t poll_interval = 15;
+
 static int nplugins = 0;
 static sensordata_t **allplugins = NULL;
 
 int get_nplugins(){
     return nplugins;
+}
+
+// set polling interval
+int set_pollT(time_t t){
+    if(t == 0 || t > MAX_POLLT) return FALSE;
+    poll_interval = t;
+    return TRUE;
 }
 
 /**
@@ -66,13 +78,19 @@ static void dumpsensors(const struct sensordata_t* const station){
     FNAME();
     if(!station || !station->get_value || station->Nvalues < 1) return;
     char buf[FULL_LEN+1];
+    uint64_t Tsum = 0; int nsum = 0;
     int N = (nplugins > 1) ? station->PluginNo : -1;
     for(int i = 0; i < station->Nvalues; ++i){
         val_t v;
         if(!station->get_value(&v, i)) continue;
         if(0 < format_sensval(&v, buf, FULL_LEN+1, N)){
             printf("%s\n", buf);
+            ++nsum; Tsum += v.time;
         }
+    }
+    time_t last = (time_t)(Tsum / nsum);
+    if(0 < format_msrmttm(last, buf, FULL_LEN+1)){
+        printf("%s\n\n", buf);
     }
 }
 #endif
@@ -85,6 +103,7 @@ static void dumpsensors(const struct sensordata_t* const station){
  * This function should be runned only once at start
  */
 int openplugins(char **paths, int N){
+    char buf[PATH_MAX+1];
     if(!paths || !*paths || N < 1) return 0;
     if(allplugins || nplugins){
         WARNXL("Plugins already opened"); return 0;
@@ -93,7 +112,10 @@ int openplugins(char **paths, int N){
     green("Try to open plugins:\n");
     for(int i = 0; i < N; ++i){
         printf("\tplugin[%d]=%s\n", i, paths[i]);
-        void* dlh = open_plugin(paths[i]);
+        snprintf(buf, PATH_MAX, "%s", paths[i]);
+        char *colon = strchr(buf, ':');
+        if(colon) *colon++ = 0;
+        void* dlh = open_plugin(buf);
         if(!dlh) continue;
         DBG("OPENED");
         void *s = dlsym(dlh, "sensor");
@@ -104,7 +126,9 @@ int openplugins(char **paths, int N){
                 WARNXL("Sensor library %s have no init funtion");
                 continue;
             }
-            int ns = S->init(nplugins);
+            int fd = -1;
+            if(colon) fd = getFD(colon);
+            int ns = S->init(nplugins, poll_interval, fd); // here nplugins is index in array
             if(ns < 1) WARNXL("Can't init plugin %s", paths[i]);
             else{
 #ifdef EBUG
