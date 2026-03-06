@@ -25,7 +25,7 @@
 
 int openplugins(char **paths, int N);
 void closeplugins();
-int get_plugin(sensordata_t *o, int N);
+sensordata_t *get_plugin(int N);
 int get_nplugins();
 int format_sensval(const val_t *v, char *buf, int buflen, int Np);
 int format_msrmttm(time_t t, char *buf, int buflen);

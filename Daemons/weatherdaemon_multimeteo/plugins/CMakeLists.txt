@@ -6,8 +6,8 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(PLUGINS REQUIRED usefull_macros)
 
 include_directories(${PLUGINS_INCLUDE_DIRS} ..)
-link_directories(${PLUGINS_LIBRARY_DIRS})
-link_libraries(${$PLUGINS_LIBRARIES} -fPIC)
+link_directories(${PLUGINS_LIBRARY_DIRS} ..)
+link_libraries(${$PLUGINS_LIBRARIES} ${PROJLIB} -fPIC)
 
 set(LIBS "")
 

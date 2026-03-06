@@ -46,15 +46,14 @@ int set_pollT(time_t t){
 }
 
 /**
- * @brief get_plugin - get copy of opened plugin
+ * @brief get_plugin - get link to opened plugin
  * @param o (o) - plugin with given index
  * @param N - index in `allplugins`
- * @return TRUE if OK
+ * @return NULL if failed or pointer
  */
-int get_plugin(sensordata_t *o, int N){
-    if(!o || N < 0 || N >= nplugins) return FALSE;
-    *o = *allplugins[N];
-    return TRUE;
+sensordata_t *get_plugin(int N){
+    if(N < 0 || N >= nplugins) return NULL;
+    return allplugins[N];
 }
 
 void *open_plugin(const char *name){
@@ -74,7 +73,7 @@ void *open_plugin(const char *name){
 
 #ifdef EBUG
 // in release this function can be used for meteo logging
-static void dumpsensors(const struct sensordata_t* const station){
+static void dumpsensors(struct sensordata_t* station){
     FNAME();
     if(!station || !station->get_value || station->Nvalues < 1) return;
     char buf[FULL_LEN+1];
@@ -82,7 +81,7 @@ static void dumpsensors(const struct sensordata_t* const station){
     int N = (nplugins > 1) ? station->PluginNo : -1;
     for(int i = 0; i < station->Nvalues; ++i){
         val_t v;
-        if(!station->get_value(&v, i)) continue;
+        if(!station->get_value(station, &v, i)) continue;
         if(0 < format_sensval(&v, buf, FULL_LEN+1, N)){
             printf("%s\n", buf);
             ++nsum; Tsum += v.time;
@@ -128,11 +127,11 @@ int openplugins(char **paths, int N){
             }
             int fd = -1;
             if(colon) fd = getFD(colon);
-            int ns = S->init(nplugins, poll_interval, fd); // here nplugins is index in array
+            int ns = S->init(S, nplugins, poll_interval, fd); // here nplugins is index in array
             if(ns < 1) WARNXL("Can't init plugin %s", paths[i]);
             else{
 #ifdef EBUG
-                if(!S->onrefresh(dumpsensors)) WARNXL("Can't init refresh funtion");
+                if(!S->onrefresh(S, dumpsensors)) WARNXL("Can't init refresh funtion");
 #endif
                 LOGMSG("Plugin %s nave %d sensors", paths[i], ns);
                 allplugins[nplugins++] = S;
@@ -149,7 +148,7 @@ int openplugins(char **paths, int N){
 void closeplugins(){
     if(!allplugins || nplugins < 1) return;
     for(int i = 0; i < nplugins; ++i){
-        if(allplugins[i]->die) allplugins[i]->die();
+        if(allplugins[i]->kill) allplugins[i]->kill(allplugins[i]);
     }
     FREE(allplugins);
     nplugins = 0;

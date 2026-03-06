@@ -18,8 +18,11 @@
 
 #pragma once
 
+#include <pthread.h>
+#include <signal.h> // pthread_kill
 #include <stdint.h>
 #include <time.h>
+#include <usefull_macros.h>
 
 // length (in symbols) of key, value and comment
 #define KEY_LEN         (8)
@@ -81,12 +84,25 @@ typedef struct{
 } val_t;
 
 // all sensor's data
+// all functions have `this` as first arg
 typedef struct sensordata_t{
     char name[NAME_LEN+1];  // max 31 symbol of sensor's name (e.g. "rain sensor")
     int Nvalues;            // amount of values
     int PluginNo;           // plugin number in array (if several)
-    int (*init)(int, time_t, int); // init meteostation with given PluginNo, poll_interval and fd; return amount of parameters found
-    int (*onrefresh)(void (*handler)(const struct sensordata_t* const)); // handler of new data; return TRUE if OK
-    int (*get_value)(val_t *, int); // getter of Nth value
-    void (*die)();          // close everything and die
+    int (*init)(struct sensordata_t*, int, time_t, int); // init meteostation with given PluginNo, poll_interval and fd; return amount of parameters found or -1 if error
+    int (*onrefresh)(struct sensordata_t*, void (*handler)(struct sensordata_t*)); // handler of new data; return TRUE if OK
+    int (*get_value)(struct sensordata_t*, val_t*, int); // getter of Nth value
+    void (*kill)(struct sensordata_t*); // close everything and remove sensor
+    // private members:
+    val_t *values;          // array of values
+    pthread_t thread;       // main thread
+    void (*freshdatahandler)(struct sensordata_t*); // handler of fresh data
+    int fdes;               // file descriptor of device/socket
+    sl_ringbuffer_t *ringbuffer; // ringbuffer for device reading
+    time_t tpoll;           // forced polling time for sensor
 } sensordata_t;
+
+// library functions and other
+int common_onrefresh(sensordata_t*, void (*handler)(sensordata_t*));
+void common_kill(sensordata_t *s);
+int sensor_alive(sensordata_t *s);

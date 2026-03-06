@@ -83,7 +83,7 @@ static int opensocket(char *path, sl_socktype_e type){
     struct addrinfo ai = {0}, *res = &ai;
     struct sockaddr_un unaddr = {0};
     char *node = path, *service = NULL;
-    ai.ai_socktype = SOCK_STREAM;
+    ai.ai_socktype = 0; // try to get socket type from `getaddrinfo`
     switch(type){
     case SOCKT_UNIX:
         {
@@ -95,12 +95,10 @@ static int opensocket(char *path, sl_socktype_e type){
         memcpy(unaddr.sun_path, str, 106);
         FREE(str);
         ai.ai_family = AF_UNIX;
-        //ai.ai_socktype = SOCK_SEQPACKET;
         }
         break;
     case SOCKT_NET:
     case SOCKT_NETLOCAL:
-        //ai.ai_socktype = SOCK_DGRAM;
         ai.ai_family = AF_INET;
         char *delim = strchr(path, ':');
         if(delim){

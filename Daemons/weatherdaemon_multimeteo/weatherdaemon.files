@@ -1,9 +1,14 @@
+CMakeLists.txt
 cmdlnopts.c
 cmdlnopts.h
+fd.c
+fd.h
 main.c
 plugins/dummy.c
+plugins/fdexample.c
 sensors.c
 sensors.h
 server.c
 server.h
+weathlib.c
 weathlib.h

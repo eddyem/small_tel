@@ -45,10 +45,10 @@ static sl_sock_hresult_e listhandler(sl_sock_t *client, _U_ sl_sock_hitem_t *ite
     char buf[256];
     int N = get_nplugins();
     if(N < 1) return RESULT_FAIL;
-    sensordata_t d;
+    sensordata_t *d = NULL;
     for(int i = 0; i < N; ++i){
-        if(!get_plugin(&d, i)) continue;
-        snprintf(buf, 255, "PLUGIN[%d]=%s\nNVALUES[%d]=%d\n", i, d.name, i, d.Nvalues);
+        if(!(d = get_plugin(i))) continue;
+        snprintf(buf, 255, "PLUGIN[%d]=%s\nNVALUES[%d]=%d\n", i, d->name, i, d->Nvalues);
         sl_sock_sendstrmessage(client, buf);
     }
     return RESULT_SILENCE;
@@ -63,8 +63,8 @@ static sl_sock_hresult_e listhandler(sl_sock_t *client, _U_ sl_sock_hitem_t *ite
 static void showdata(sl_sock_t *client, int N, int showidx){
     char buf[FULL_LEN+1];
     val_t v;
-    sensordata_t s;
-    if(!get_plugin(&s, N) || (s.Nvalues < 1)){
+    sensordata_t *s = NULL;
+    if(!(s = get_plugin(N)) || (s->Nvalues < 1)){
         snprintf(buf, FULL_LEN, "Can't get plugin[%d]\n", N);
         sl_sock_sendstrmessage(client, buf);
         return;
@@ -72,8 +72,8 @@ static void showdata(sl_sock_t *client, int N, int showidx){
     if(!showidx || get_nplugins() == 1) N = -1; // only one -> don't show indexes
     time_t oldest = time(NULL) - oldest_interval;
     uint64_t Tsum = 0; int nsum = 0;
-    for(int i = 0; i < s.Nvalues; ++i){
-        if(!s.get_value(&v, i)) continue;
+    for(int i = 0; i < s->Nvalues; ++i){
+        if(!s->get_value(s, &v, i)) continue;
         if(v.time < oldest) continue;
         if(1 > format_sensval(&v, buf, FULL_LEN+1, N)) continue;
         DBG("formatted: '%s'", buf);

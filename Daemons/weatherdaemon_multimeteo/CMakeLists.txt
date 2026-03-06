@@ -1,11 +1,11 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 4.0)
 set(PROJ weatherdaemon)
+set(PROJLIB senslib)
 set(MAJOR_VERSION "0")
 set(MID_VERSION "0")
 set(MINOR_VERSION "1")
 
 aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR} SOURCES)
-#set(SOURCES main.c cmdlnopts.c sensors.c)
 
 set(VERSION "${MAJOR_VERSION}.${MID_VERSION}.${MINOR_VERSION}")
 project(${PROJ} VERSION ${VERSION} LANGUAGES C)
@@ -16,9 +16,8 @@ option(DEBUG "Compile in debug mode" OFF)
 option(DUMMY "Dummy device plugin" ON)
 option(FDEXAMPLE "Example of file descriptor plugin" ON)
 
-
 # default flags
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -W -Wextra -fno-builtin-strlen")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -W -Wextra -pedantic-errors -fPIC")
 
 message("Install dir prefix: ${CMAKE_INSTALL_PREFIX}")
 
@@ -42,7 +41,7 @@ endif()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}")
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(${PROJ} REQUIRED usefull_macros>=0.3.2)
+pkg_check_modules(${PROJ} REQUIRED usefull_macros>=0.3.5)
 
 #include(FindOpenMP)
 #if(OPENMP_FOUND)
@@ -51,12 +50,17 @@ pkg_check_modules(${PROJ} REQUIRED usefull_macros>=0.3.2)
 #    add_definitions(-DOMP_FOUND)
 #endif()
 
-# exe & lib files
+# static lib for sensors
+set(LIBSRC "weathlib.c")
+set(LIBHEADER "weathlib.h")
+add_library(${PROJLIB} STATIC ${LIBSRC})
+set_target_properties(${PROJLIB} PROPERTIES VERSION ${VERSION})
+
+# exe & deps files
 add_executable(${PROJ} ${SOURCES})
-target_link_libraries(${PROJ} ${${PROJ}_LIBRARIES} -lm ${CMAKE_DL_LIBS})
+target_link_libraries(${PROJ} ${${PROJ}_LIBRARIES} ${PROJLIB} -lm ${CMAKE_DL_LIBS})
 target_include_directories(${PROJ} PUBLIC ${${PROJ}_INCLUDE_DIRS} .)
 target_link_directories(${PROJ} PUBLIC ${${PROJ}_LIBRARY_DIRS} )
-set_target_properties(${PROJLIB} PROPERTIES VERSION ${VERSION})
 
 include(GNUInstallDirs)
 # Installation of the program
