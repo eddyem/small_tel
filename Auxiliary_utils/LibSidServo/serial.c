@@ -20,6 +20,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <math.h>
+#include <poll.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdint.h>
@@ -64,14 +65,12 @@ void getXspeed(){
         ls = LS_init(Conf.EncoderSpeedInterval / Conf.EncoderReqInterval);
         if(!ls) return;
     }
-    pthread_mutex_lock(&datamutex);
     double dt = timediff0(&mountdata.encXposition.t);
     double speed = LS_calc_slope(ls, mountdata.encXposition.val, dt);
     if(fabs(speed) < 1.5 * Xlimits.max.speed){
         mountdata.encXspeed.val = speed;
         mountdata.encXspeed.t = mountdata.encXposition.t;
     }
-    pthread_mutex_unlock(&datamutex);
     //DBG("Xspeed=%g", mountdata.encXspeed.val);
 }
 void getYspeed(){
@@ -80,14 +79,12 @@ void getYspeed(){
         ls = LS_init(Conf.EncoderSpeedInterval / Conf.EncoderReqInterval);
         if(!ls) return;
     }
-    pthread_mutex_lock(&datamutex);
     double dt = timediff0(&mountdata.encYposition.t);
     double speed = LS_calc_slope(ls, mountdata.encYposition.val, dt);
     if(fabs(speed) < 1.5 * Ylimits.max.speed){
         mountdata.encYspeed.val = speed;
         mountdata.encYspeed.t = mountdata.encYposition.t;
     }
-    pthread_mutex_unlock(&datamutex);
 }
 
 /**
@@ -136,13 +133,12 @@ static void parse_encbuf(uint8_t databuf[ENC_DATALEN], struct timespec *t){
     DBG("Got positions X/Y= %.6g / %.6g", mountdata.encXposition.val, mountdata.encYposition.val);
     mountdata.encXposition.t = *t;
     mountdata.encYposition.t = *t;
-    pthread_mutex_unlock(&datamutex);
-    //if(t - lastXenc.t > Conf.EncoderSpeedInterval) getXspeed();
-    //if(t - lastYenc.t > Conf.EncoderSpeedInterval) getYspeed();
     getXspeed(); getYspeed();
+    pthread_mutex_unlock(&datamutex);
     //DBG("time = %zd+%zd/1e6, X=%g deg, Y=%g deg", tv->tv_sec, tv->tv_usec, mountdata.encposition.X*180./M_PI, mountdata.encposition.Y*180./M_PI);
 }
 
+#if 0
 /**
  * @brief getencval - get uint64_t data from encoder
  * @param fd - encoder fd
@@ -211,6 +207,8 @@ static int getencval(int fd, double *val, struct timespec *t){
     if(t){ if(!curtime(t)){ DBG("Can't get time"); return 0; }}
     return got;
 }
+#endif
+
 // try to read 1 byte from encoder; return -1 if nothing to read or -2 if device seems to be disconnected
 static int getencbyte(){
     if(encfd[0] < 0) return -1;
@@ -322,65 +320,130 @@ static void *encoderthread1(void _U_ *u){
     return NULL;
 }
 
+#define XYBUFSZ     (128)
+typedef struct{
+    char buf[XYBUFSZ+1];
+    int len;
+} buf_t;
+
+// write to buffer next data portion; return FALSE in case of error
+static int readstrings(buf_t *buf, int fd){
+    FNAME();
+    if(!buf){DBG("Empty buffer"); return FALSE;}
+    int L = XYBUFSZ - buf->len;
+    if(L == 0){
+        DBG("buffer  overfull: %d!", buf->len);
+        char *lastn = strrchr(buf->buf, '\n');
+        if(lastn){
+            fprintf(stderr, "BUFOVR: _%s_", buf->buf);
+            ++lastn;
+            buf->len = XYBUFSZ - (lastn - buf->buf);
+            DBG("Memmove %d", buf->len);
+            memmove(lastn, buf->buf, buf->len);
+            buf->buf[buf->len] = 0;
+        }else buf->len = 0;
+        L = XYBUFSZ - buf->len;
+    }
+    int got = read(fd, &buf->buf[buf->len], L);
+    if(got < 0){
+        DBG("read()");
+        return FALSE;
+    }else if(got == 0){ DBG("NO data"); return TRUE; }
+    buf->len += got;
+    buf->buf[buf->len] = 0;
+    DBG("buf[%d]: %s", buf->len, buf->buf);
+    return TRUE;
+}
+
+// return TRUE if got, FALSE if no data found
+static int getdata(buf_t *buf, long *out){
+    if(!buf || buf->len < 1) return FALSE;
+    // read record between last '\n' and previous (or start of string)
+    char *last = &buf->buf[buf->len - 1];
+    //DBG("buf: _%s_", buf->buf);
+    if(*last != '\n') return FALSE;
+    *last = 0;
+    //DBG("buf: _%s_", buf->buf);
+    char *prev = strrchr(buf->buf, '\n');
+    if(!prev) prev = buf->buf;
+    else{
+        fprintf(stderr, "MORETHANONE: _%s_", buf->buf);
+        ++prev; // after last '\n'
+    }
+    if(out) *out = atol(prev);
+    // clear buffer
+    buf->len = 0;
+    return TRUE;
+}
+
+// try to write '\n' asking new data portion; return FALSE if failed
+static int asknext(int fd){
+    FNAME();
+    if(fd < 0) return FALSE;
+    int i = 0;
+    for(; i < 5; ++i){
+        int l = write(fd, "\n", 1);
+        //DBG("l=%d", l);
+        if(1 == l) return TRUE;
+        usleep(100);
+    }
+    DBG("5 tries... failed!");
+    return FALSE;
+}
+
 // main encoder thread for separate encoders as USB devices /dev/encoder_X0 and /dev/encoder_Y0
 static void *encoderthread2(void _U_ *u){
     if(Conf.SepEncoder != 2) return NULL;
     DBG("Thread started");
+    struct pollfd pfds[2];
+    pfds[0].fd = encfd[0]; pfds[0].events = POLLIN;
+    pfds[1].fd = encfd[1]; pfds[1].events = POLLIN;
+    double t0[2], tstart;
+    buf_t strbuf[2];
+    long msrlast[2]; // last encoder data
+    double mtlast[2]; // last measurement time
+    asknext(encfd[0]); asknext(encfd[1]);
+    t0[0] = t0[1] = tstart = timefromstart();
     int errctr = 0;
-    double t0 = timefromstart();
-    const char *req = "\n";
-    int need2ask = 0; // need or not to ask encoder for new data
-    while(encfd[0] > -1 && encfd[1] > -1 && errctr < MAX_ERR_CTR){
-        struct timespec t;
-        if(need2ask){
-            //DBG("ASK for new data, tfs=%.6g", timefromstart());
-            if(1 != write(encfd[0], req, 1)) { ++errctr; continue; }
-            else if(1 != write(encfd[1], req, 1)) { ++errctr; continue; }
-            //DBG("OK");
-            need2ask = 0;
-            usleep(100);
+    do{ // main cycle
+        if(poll(pfds, 2, 0) < 0){
+            DBG("poll()");
+            break;
         }
-        if(!curtime(&t)){
-            DBG("Where is time?");
-            continue;
-        }
-        double v;
-        if(getencval(encfd[0], &v, &t)){
-            pthread_mutex_lock(&datamutex);
-            mountdata.encXposition.val = Xenc2rad(v);
-            mountdata.encXposition.t = t;
-            pthread_mutex_unlock(&datamutex);
-            //DBG("MDXpos: %.10g/%g (xez=%d, xesr=%.10g), tfs=%.6g", v, mountdata.encXposition.val, X_ENC_ZERO, X_ENC_STEPSPERREV, timefromstart());
-            getXspeed();
-            if(getencval(encfd[1], &v, &t)){
-                pthread_mutex_lock(&datamutex);
-                mountdata.encYposition.val = Yenc2rad(v);
-                mountdata.encYposition.t = t;
-                pthread_mutex_unlock(&datamutex);
-                //DBG("MDYpos: %.10g/%g (yez=%d, yesr=%.10g)", v, mountdata.encYposition.val, Y_ENC_ZERO, Y_ENC_STEPSPERREV);
-                getYspeed();
-                errctr = 0;
-                need2ask = 0;
-                //DBG("tgot=%.6g", timefromstart());
-                while(timefromstart() - t0 < Conf.EncoderReqInterval){ usleep(50); }
-                t0 = timefromstart();
-            }else{
-                DBG("NO Y DATA!!!");
-                /*if(need2ask) ++errctr;
-                else need2ask = 1;
-                continue;*/
-                ++errctr;
-                need2ask = 1;
+        int got = 0;
+        for(int i = 0; i < 2; ++i){
+            if(pfds[i].revents && POLLIN){
+                if(!readstrings(&strbuf[i], encfd[i])){
+                    ++errctr;
+                    break;
+                }
             }
-        }else{ // no data - ask for new
-            //DBG("Need new, tfs=%.6g", timefromstart());
-            /*if(need2ask) ++errctr;
-            else need2ask = 1;
-            continue;*/
-            ++errctr;
-            need2ask = 1;
+            double curt = timefromstart();
+            if(getdata(&strbuf[i], &msrlast[i])) mtlast[i] = curt;
+            if(curt - t0[i] >= Conf.EncoderReqInterval){ // get last records
+                if(curt - mtlast[i] < 1.5*Conf.EncoderReqInterval){
+                    pthread_mutex_lock(&datamutex);
+                    if(i == 0){
+                        mountdata.encXposition.val = Xenc2rad((double)msrlast[i]);
+                        curtime(&mountdata.encXposition.t);
+                        getXspeed();
+                    }else{
+                        mountdata.encYposition.val = Yenc2rad((double)msrlast[i]);
+                        curtime(&mountdata.encYposition.t);
+                        getYspeed();
+                    }
+                    pthread_mutex_unlock(&datamutex);
+                }
+                if(!asknext(encfd[i])){
+                    ++errctr;
+                    break;
+                }
+                t0[i] = (curt - t0[i] < 2.*Conf.EncoderReqInterval) ? t0[i] + Conf.EncoderReqInterval : curt;
+                ++got;
+            }
         }
-    }
+        if(got == 2) errctr = 0;
+    }while(encfd[0] > -1 && encfd[1] > -1 && errctr < MAX_ERR_CTR);
     DBG("\n\nEXIT: ERRCTR=%d", errctr);
     for(int i = 0; i < 2; ++i){
         if(encfd[i] > -1){
@@ -463,8 +526,8 @@ static void *mountthread(void _U_ *u){
             }else mountdata.millis = oldmillis;
             chkModStopped(&Xprev, c.X, &xcnt, &mountdata.Xstate);
             chkModStopped(&Yprev, c.Y, &ycnt, &mountdata.Ystate);
-            pthread_mutex_unlock(&datamutex);
             getXspeed(); getYspeed();
+            pthread_mutex_unlock(&datamutex);
             while(timefromstart() - t0 < Conf.EncoderReqInterval) usleep(50);
             t0 = timefromstart();
         }
