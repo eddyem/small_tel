@@ -27,3 +27,4 @@
 
 void runserver(int isunix, const char *node, int maxclients);
 void stopserver();
+void forbid_observations(int forbid);

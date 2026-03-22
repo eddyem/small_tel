@@ -58,8 +58,18 @@ static sl_option_t cmdlnopts[] = {
     end_option
 };
 
+
+// SIGUSR1 - FORBID observations
+// SIGUSR2 - allow
 void signals(int sig){
     if(sig){
+        if(sig == SIGUSR1){
+            forbid_observations(1);
+            return;
+        }else if(sig == SIGUSR2){
+            forbid_observations(0);
+            return;
+        }
         signal(sig, SIG_IGN);
         DBG("Get signal %d, quit.\n", sig);
         LOGERR("Exit with status %d", sig);
@@ -93,6 +103,8 @@ int main(int argc, char **argv){
     signal(SIGQUIT, signals);
     signal(SIGTSTP, SIG_IGN);
     signal(SIGHUP, signals);
+    signal(SIGUSR1, signals);
+    signal(SIGUSR2, signals);
     runserver(G.isunix, G.node, G.maxclients);
     LOGMSG("Ended");
     DBG("Close");

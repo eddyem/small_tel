@@ -16,6 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <stdatomic.h>
 #include <inttypes.h>
 #include <pthread.h>
 #include <string.h>
@@ -44,7 +45,10 @@ typedef struct{
 
 static dome_t Dome = {0};
 
-static sl_sock_t *locksock = NULL;
+// external signal "deny/allow"
+static atomic_bool ForbidObservations = 0; // ==1 if all is forbidden -> close dome and not allow to open
+
+static sl_sock_t *locksock = NULL; // local server socket
 static sl_ringbuffer_t *rb = NULL; // incoming serial data
 
 void stopserver(){
@@ -84,8 +88,11 @@ static sl_sock_hresult_e dtimeh(sl_sock_t *client, _U_ sl_sock_hitem_t *item, _U
     return RESULT_SILENCE;
 }
 
+#define CHKALLOWED() do{if(ForbidObservations || Dome.errcode){pthread_mutex_unlock(&Dome.mutex); return RESULT_FAIL;}}while(0)
+
 static sl_sock_hresult_e openh(_U_ sl_sock_t *client, _U_ sl_sock_hitem_t *item, _U_ const char *req){
     pthread_mutex_lock(&Dome.mutex);
+    CHKALLOWED();
     Dome.cmd = CMD_OPEN;
     pthread_mutex_unlock(&Dome.mutex);
     return RESULT_OK;
@@ -100,6 +107,7 @@ static sl_sock_hresult_e closeh(_U_ sl_sock_t *client, _U_ sl_sock_hitem_t *item
 
 static sl_sock_hresult_e stoph(_U_ sl_sock_t *client, _U_ sl_sock_hitem_t *item, _U_ const char *req){
     pthread_mutex_lock(&Dome.mutex);
+    CHKALLOWED();
     Dome.cmd = CMD_STOP;
     pthread_mutex_unlock(&Dome.mutex);
     return RESULT_OK;
@@ -138,6 +146,7 @@ static sl_sock_hresult_e statush(sl_sock_t *client, _U_ sl_sock_hitem_t *item, _
         snprintf(buf+l, 255-l, "\n");
         sl_sock_sendstrmessage(client, buf);
     }
+    if(ForbidObservations) sl_sock_sendstrmessage(client, "FORBIDDEN\n");
     return RESULT_SILENCE;
 }
 
@@ -303,6 +312,7 @@ static int poll_device(){
 }
 
 void runserver(int isunix, const char *node, int maxclients){
+    int forbidden = 0;
     if(locksock) sl_sock_delete(&locksock);
     if(rb) sl_RB_delete(&rb);
     rb = sl_RB_new(BUFSIZ);
@@ -323,6 +333,14 @@ void runserver(int isunix, const char *node, int maxclients){
     sl_sock_defmsghandler(locksock, defhandler);
     double tgot = 0.;
     while(locksock && locksock->connected){
+        if(ForbidObservations){
+            if(!forbidden){
+                if(0 == write_cmd(TXT_CLOSEDOME)) forbidden = 1;
+                pthread_mutex_lock(&Dome.mutex);
+                Dome.cmd = CMD_NONE;
+                pthread_mutex_unlock(&Dome.mutex);
+            }
+        }else forbidden = 0;
         usleep(1000);
         if(!locksock->rthread){
             WARNX("Server handlers thread is dead");
@@ -354,4 +372,15 @@ void runserver(int isunix, const char *node, int maxclients){
         pthread_mutex_unlock(&Dome.mutex);
     }
     stopserver();
+}
+
+void forbid_observations(int forbid){
+    if(forbid){
+        ForbidObservations = true;
+        LOGWARN("Got forbidden signal");
+    }else{
+        ForbidObservations = false;
+        LOGWARN("Got allowed signal");
+    }
+    DBG("Change ForbidObservations=%d", forbid);
 }
