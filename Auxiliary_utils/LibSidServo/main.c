@@ -161,6 +161,8 @@ double LS_calc_slope(less_square_t *l, double x, double t){
     if(!l) return 0.;
     size_t idx = l->idx;
     double oldx = l->x[idx], oldt = l->t[idx], oldt2 = l->t2[idx], oldxt = l->xt[idx];
+    /*DBG("old: x=%g, t=%g, t2=%g, xt=%g; sum: %g, t=%g, t2=%g, xt=%g", oldx, oldt, oldt2, oldxt,
+        l->xsum, l->tsum, l->t2sum, l->xtsum);*/
     double t2 = t * t, xt = x * t;
     l->x[idx] = x; l->t2[idx] = t2;
     l->t[idx] = t; l->xt[idx] = xt;
@@ -172,9 +174,9 @@ double LS_calc_slope(less_square_t *l, double x, double t){
     l->xtsum += xt - oldxt;
     double n = (double)l->arraysz;
     double denominator = n * l->t2sum - l->tsum * l->tsum;
-    //DBG("idx=%zd, arrsz=%zd, den=%g", l->idx, l->arraysz, denominator);
     if(fabs(denominator) < 1e-7) return 0.;
     double numerator = n * l->xtsum - l->xsum * l->tsum;
+    //DBG("x=%g, t=%g; idx=%zd, arrsz=%zd, den=%g; xsum=%g, num=%g", x, t, l->idx, l->arraysz, denominator, l->xsum, numerator);
     // point: (sum_x  - slope * sum_t) / n;
     return (numerator / denominator);
 }
@@ -200,6 +202,7 @@ static mcc_errcodes_t init(conf_t *c){
         if(!Xmodel || !Ymodel || !openMount()) return MCC_E_FAILED;
         return MCC_E_OK;
     }
+    DBG("Try to open mount device");
     if(!Conf.MountDevPath || Conf.MountDevSpeed < MOUNT_BAUDRATE_MIN){
         DBG("Define mount device path and speed");
         ret = MCC_E_BADFORMAT;
@@ -207,33 +210,53 @@ static mcc_errcodes_t init(conf_t *c){
         DBG("Can't open %s with speed %d", Conf.MountDevPath, Conf.MountDevSpeed);
         ret = MCC_E_MOUNTDEV;
     }
-    if(Conf.SepEncoder){
-        if(!Conf.EncoderDevPath && !Conf.EncoderXDevPath){
-            DBG("Define encoder device path");
-            ret = MCC_E_BADFORMAT;
-        }else if(!openEncoder()){
-            DBG("Can't open encoder device");
-            ret = MCC_E_ENCODERDEV;
-        }
-    }
     // TODO: read hardware configuration on init
     if(Conf.EncoderSpeedInterval < Conf.EncoderReqInterval * MCC_CONF_MIN_SPEEDC || Conf.EncoderSpeedInterval > MCC_CONF_MAX_SPEEDINT){
         DBG("Wrong speed interval");
         ret = MCC_E_BADFORMAT;
     }
-    if(!SSrawcmd(CMD_EXITACM, NULL)) ret = MCC_E_FAILED;
     if(ret != MCC_E_OK) return ret;
+    DBG("Exit ACM, exit manual mode");
+    SSrawcmd(CMD_EXITACM, NULL);
+    SStextcmd(CMD_AUTOX, NULL);
+    SStextcmd(CMD_AUTOY, NULL);
     // read HW config to update constants
     hardware_configuration_t HW;
-    if(MCC_E_OK != get_hwconf(&HW)) return MCC_E_FAILED;
+    DBG("Read hardware configuration");
+    ret = MCC_E_FAILED;
+    for(int i = 0; i < MAX_ERR_CTR; ++i){
+        DBG("TRY %d..", i);
+        ret = get_hwconf(&HW);
+        if(ret == MCC_E_OK) break;
+    }
+    if(MCC_E_OK != ret) return ret;
     // make a pause for actual encoder's values
+    DBG("Check encoders");
+    if(Conf.SepEncoder){
+        if(!Conf.EncoderDevPath && !Conf.EncoderXDevPath){
+            DBG("Define encoder device path");
+            ret = MCC_E_BADFORMAT;
+        }else{
+            ret = MCC_E_ENCODERDEV;
+            for(int i = 0; i < MAX_ERR_CTR; ++i){
+                if(openEncoder()){
+                    ret = MCC_E_OK;
+                    break;
+                }
+            }
+        }
+    }
+    if(MCC_E_OK != ret) return ret;
     double t0 = timefromstart();
-    while(timefromstart() - t0 < Conf.EncoderReqInterval) usleep(1000);
+    DBG("Wait for first encoders' measurement");
+    while(timefromstart() - t0 < Conf.EncoderReqInterval * 15.) usleep(1000);
+    DBG("Update motor position");
     mcc_errcodes_t e = updateMotorPos();
     // and refresh data after updating
     DBG("Wait for next mount reading");
     t0 = timefromstart();
-    while(timefromstart() - t0 < Conf.MountReqInterval * 3.) usleep(1000);
+    while(timefromstart() - t0 < Conf.MountReqInterval * 5.) usleep(1000);
+    DBG("ALL READY!");
     return e;
 }
 
@@ -288,10 +311,6 @@ static mcc_errcodes_t move2(const coordpair_t *target){
     cmd.Ymot = target->Y;
     cmd.Xspeed = Xlimits.max.speed;
     cmd.Yspeed = Ylimits.max.speed;
-    /*mcc_errcodes_t r = shortcmd(&cmd);
-    if(r != MCC_E_OK) return r;
-    setslewingstate();
-    return MCC_E_OK;*/
     return shortcmd(&cmd);
 }
 
@@ -328,10 +347,7 @@ static mcc_errcodes_t move2s(const coordpair_t *target, const coordpair_t *speed
     cmd.Ymot = target->Y;
     cmd.Xspeed = speed->X;
     cmd.Yspeed = speed->Y;
-    mcc_errcodes_t r = shortcmd(&cmd);
-    if(r != MCC_E_OK) return r;
-    setslewingstate();
-    return MCC_E_OK;
+    return shortcmd(&cmd);
 }
 
 /**

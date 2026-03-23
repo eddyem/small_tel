@@ -1,6 +1,6 @@
 /*
  * This file is part of the libsidservo project.
- * Copyright 2025 Edward V. Emelianov <edward.emelianoff@gmail.com>.
+ * Copyright 2026 Edward V. Emelianov <edward.emelianoff@gmail.com>.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,14 +18,17 @@
 
 #pragma once
 
-#include <stddef.h>
+typedef struct{
+    double x[3];        // [theta, omega, alpha]
+    double P[3][3];     // covariance
+    double Q[3][3];     // process noise
+    double R;           // measurement noise
+    double dt;
+} Kalman3;
 
-#include "sidservo.h"
 
-/*
-PIDController_t *pid_create(const PIDpar_t *gain, size_t Iarrsz);
-void pid_clear(PIDController_t *pid);
-void pid_delete(PIDController_t **pid);
-double pid_calculate(PIDController_t *pid, double error, double dt);
-*/
-mcc_errcodes_t  correct2(const coordval_pair_t *target);
+double encoder_noise(int counts);
+void kalman3_update(Kalman3 *kf, double z);
+void kalman3_predict(Kalman3 *kf);
+void kalman3_set_jerk_noise(Kalman3 *kf, double sigma_j);
+void kalman3_init(Kalman3 *kf, double dt, double enc_var);

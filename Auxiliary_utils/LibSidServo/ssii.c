@@ -26,8 +26,12 @@
 #include "serial.h"
 #include "ssii.h"
 
-int X_ENC_ZERO, Y_ENC_ZERO;
-double X_MOT_STEPSPERREV = 1., Y_MOT_STEPSPERREV = 1., X_ENC_STEPSPERREV = 1., Y_ENC_STEPSPERREV = 1.;
+int X_ENC_ZERO = 0, Y_ENC_ZERO = 0; // will be filled later from config
+// defaults until read from controller
+double  X_MOT_STEPSPERREV = 13312000.,
+        Y_MOT_STEPSPERREV = 17578668.,
+        X_ENC_STEPSPERREV = 67108864.,
+        Y_ENC_STEPSPERREV = 67108864.;
 
 uint16_t SScalcChecksum(uint8_t *buf, int len){
     uint16_t checksum = 0;
@@ -41,27 +45,36 @@ uint16_t SScalcChecksum(uint8_t *buf, int len){
 }
 
 // Next three functions runs under locked mountdata_t mutex and shouldn't call locked it again!!
-static void chkstopstat(int32_t *prev, int32_t cur, int *nstopped, axis_status_t *stat){
+static axis_status_t chkstopstat(int32_t *prev, int32_t cur, int32_t tag, int *nstopped, axis_status_t stat){
     if(*prev == INT32_MAX){
-        *stat = AXIS_STOPPED;
+        stat = AXIS_STOPPED;
         DBG("START");
-    }else if(*stat != AXIS_STOPPED){
-        if(*prev == cur && ++(*nstopped) > MOTOR_STOPPED_CNT){
-            *stat = AXIS_STOPPED;
-            DBG("AXIS stopped");
-        }
+    }else if(stat == AXIS_GONNASTOP || (stat != AXIS_STOPPED && cur == tag)){ // got command "stop" or motor is on target
+        if(*prev == cur){
+            DBG("Test for stop, nstopped=%d", *nstopped);
+            if(++(*nstopped) > MOTOR_STOPPED_CNT){
+                stat = AXIS_STOPPED;
+                DBG("AXIS stopped");
+            }
+        }else *nstopped = 0;
     }else if(*prev != cur){
         DBG("AXIS moving");
         *nstopped = 0;
     }
     *prev = cur;
+    return stat;
 }
 // check for stopped/pointing states
 static void ChkStopped(const SSstat *s, mountdata_t *m){
     static int32_t Xmot_prev = INT32_MAX, Ymot_prev = INT32_MAX; // previous coordinates
     static int Xnstopped = 0, Ynstopped = 0; // counters to get STOPPED state
-    chkstopstat(&Xmot_prev, s->Xmot, &Xnstopped, &m->Xstate);
-    chkstopstat(&Ymot_prev, s->Ymot, &Ynstopped, &m->Ystate);
+    axis_status_t Xstat, Ystat;
+    Xstat = chkstopstat(&Xmot_prev, s->Xmot, m->Xtarget, &Xnstopped, m->Xstate);
+    Ystat = chkstopstat(&Ymot_prev, s->Ymot, m->Ytarget, &Ynstopped, m->Ystate);
+    if(Xstat != m->Xstate || Ystat != m->Ystate){
+        DBG("Status changed");
+        setStat(Xstat, Ystat);
+    }
 }
 
 /**
@@ -78,6 +91,7 @@ void SSconvstat(const SSstat *s, mountdata_t *m, struct timespec *t){
     m->motXposition.t = m->motYposition.t = *t;
     // fill encoder data from here, as there's no separate enc thread
     if(!Conf.SepEncoder){
+        DBG("ENCODER from SSII");
         m->encXposition.val = Xenc2rad(s->Xenc);
         DBG("encx: %g", m->encXposition.val);
         m->encYposition.val = Yenc2rad(s->Yenc);
@@ -165,14 +179,17 @@ int SSsetterI(const char *cmd, int32_t ival){
 }
 
 int SSstop(int emerg){
+    FNAME();
     int i = 0;
     const char *cmdx = (emerg) ? CMD_EMSTOPX : CMD_STOPX;
     const char *cmdy = (emerg) ? CMD_EMSTOPY : CMD_STOPY;
+    setStat(AXIS_GONNASTOP, AXIS_GONNASTOP);
     for(; i < 10; ++i){
         if(!SStextcmd(cmdx, NULL)) continue;
         if(SStextcmd(cmdy, NULL)) break;
     }
     if(i == 10) return FALSE;
+    DBG("Stopped");
     return TRUE;
 }
 

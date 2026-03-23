@@ -15,6 +15,8 @@ set(CMAKE_COLOR_MAKEFILE ON)
 
 option(DEBUG "Compile in debug mode" OFF)
 option(EXAMPLES "Compile also some examples" ON)
+option(BUILD_SHARED "Build shared libarary" OFF)
+
 
 # cmake -DDEBUG=on -> debugging
 if(NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
@@ -52,7 +54,13 @@ aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR} SOURCES)
 #list(APPEND ${PROJ}_LIBRARIES "-lfftw3_threads")
 
 # library
-add_library(${PROJ} SHARED ${SOURCES})
+
+if(BUILD_SHARED)
+    add_library(${PROJ} SHARED ${SOURCES})
+else()
+    add_library(${PROJ} STATIC ${SOURCES})
+endif()
+
 # library header files
 set(LIBHEADER "sidservo.h")
 # -I

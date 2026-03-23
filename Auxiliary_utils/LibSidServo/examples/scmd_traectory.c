@@ -109,17 +109,27 @@ static void runtraectory(traectory_fn tfn){
         }
         if(!Mount.currentT(&tcur)) continue;
         if(telXY.X.t.tv_nsec == tlastXnsec && telXY.Y.t.tv_nsec == tlastYnsec) continue; // last measure - don't mind
-        DBG("\n\nTELPOS: %g'/%g' (%.6f/%.6f)", RAD2AMIN(telXY.X.val), RAD2AMIN(telXY.Y.val), RAD2DEG(telXY.X.val), RAD2DEG(telXY.Y.val));
         tlastXnsec = telXY.X.t.tv_nsec; tlastYnsec = telXY.Y.t.tv_nsec;
         double t = Mount.timeFromStart();
-        if(fabs(telXY.X.val) > G.Xmax || fabs(telXY.Y.val) > G.Ymax || t - tstart > G.tmax) break;
-        if(!traectory_point(&traectXY, t)) break;
+        if(fabs(telXY.X.val) > G.Xmax || fabs(telXY.Y.val) > G.Ymax || t - tstart > G.tmax){
+            if(fabs(telXY.X.val) > G.Xmax) DBG("X over maximal limit!");
+            if(fabs(telXY.Y.val) > G.Ymax) DBG("Y over maximal limit!");
+            if(t - tstart > G.tmax) DBG("Time over...");
+            break;
+        }
+        if(!traectory_point(&traectXY, t)){
+            DBG("Error in 'traectory_point', time from start=%g", t);
+            break;
+        }
+        DBG("\n\nTELPOS: %g'/%g' (%.6f/%.6f); traectory: %g'/%g' (%.6f/%.6f)",
+            RAD2AMIN(telXY.X.val), RAD2AMIN(telXY.Y.val), RAD2DEG(telXY.X.val), RAD2DEG(telXY.Y.val),
+            RAD2AMIN(traectXY.X), RAD2AMIN(traectXY.Y), RAD2DEG(traectXY.X), RAD2DEG(traectXY.Y));
         target.X.val = traectXY.X; target.Y.val = traectXY.Y;
         target.X.t = target.Y.t = tcur;
         if(t0.tv_nsec == 0 && t0.tv_sec == 0) dumpt0(&t0);
         else{
             //DBG("target: %g'/%g'", RAD2AMIN(traectXY.X), RAD2AMIN(traectXY.Y));
-            DBG("%g: dX=%.4f'', dY=%.4f''", t-tstart, RAD2ASEC(traectXY.X-telXY.X.val), RAD2ASEC(traectXY.Y-telXY.Y.val));
+            DBG("%g, target-telescope: dX=%.4f'', dY=%.4f''", t-tstart, RAD2ASEC(traectXY.X-telXY.X.val), RAD2ASEC(traectXY.Y-telXY.Y.val));
             //DBG("Correct to: %g/%g with EP %g/%g", RAD2DEG(target.X.val), RAD2DEG(target.Y.val), RAD2DEG(endpoint.X), RAD2DEG(endpoint.Y));
             if(errlog)
                 fprintf(errlog, "%10.4f  %10.4f  %10.4f\n", Mount.timeDiff(&telXY.X.t, &t0), RAD2ASEC(traectXY.X-telXY.X.val), RAD2ASEC(traectXY.Y-telXY.Y.val));
@@ -146,10 +156,12 @@ int main(int argc, char **argv){
             ERRX("Can't open error log %s", G.errlog);
         else
             fprintf(errlog, "#    time      Xerr''      Yerr''   // target - real\n");
+        setbuf(errlog, NULL);
     }
     if(G.coordsoutput){
         if(!(fcoords = fopen(G.coordsoutput, "w")))
             ERRX("Can't open %s", G.coordsoutput);
+        setbuf(fcoords, NULL);
     }else fcoords = stdout;
     Config = readServoConf(G.conffile);
     if(!Config || G.dumpconf){
@@ -164,13 +176,14 @@ int main(int argc, char **argv){
         return 1;
     }
     coordpair_t c = {.X = DEG2RAD(G.X0), .Y = DEG2RAD(G.Y0)};
-    if(!init_traectory(tfn, &c)){
-        ERRX("Can't init traectory");
-        return 1;
-    }
     mcc_errcodes_t e = Mount.init(Config);
     if(e != MCC_E_OK){
         WARNX("Can't init devices");
+        return 1;
+    }
+    // run this function only after mount inited!
+    if(!init_traectory(tfn, &c)){
+        ERRX("Can't init traectory");
         return 1;
     }
     signal(SIGTERM, signals); // kill (-15) - quit
@@ -178,7 +191,7 @@ int main(int argc, char **argv){
     signal(SIGINT, signals);  // ctrl+C - quit
     signal(SIGQUIT, signals); // ctrl+\ - quit
     signal(SIGTSTP, SIG_IGN); // ignore ctrl+Z
-    chk0(G.Ncycles);
+//    chk0(G.Ncycles);
     logmnt(fcoords, NULL);
     if(pthread_create(&dthr, NULL, dumping, NULL)) ERRX("Can't run dump thread");
     ;

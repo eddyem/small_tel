@@ -136,10 +136,11 @@ typedef struct{
 } extradata_t;
 
 typedef enum{
-    AXIS_STOPPED,
-    AXIS_SLEWING,
-    AXIS_POINTING,
-    AXIS_GUIDING,
+    AXIS_STOPPED,   // stop
+    AXIS_GONNASTOP, // stop command run
+    AXIS_SLEWING,   // go to target with maximal speed
+    AXIS_POINTING,  // axis is in pointing zone, use PID
+    AXIS_GUIDING,   // near target
     AXIS_ERROR,
 } axis_status_t;
 
@@ -157,6 +158,9 @@ typedef struct{
     uint32_t millis;
     double temperature;
     double voltage;
+    // target X/Y position by last `short` or `long` command
+    int32_t Xtarget; // in SidServo's counts
+    int32_t Ytarget; // -//-
 } mountdata_t;
 
 typedef struct{

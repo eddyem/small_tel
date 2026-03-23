@@ -16,6 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <float.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,34 +26,70 @@
 #include "PID.h"
 #include "serial.h"
 
-PIDController_t *pid_create(const PIDpar_t *gain, size_t Iarrsz){
+typedef struct {
+    PIDpar_t gain;      // PID gains
+    double prev_error;  // Previous error
+    double prev_tagpos; // previous target position
+    double integral;    // Integral term
+    double *pidIarray;  // array for Integral
+    struct timespec prevT; // time of previous correction
+    size_t pidIarrSize; // it's size
+    size_t curIidx;     // and index of current element
+} PIDController_t;
+
+typedef struct{
+    axis_status_t state;
+    coordval_t position;
+    coordval_t speed;
+} axisdata_t;
+
+static PIDController_t *pid_create(const PIDpar_t *gain, size_t Iarrsz){
     if(!gain || Iarrsz < 3) return NULL;
     PIDController_t *pid = (PIDController_t*)calloc(1, sizeof(PIDController_t));
     pid->gain = *gain;
     DBG("Created PID with P=%g, I=%g, D=%g\n", gain->P, gain->I, gain->D);
     pid->pidIarrSize = Iarrsz;
     pid->pidIarray = (double*)calloc(Iarrsz, sizeof(double));
+    curtime(&pid->prevT);
     return pid;
 }
 
 // don't clear lastT!
-void pid_clear(PIDController_t *pid){
+static void pid_clear(PIDController_t *pid){
     if(!pid) return;
     DBG("CLEAR PID PARAMETERS");
     bzero(pid->pidIarray, sizeof(double) * pid->pidIarrSize);
     pid->integral = 0.;
     pid->prev_error = 0.;
     pid->curIidx = 0;
+    curtime(&pid->prevT);
 }
-
-void pid_delete(PIDController_t **pid){
+/*
+static void pid_delete(PIDController_t **pid){
     if(!pid || !*pid) return;
     if((*pid)->pidIarray) free((*pid)->pidIarray);
     free(*pid);
     *pid = NULL;
-}
+}*/
 
-double pid_calculate(PIDController_t *pid, double error, double dt){
+// calculate new motor speed
+static double pid_calculate(PIDController_t *pid, double axispos, const coordval_t *target){
+    double dtpid = timediff(&target->t, &pid->prevT);
+    if(dtpid < 0 || dtpid > Conf.PIDMaxDt){
+        DBG("time diff too big: clear PID");
+        pid_clear(pid);
+        pid->prev_tagpos = target->val;
+        return 0.;
+    }
+    double dt = timediff(&target->t, &pid->prevT);
+    if(dt < FLT_EPSILON){
+        DBG("Target time in past");
+        return 0.;
+    }
+    pid->prevT = target->t;
+    double error = target->val - axispos;
+    double tagspeed = (target->val - pid->prev_tagpos) / dt;
+    pid->prev_tagpos = target->val;
     // calculate flowing integral
     double oldi = pid->pidIarray[pid->curIidx], newi = error * dt;
     //DBG("oldi/new: %g, %g", oldi, newi);
@@ -61,43 +98,33 @@ double pid_calculate(PIDController_t *pid, double error, double dt){
     pid->integral += newi - oldi;
     double derivative = (error - pid->prev_error) / dt;
     pid->prev_error = error;
-    double sum = pid->gain.P * error + pid->gain.I * pid->integral + pid->gain.D * derivative;
-    DBG("P=%g, I=%g, D=%g; sum=%g", pid->gain.P * error, pid->gain.I * pid->integral, pid->gain.D * derivative, sum);
+    DBG("pid pars: P=%g, I=%g, D=%f", pid->gain.P, pid->gain.I, pid->gain.D);
+    double sum = pid->gain.P * error + pid->gain.I * pid->integral + pid->gain.D * derivative + tagspeed;
+    DBG("tagspeed=%g, P=%g, I=%g, D=%g; sum=%g", tagspeed, pid->gain.P * error,
+        pid->gain.I * pid->integral, pid->gain.D * derivative, sum);
     return sum;
 }
 
-typedef struct{
-    PIDController_t *PIDC;
-    PIDController_t *PIDV;
-} PIDpair_t;
-
-typedef struct{
-    axis_status_t state;
-    coordval_t position;
-    coordval_t speed;
-} axisdata_t;
 /**
  * @brief process - Process PID for given axis
  * @param tagpos - given coordinate of target position
  * @param endpoint - endpoint for this coordinate
  * @param pid - pid itself
- * @return calculated new speed or -1 for max speed
+ * @return calculated NEW SPEED or NAN for max speed
  */
-static double getspeed(const coordval_t *tagpos, PIDpair_t *pidpair, axisdata_t *axis){
+static double getspeed(const coordval_t *tagpos, PIDController_t *pid, axisdata_t *axis){
     double dt = timediff(&tagpos->t, &axis->position.t);
     if(dt < 0 || dt > Conf.PIDMaxDt){
         DBG("target time: %ld, axis time: %ld - too big! (tag-ax=%g)", tagpos->t.tv_sec, axis->position.t.tv_sec, dt);
         return axis->speed.val; // data is too old or wrong
     }
     double error = tagpos->val - axis->position.val, fe = fabs(error);
-    DBG("error: %g", error);
-    PIDController_t *pid = NULL;
+    DBG("error: %g'', cur speed: %g (deg/s)", error * 180. * 3600. / M_PI, axis->speed.val*180./M_PI);
     switch(axis->state){
         case AXIS_SLEWING:
-            if(fe < Conf.MaxPointingErr){
+            if(fe < Conf.MaxFinePointingErr){
                 axis->state = AXIS_POINTING;
                 DBG("--> Pointing");
-                pid = pidpair->PIDC;
             }else{
                 DBG("Slewing...");
                 return NAN; // max speed for given axis
@@ -107,28 +134,26 @@ static double getspeed(const coordval_t *tagpos, PIDpair_t *pidpair, axisdata_t 
             if(fe < Conf.MaxFinePointingErr){
                 axis->state = AXIS_GUIDING;
                 DBG("--> Guiding");
-                pid = pidpair->PIDV;
             }else if(fe > Conf.MaxPointingErr){
                 DBG("--> Slewing");
                 axis->state = AXIS_SLEWING;
                 return NAN;
-            } else pid = pidpair->PIDC;
+            }
             break;
         case AXIS_GUIDING:
-            pid = pidpair->PIDV;
             if(fe > Conf.MaxFinePointingErr){
                 DBG("--> Pointing");
                 axis->state = AXIS_POINTING;
-                pid = pidpair->PIDC;
             }else if(fe < Conf.MaxGuidingErr){
                 DBG("At target");
                 // TODO: we can point somehow that we are at target or introduce new axis state
-            }else DBG("Current error: %g", fe);
+            }else DBG("Current abs error: %g", fe);
             break;
+        case AXIS_GONNASTOP:
         case AXIS_STOPPED: // start pointing to target; will change speed next time
             DBG("AXIS STOPPED!!!! --> Slewing");
             axis->state = AXIS_SLEWING;
-            return getspeed(tagpos, pidpair, axis);
+            return getspeed(tagpos, pid, axis);
         case AXIS_ERROR:
             DBG("Can't move from erroneous state");
             return 0.;
@@ -137,17 +162,7 @@ static double getspeed(const coordval_t *tagpos, PIDpair_t *pidpair, axisdata_t 
         DBG("WTF? Where is a PID?");
         return axis->speed.val;
     }
-    double dtpid = timediff(&tagpos->t, &pid->prevT);
-    if(dtpid < 0 || dtpid > Conf.PIDMaxDt){
-        DBG("time diff too big: clear PID");
-        pid_clear(pid);
-    }
-    if(dtpid > Conf.PIDMaxDt) dtpid = Conf.PIDCycleDt;
-    pid->prevT = tagpos->t;
-    DBG("CALC PID (er=%g, dt=%g), state=%d", error, dtpid, axis->state);
-    double tagspeed = pid_calculate(pid, error, dtpid);
-    if(axis->state == AXIS_GUIDING) return axis->speed.val + tagspeed / dtpid; // velocity-based
-    return tagspeed; // coordinate-based
+    return pid_calculate(pid, axis->position.val, tagpos);
 }
 
 /**
@@ -157,18 +172,14 @@ static double getspeed(const coordval_t *tagpos, PIDpair_t *pidpair, axisdata_t 
  * @return error code
  */
 mcc_errcodes_t correct2(const coordval_pair_t *target){
-    static PIDpair_t pidX = {0}, pidY = {0};
-    if(!pidX.PIDC){
-        pidX.PIDC = pid_create(&Conf.XPIDC, Conf.PIDCycleDt / Conf.PIDRefreshDt);
-        if(!pidX.PIDC) return MCC_E_FATAL;
-        pidX.PIDV = pid_create(&Conf.XPIDV, Conf.PIDCycleDt / Conf.PIDRefreshDt);
-        if(!pidX.PIDV) return MCC_E_FATAL;
+    static PIDController_t *pidX = NULL, *pidY = NULL;
+    if(!pidX){
+        pidX = pid_create(&Conf.XPIDV, Conf.PIDCycleDt / Conf.PIDRefreshDt);
+        if(!pidX) return MCC_E_FATAL;
     }
-    if(!pidY.PIDC){
-        pidY.PIDC = pid_create(&Conf.YPIDC, Conf.PIDCycleDt / Conf.PIDRefreshDt);
-        if(!pidY.PIDC) return MCC_E_FATAL;
-        pidY.PIDV = pid_create(&Conf.YPIDV, Conf.PIDCycleDt / Conf.PIDRefreshDt);
-        if(!pidY.PIDV) return MCC_E_FATAL;
+    if(!pidY){
+        pidY = pid_create(&Conf.YPIDV, Conf.PIDCycleDt / Conf.PIDRefreshDt);
+        if(!pidY) return MCC_E_FATAL;
     }
     mountdata_t m;
     coordpair_t tagspeed; // absolute value of speed
@@ -179,7 +190,7 @@ mcc_errcodes_t correct2(const coordval_pair_t *target){
     axis.state = m.Xstate;
     axis.position = m.encXposition;
     axis.speed = m.encXspeed;
-    tagspeed.X = getspeed(&target->X, &pidX, &axis);
+    tagspeed.X = getspeed(&target->X, pidX, &axis);
     if(isnan(tagspeed.X)){ // max speed
         if(target->X.val < axis.position.val) Xsign = -1.;
         tagspeed.X = Xlimits.max.speed;
@@ -191,7 +202,7 @@ mcc_errcodes_t correct2(const coordval_pair_t *target){
     axis.state = m.Ystate;
     axis.position = m.encYposition;
     axis.speed = m.encYspeed;
-    tagspeed.Y = getspeed(&target->Y, &pidY, &axis);
+    tagspeed.Y = getspeed(&target->Y, pidY, &axis);
     if(isnan(tagspeed.Y)){ // max speed
         if(target->Y.val < axis.position.val) Ysign = -1.;
         tagspeed.Y = Ylimits.max.speed;
@@ -205,6 +216,7 @@ mcc_errcodes_t correct2(const coordval_pair_t *target){
         setStat(xstate, ystate);
     }
     coordpair_t endpoint;
+#if 0
     // allow at least PIDMaxDt moving with target speed
     double dv = fabs(tagspeed.X - m.encXspeed.val);
     double adder = dv/Xlimits.max.accel * (m.encXspeed.val + dv / 2.) // distanse with changing speed
@@ -215,6 +227,16 @@ mcc_errcodes_t correct2(const coordval_pair_t *target){
     adder = dv/Ylimits.max.accel * (m.encYspeed.val + dv / 2.)
             + Conf.PIDMaxDt * tagspeed.Y
             + tagspeed.Y * tagspeed.Y / Ylimits.max.accel / 2.;
+    endpoint.Y = m.encYposition.val + Ysign * adder;
+#endif
+    // allow 10s moving but not more than 10deg and not less than 1deg
+    double adder = fabs(tagspeed.X) * 10.;
+    if(adder > 0.17453) adder = 0.17453;
+    else if(adder < 0.017453) adder = 0.017453;
+    endpoint.X = m.encXposition.val + Xsign * adder;
+    adder = fabs(tagspeed.Y) * 10.;
+    if(adder > 0.17453) adder = 0.17453;
+    else if(adder < 0.017453) adder = 0.017453;
     endpoint.Y = m.encYposition.val + Ysign * adder;
     DBG("TAG speeds: %g/%g (deg/s); TAG pos: %g/%g (deg)", tagspeed.X/M_PI*180., tagspeed.Y/M_PI*180., endpoint.X/M_PI*180., endpoint.Y/M_PI*180.);
     return Mount.moveWspeed(&endpoint, &tagspeed);

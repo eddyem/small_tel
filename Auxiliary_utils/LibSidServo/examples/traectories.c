@@ -42,6 +42,7 @@ int init_traectory(traectory_fn f, coordpair_t *XY0){
     cur_traectory = f;
     XYstart = *XY0;
     tstart = Mount.timeFromStart();
+    DBG("inited @ %gs from start", tstart);
     mountdata_t mdata;
     int ntries = 0;
     for(; ntries < 10; ++ntries){
@@ -58,11 +59,21 @@ int init_traectory(traectory_fn f, coordpair_t *XY0){
  * @return FALSE if something wrong (e.g. X not in -90..90 or Y not in -180..180)
  */
 int traectory_point(coordpair_t *nextpt, double t){
-    if(t < 0. || !cur_traectory) return FALSE;
+    if(t < 0. || !cur_traectory){
+        if(t < 0.) DBG("time in past!");
+        else DBG("no current traectory selected!");
+        return FALSE;
+    }
     coordpair_t pt;
-    if(!cur_traectory(&pt, t)) return FALSE;
+    if(!cur_traectory(&pt, t)){
+        DBG("error in cur_traectory");
+        return FALSE;
+    }
     if(nextpt) *nextpt = pt;
-    if(pt.X < -M_PI_2 || pt.X > M_PI_2 || pt.Y < -M_PI || pt.Y > M_PI) return FALSE;
+    if(pt.X < -M_PI_2 || pt.X > M_PI_2 || pt.Y < -M_PI || pt.Y > M_PI){
+        DBG("some points is over limits, pt.x=%g, pt.y=%g degrees", RAD2DEG(pt.X), RAD2DEG(pt.Y));
+        return FALSE;
+    }
     return TRUE;
 }
 
@@ -88,6 +99,7 @@ int telpos(coordval_pair_t *curpos){
 // X=X0+1'/s, Y=Y0+15''/s
 int Linear(coordpair_t *nextpt, double t){
     coordpair_t pt;
+    DBG("t=%g, tfromstart=%g, dt=%g", t, tstart, t-tstart);
     pt.X = XYstart.X + ASEC2RAD(0.1) * (t - tstart);
     pt.Y = XYstart.Y + ASEC2RAD(15.)* (t - tstart);
     if(nextpt) *nextpt = pt;
@@ -98,7 +110,7 @@ int Linear(coordpair_t *nextpt, double t){
 int SinCos(coordpair_t *nextpt, double t){
     coordpair_t pt;
     pt.X = XYstart.X + ASEC2RAD(5.) * sin((t-tstart)/30.*2*M_PI);
-    pt.Y = XYstart.Y + AMIN2RAD(10.)* cos((t-tstart)/200.*2*M_PI);
+    pt.Y = XYstart.Y + AMIN2RAD(1.)* cos((t-tstart)/10.*2*M_PI);
     if(nextpt) *nextpt = pt;
     return TRUE;
 }
@@ -111,7 +123,7 @@ typedef struct{
 
 static tr_names names[] = {
     {Linear, "linear", "X=X0+0.1''/s, Y=Y0+15''/s"},
-    {SinCos, "sincos", "X=X0+5''*sin(t/30*2pi), Y=Y0+10'*cos(t/200*2pi)"},
+    {SinCos, "sincos", "X=X0+5''*sin(t/30*2pi), Y=Y0+1'*cos(t/10*2pi)"},
     {NULL, NULL, NULL}
 };
 

@@ -209,12 +209,14 @@ extern double X_MOT_STEPSPERREV, Y_MOT_STEPSPERREV, X_ENC_STEPSPERREV, Y_ENC_STE
 
 // convert angle in radians to +-pi
 static inline __attribute__((always_inline)) double ang2half(double ang){
+    ang = fmod(ang, 2.*M_PI);
     if(ang < -M_PI) ang += 2.*M_PI;
     else if(ang > M_PI) ang -= 2.*M_PI;
     return ang;
 }
 // convert to only positive: 0..2pi
 static inline __attribute__((always_inline)) double ang2full(double ang){
+    ang = fmod(ang, 2.*M_PI);
     if(ang < 0.) ang += 2.*M_PI;
     else if(ang > 2.*M_PI) ang -= 2.*M_PI;
     return ang;
