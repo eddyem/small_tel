@@ -1,3 +1,4 @@
+commands.h
 main.c
 socket.c
 socket.h

@@ -1,3 +1,8 @@
+# executables
+*
+!*.*
+!*/
+
 # Prerequisites
 *.d
 
@@ -26,3 +31,10 @@
 # build dirs
 mk/
 build/
+
+# diff
+*.log
+*.tgz
+*.tar.gz
+*.7z
+*.zip

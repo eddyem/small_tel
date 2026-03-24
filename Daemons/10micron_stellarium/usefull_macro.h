@@ -33,6 +33,8 @@
 #include <errno.h>
 #include <err.h>
 #include <locale.h>
+#include <sys/ioctl.h>
+
 #if defined GETTEXT_PACKAGE && defined LOCALEDIR
 /*
  * GETTEXT
@@ -47,7 +49,6 @@
 #endif
 #include <stdlib.h>
 #include <termios.h>
-#include <termio.h>
 #include <sys/time.h>
 #include <time.h>
 #include <sys/types.h>

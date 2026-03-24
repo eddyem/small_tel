@@ -21,6 +21,7 @@
 #include <pthread.h>
 #include <string.h>
 
+#include "commands.h"
 #include "socket.h"
 #include "term.h"
 
@@ -33,6 +34,7 @@ typedef enum{
 
 typedef struct{
     dome_commands_t cmd;
+    dome_commands_t erroredcmd; // command didn't run - waiting or stalled
     int errcode;    // error code
     char *status;   // device status
     int statlen;    // size of `status` buffer
@@ -55,24 +57,6 @@ void stopserver(){
     if(locksock) sl_sock_delete(&locksock);
     if(rb) sl_RB_delete(&rb);
 }
-
-#if 0
-// flags for standard handlers
-static sl_sock_int_t iflag = {0};
-static sl_sock_double_t dflag = {0};
-static sl_sock_string_t sflag = {0};
-static uint32_t bitflags = 0;
-
-static sl_sock_hresult_e show(sl_sock_t *client, _U_ sl_sock_hitem_t *item, _U_ const char *req){
-    if(locksock && locksock->type != SOCKT_UNIX){
-        if(*client->IP){
-            printf("Client \"%s\" (fd=%d) ask for flags:\n", client->IP, client->fd);
-        }else printf("Can't get client's IP, flags:\n");
-    }else printf("Socket fd=%d asks for flags:\n", client->fd);
-    printf("\tiflag=%" PRId64 ", dflag=%g\n", iflag.val, dflag.val);
-    return RESULT_OK;
-}
-#endif
 
 // send "measuret=..."
 static void sendtmeasured(sl_sock_t *client, double t){
@@ -116,17 +100,18 @@ static sl_sock_hresult_e stoph(_U_ sl_sock_t *client, _U_ sl_sock_hitem_t *item,
 static sl_sock_hresult_e statush(sl_sock_t *client, _U_ sl_sock_hitem_t *item, _U_ const char *req){
     char buf[256];
     double t = NAN;
-    int ecode;
+    int ecode, lastecmd;
     pthread_mutex_lock(&Dome.mutex);
     if(!*Dome.status || sl_dtime() - Dome.stattime > 3.*T_INTERVAL) snprintf(buf, 255, "%s=unknown\n", item->key);
     else{
         snprintf(buf, 255, "%s=%s\n", item->key, Dome.status);
         t = Dome.stattime;
     }
+    ecode = Dome.errcode;
+    lastecmd = Dome.erroredcmd;
+    pthread_mutex_unlock(&Dome.mutex);
     sl_sock_sendstrmessage(client, buf);
     if(!isnan(t)) sendtmeasured(client, t);
-    ecode = Dome.errcode;
-    pthread_mutex_unlock(&Dome.mutex);
     if(ecode){
         int l = snprintf(buf, 255, "error=closed");
         if(ecode > 99){
@@ -147,6 +132,17 @@ static sl_sock_hresult_e statush(sl_sock_t *client, _U_ sl_sock_hitem_t *item, _
         sl_sock_sendstrmessage(client, buf);
     }
     if(ForbidObservations) sl_sock_sendstrmessage(client, "FORBIDDEN\n");
+    if(lastecmd != CMD_NONE){
+        const char *tcmd;
+        switch(lastecmd){
+            case CMD_OPEN: tcmd = "open"; break;
+            case CMD_CLOSE: tcmd = "close"; break;
+            case CMD_STOP: tcmd = "stop"; break;
+            default: tcmd = "unknown";
+        }
+        snprintf(buf, 255, "errored_command=%s\n", tcmd);
+        sl_sock_sendstrmessage(client, buf);
+    }
     return RESULT_SILENCE;
 }
 
@@ -202,44 +198,8 @@ static sl_sock_hresult_e defhandler(struct sl_sock *s, const char *str){
     sl_sock_sendstrmessage(s, "\n```\nTry \"help\"\n");
     return RESULT_SILENCE;
 }
-#if 0
-// if we use this macro, there's no need to run `sl_sock_keyno_init` later
-static sl_sock_keyno_t kph_number = SL_SOCK_KEYNO_DEFAULT;
-// handler for key with optional parameter number
-static sl_sock_hresult_e keyparhandler(struct sl_sock *s, sl_sock_hitem_t *item, const char *req){
-    if(!item->data) return RESULT_FAIL;
-    char buf[1024];
-    int no = sl_sock_keyno_check((sl_sock_keyno_t*)item->data);
-    long long newval = -1;
-    if(req){
-        if(!sl_str2ll(&newval, req) || newval < 0 || newval > 0xffffffff) return RESULT_BADVAL;
-    }
-    printf("no = %d\n", no);
-    if(no < 0){ // flags as a whole
-        if(req) bitflags = (uint32_t)newval;
-        snprintf(buf, 1023, "flags = 0x%08X\n", bitflags);
-        sl_sock_sendstrmessage(s, buf);
-    }else if(no < 32){ // bit access
-        int bitmask = 1 << no;
-        if(req){
-            if(newval) bitflags |= bitmask;
-            else bitflags &= ~bitmask;
-        }
-        snprintf(buf, 1023, "flags[%d] = %d\n", no, bitflags & bitmask ? 1 : 0);
-        sl_sock_sendstrmessage(s, buf);
-    }else return RESULT_BADKEY;
-    return RESULT_SILENCE;
-}
-#endif
 
 static sl_sock_hitem_t handlers[] = {
-#if 0
-    {sl_sock_inthandler, "int", "set/get integer flag", (void*)&iflag},
-    {sl_sock_dblhandler, "dbl", "set/get double flag", (void*)&dflag},
-    {sl_sock_strhandler, "str", "set/get string variable", (void*)&sflag},
-    {keyparhandler, "flags", "set/get bit flags as whole (flags=val) or by bits (flags[bit]=val)", (void*)&kph_number},
-    {show, "show", "show current flags @ server console", NULL},
-#endif
     {openh, "open", "open dome", NULL},
     {closeh, "close", "close dome", NULL},
     {statush, "status", "get dome status", NULL},
@@ -251,68 +211,49 @@ static sl_sock_hitem_t handlers[] = {
 
 // dome polling; @return TRUE if all OK
 static int poll_device(){
-    char line[256];
-    if(write_cmd(TXT_GETWARN)){
-        DBG("Can't write command warning");
-        return FALSE;
+    char ans[ANSLEN];
+    char *data;
+    if(!(data = term_cmdwans(TXT_GETWARN, TXT_ANS_ERR, ans))) return FALSE;
+    DBG("Got status errno");
+    int I;
+    if(sscanf(data, "%d", &I) == 1){
+        pthread_mutex_lock(&Dome.mutex);
+        Dome.errcode = I;
+        pthread_mutex_unlock(&Dome.mutex);
+        DBG("errcode: %d", I);
     }
-    if(write_cmd(TXT_GETSTAT)){
-        DBG("Can't write command getstat");
-        return FALSE;
+    if(!(data = term_cmdwans(TXT_GETSTAT, TXT_ANS_STAT, ans))) return FALSE;
+    DBG("Got status ans");
+    if(sscanf(data, "%d", &I) == 1){
+        pthread_mutex_lock(&Dome.mutex);
+        if(I == 1111)
+            snprintf(Dome.status, Dome.statlen, "opened");
+        else if(I == 2222)
+            snprintf(Dome.status, Dome.statlen, "closed");
+        else
+            snprintf(Dome.status, Dome.statlen, "intermediate");
+        Dome.stattime = sl_dtime();
+        pthread_mutex_unlock(&Dome.mutex);
     }
-    if(write_cmd(TXT_GETWEAT)){
-        DBG("Can't write command getweath");
-        return FALSE;
+    if(!(data = term_cmdwans(TXT_GETWEAT, TXT_ANS_WEAT, ans))) return FALSE;
+    DBG("Got weather ans");
+    if(sscanf(data, "%d", &I) == 1){
+        pthread_mutex_lock(&Dome.mutex);
+        if(I == 0)
+            snprintf(Dome.weather, Dome.weathlen, "good");
+        else if (I == 1)
+            snprintf(Dome.weather, Dome.weathlen, "rain/clouds");
+        else
+            snprintf(Dome.weather, Dome.weathlen, "unknown");
+        Dome.weathtime = sl_dtime();
+        pthread_mutex_unlock(&Dome.mutex);
     }
-    int l = 0;
-    do{
-        l = read_term(line, 256);
-        if(l > 0) sl_RB_write(rb, (uint8_t*) line, l);
-    }while(l > 0);
-    pthread_mutex_lock(&Dome.mutex); // prepare user buffers
-    // read ringbuffer, run parser and change buffers in `Dome`
-    while(sl_RB_readline(rb, line, sizeof(line)) > 0){
-        if(strncmp(line, TXT_ANS_STAT, strlen(TXT_ANS_STAT)) == 0){
-            DBG("Got status ans");
-            int stat;
-            Dome.stattime = sl_dtime();
-            if(sscanf(line + strlen(TXT_ANS_STAT), "%d", &stat) == 1){
-                if(stat == 1111)
-                    snprintf(Dome.status, Dome.statlen, "opened");
-                else if(stat == 2222)
-                    snprintf(Dome.status, Dome.statlen, "closed");
-                else
-                    snprintf(Dome.status, Dome.statlen, "intermediate");
-            }
-        }else if(strncmp(line, TXT_ANS_ERR, strlen(TXT_ANS_ERR)) == 0){
-            DBG("Got status errno");
-            int ecode;
-            if(sscanf(line + strlen(TXT_ANS_ERR), "%d", &ecode) == 1){
-                Dome.errcode = ecode;
-                DBG("errcode: %d", ecode);
-            }
-        }else if(strncmp(line, TXT_ANS_WEAT, strlen(TXT_ANS_WEAT)) == 0){
-            DBG("Got weather ans");
-            int weather;
-            Dome.weathtime = sl_dtime();
-            if(sscanf(line + strlen(TXT_ANS_WEAT), "%d", &weather) == 1){
-                if(weather == 0)
-                    snprintf(Dome.weather, Dome.weathlen, "good weather");
-                else if (weather == 1)
-                    snprintf(Dome.weather, Dome.weathlen, "rain or clouds");
-                else
-                    snprintf(Dome.weather, Dome.weathlen, "unknown");
-            }
-        }else{
-            DBG("Unknown answer: %s", line);
-        }
-    }
-    pthread_mutex_unlock(&Dome.mutex);
     return TRUE;
 }
 
 void runserver(int isunix, const char *node, int maxclients){
     int forbidden = 0;
+    char ans[ANSLEN];
     if(locksock) sl_sock_delete(&locksock);
     if(rb) sl_RB_delete(&rb);
     rb = sl_RB_new(BUFSIZ);
@@ -335,11 +276,14 @@ void runserver(int isunix, const char *node, int maxclients){
     while(locksock && locksock->connected){
         if(ForbidObservations){
             if(!forbidden){
-                if(0 == write_cmd(TXT_CLOSEDOME)) forbidden = 1;
-                pthread_mutex_lock(&Dome.mutex);
-                Dome.cmd = CMD_NONE;
-                pthread_mutex_unlock(&Dome.mutex);
+                if(term_cmdwans(TXT_CLOSEDOME, TXT_ANS_MSGOK, ans)) forbidden = 1;
             }
+            pthread_mutex_lock(&Dome.mutex);
+            if(Dome.cmd != CMD_NONE){
+                Dome.erroredcmd = Dome.cmd;
+                Dome.cmd = CMD_NONE;
+            }
+            pthread_mutex_unlock(&Dome.mutex);
         }else forbidden = 0;
         usleep(1000);
         if(!locksock->rthread){
@@ -347,28 +291,31 @@ void runserver(int isunix, const char *node, int maxclients){
             LOGERR("Server handlers thread is dead");
             break;
         }
-        if(sl_dtime() - tgot > T_INTERVAL){
-            if(poll_device()) tgot = sl_dtime();
+        double tnow = sl_dtime();
+        if(tnow - tgot > T_INTERVAL){
+            if(poll_device()) tgot = tnow;
         }
+        if(ForbidObservations) continue;
         pthread_mutex_lock(&Dome.mutex);
         if(Dome.cmd != CMD_NONE){
             switch(Dome.cmd){
             case CMD_OPEN:
                 DBG("received command: open");
-                if(0 == write_cmd(TXT_OPENDOME)) Dome.cmd = CMD_NONE;
+                if(term_cmdwans(TXT_OPENDOME, TXT_ANS_MSGOK, ans)) Dome.cmd = CMD_NONE;
                 break;
             case CMD_CLOSE:
                 DBG("received command: close");
-                if(0 == write_cmd(TXT_CLOSEDOME)) Dome.cmd = CMD_NONE;
+                if(term_cmdwans(TXT_CLOSEDOME, TXT_ANS_MSGOK, ans)) Dome.cmd = CMD_NONE;
                 break;
             case CMD_STOP:
                 DBG("received command: stop");
-                if(0 == write_cmd(TXT_STOPDOME)) Dome.cmd = CMD_NONE;
+                if(term_cmdwans(TXT_STOPDOME, TXT_ANS_MSGOK, ans)) Dome.cmd = CMD_NONE;
                 break;
             default:
                 DBG("WTF?");
             }
         }
+        Dome.erroredcmd = Dome.cmd; // if command didn't run last time, it will store here
         pthread_mutex_unlock(&Dome.mutex);
     }
     stopserver();

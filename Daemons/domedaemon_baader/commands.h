@@ -18,16 +18,14 @@
 
 #pragma once
 
-#include <stdint.h>
-
-// pause before reading answer: for stupid baader = 50ms
-#define USLEEP_BEFORE_READ  50000
-
-// length of answer (including terminating zero)
-#define ANSLEN  128
-
-int term_open(char *path, int speed, double usec);
-void term_close();
-char *term_read(char ans[ANSLEN]);
-char *term_write(const char *str, char ans[ANSLEN]);
-char *term_cmdwans(const char *str, const char *prefix, char ans[ANSLEN]);
+// text commands and answers
+#define TXT_GETWARN     "d#warning"
+#define TXT_OPENDOME    "d#opendom"
+#define TXT_CLOSEDOME   "d#closdom"
+#define TXT_STOPDOME    "d#stopdom"
+#define TXT_GETSTAT     "d#get_dom"
+#define TXT_GETWEAT     "d#ask_wea"
+#define TXT_ANS_MSGOK   "d#gotmess"
+#define TXT_ANS_WEAT    "d#wea"
+#define TXT_ANS_STAT    "d#pos"
+#define TXT_ANS_ERR     "d#erro"

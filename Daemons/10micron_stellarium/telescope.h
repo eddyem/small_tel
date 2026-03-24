@@ -29,7 +29,7 @@
 // make datetime/pressure/temperature corrections each CORRECTIONS_TIMEDIFF seconds
 #define CORRECTIONS_TIMEDIFF    (3600)
 
-#define TELESCOPE_NAME      "'Astrosib-500 (1)'"
+#define TELESCOPE_NAME      "'Astrosib-500 (2)'"
 
 // telescope statuses
 typedef enum{

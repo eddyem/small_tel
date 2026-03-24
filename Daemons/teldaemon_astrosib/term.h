@@ -1,5 +1,5 @@
 /*
- * This file is part of the teldaemon project.
+ * This file is part of the baader_dome project.
  * Copyright 2026 Edward V. Emelianov <edward.emelianoff@gmail.com>.
  *
  * This program is free software: you can redistribute it and/or modify
@@ -18,31 +18,16 @@
 
 #pragma once
 
-// text commands and answers
-#define TXT_FOCUSABS    "FOCUSERGO?"
-#define TXT_FOCUSIN     "FOCUSERI?"
-#define TXT_FOCUSOUT    "FOCUSERO?"
-#define TXT_FOCSTOP     "FOCUSERSTOP?\r"
-#define TXT_FOCGET      "FOCUSERGPOS?\r"
-#define TXT_OPEN        "SHUTTEROPEN?1,1,1,1,1\r"
-#define TXT_CLOSE       "SHUTTERCLOSE?1,1,1,1,1\r"
-#define TXT_STATUS      "SHUTTERSTATUS?\r"
-#define TXT_COOLERON    "COOLERON?100\r"
-#define TXT_COOLEROFF   "COOLEROFF?\r"
-#define TXT_COOLERT     "COOLERT?\r"
-#define TXT_COOLERSTAT  "COOLERSTATUS?\r"
-#define TXT_PING        "PING?\r"
-#define TXT_ANS_OK      "OK"
-#define TXT_ANS_COOLERSTAT  "COOLERPWM?"
-#define TXT_ANS_COOLERT "COOLERT?"
-#define TXT_ANS_STATUS  "SHUTTERSTATUS?"
-#define TXT_ANS_FOCPOS  "FOCUSERPOS?"
+#include <stdint.h>
 
-#define FOC_MINPOS  0
-#define FOC_MAXPOS  65000
+// pause before reading answer: for stupid baader = 50ms
+#define USLEEP_BEFORE_READ  50000
 
-int open_term(char *path, int speed, double usec);
-void close_term();
-int read_term(char *buf, int length);
-int write_term(const char *buf, int length);
-int write_cmd(const char *buf);
+// length of answer (including terminating zero)
+#define ANSLEN  128
+
+int term_open(char *path, int speed, double usec);
+void term_close();
+char *term_read(char ans[ANSLEN]);
+char *term_write(const char *str, char ans[ANSLEN]);
+char *term_cmdwans(const char *str, const char *prefix, char ans[ANSLEN]);

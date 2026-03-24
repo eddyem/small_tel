@@ -23,7 +23,7 @@
 // size of weather/status buffers
 #define STATBUF_SZ      256
 // dome polling interval (clear watchdog & get status)
-#define T_INTERVAL      (1.0)
+#define T_INTERVAL      (5.0)
 
 void runserver(int isunix, const char *node, int maxclients);
 void stopserver();

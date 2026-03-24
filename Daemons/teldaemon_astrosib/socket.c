@@ -21,6 +21,7 @@
 #include <pthread.h>
 #include <string.h>
 
+#include "commands.h"
 #include "socket.h"
 #include "term.h"
 
@@ -37,6 +38,7 @@ typedef enum{
 
 typedef struct{
     tel_commands_t cmd; // deferred command
+    tel_commands_t errcmd; // command ended with error
     int focuserpos;     // focuser position
     char *status;       // device status
     int statlen;        // size of `status` buffer
@@ -54,7 +56,6 @@ static tel_t telescope = {0};
 static atomic_bool ForbidObservations = 0; // ==1 if all is forbidden -> close dome and not allow to open
 
 static sl_sock_t *locksock = NULL; // local server socket
-static sl_ringbuffer_t *rb = NULL; // incoming serial data
 
 // args of absolute/relative focus move commands
 static sl_sock_int_t Absmove = {0};
@@ -62,7 +63,6 @@ static sl_sock_int_t Relmove = {0};
 
 void stopserver(){
     if(locksock) sl_sock_delete(&locksock);
-    if(rb) sl_RB_delete(&rb);
 }
 
 // send "measuret=..."
@@ -106,20 +106,37 @@ static sl_sock_hresult_e fstoph(_U_ sl_sock_t *client, _U_ sl_sock_hitem_t *item
 
 static sl_sock_hresult_e statush(sl_sock_t *client, _U_ sl_sock_hitem_t *item, _U_ const char *req){
     char buf[256];
-    double t = NAN;
+    double t = NAN, mirt, ambt;
+    tel_commands_t lastecmd;
     pthread_mutex_lock(&telescope.mutex);
     if(!*telescope.status || sl_dtime() - telescope.stattime > 3.*T_INTERVAL) snprintf(buf, 255, "%s=unknown\n", item->key);
     else{
         snprintf(buf, 255, "%s=%s\n", item->key, telescope.status);
         t = telescope.stattime;
     }
+    mirt = telescope.mirrortemp;
+    ambt = telescope.ambienttemp;
+    lastecmd = telescope.errcmd;
+    pthread_mutex_unlock(&telescope.mutex);
     sl_sock_sendstrmessage(client, buf);
     if(!isnan(t)) sendtmeasured(client, t);
-    snprintf(buf, 255, "mirrortemp=%.1f\n", telescope.mirrortemp);
+    snprintf(buf, 255, "mirrortemp=%.1f\n", mirt);
     sl_sock_sendstrmessage(client, buf);
-    snprintf(buf, 255, "ambienttemp=%.1f\n", telescope.ambienttemp);
+    snprintf(buf, 255, "ambienttemp=%.1f\n", ambt);
     sl_sock_sendstrmessage(client, buf);
-    pthread_mutex_unlock(&telescope.mutex);
+    if(lastecmd != CMD_NONE){
+        const char *tcmd;
+        switch(lastecmd){
+            case CMD_OPEN: tcmd = "open"; break;
+            case CMD_CLOSE: tcmd = "close"; break;
+            case CMD_FOCSTOP: tcmd = "focstop"; break;
+            case CMD_COOLERON: case CMD_COOLEROFF: tcmd = "cooler"; break;
+            default: tcmd = "unknown";
+        }
+        snprintf(buf, 255, "errored_command=%s\n", tcmd);
+        sl_sock_sendstrmessage(client, buf);
+
+    }
     if(ForbidObservations) sl_sock_sendstrmessage(client, "FORBIDDEN\n");
     return RESULT_SILENCE;
 }
@@ -192,13 +209,6 @@ static sl_sock_hresult_e defhandler(struct sl_sock *s, const char *str){
 }
 
 static sl_sock_hitem_t handlers[] = {
-#if 0
-    {sl_sock_inthandler, "int", "set/get integer flag", (void*)&iflag},
-    {sl_sock_dblhandler, "dbl", "set/get double flag", (void*)&dflag},
-    {sl_sock_strhandler, "str", "set/get string variable", (void*)&sflag},
-    {keyparhandler, "flags", "set/get bit flags as whole (flags=val) or by bits (flags[bit]=val)", (void*)&kph_number},
-    {show, "show", "show current flags @ server console", NULL},
-#endif
     {sl_sock_inthandler, "focrel", "relative focus move", (void*)&Relmove},
     {sl_sock_inthandler, "focabs", "absolute focus move", (void*)&Absmove},
     {foch, "focpos", "current focuser position", NULL},
@@ -211,74 +221,54 @@ static sl_sock_hitem_t handlers[] = {
     {NULL, NULL, NULL, NULL}
 };
 
-static void serial_parser(){
-    char line[256];
-    int l = 0;
-    do{
-        l = read_term(line, 256);
-        if(l > 0){
-            if(l != (int)sl_RB_write(rb, (uint8_t*) line, l)) break;
-        }
-    }while(l > 0);
-
-    pthread_mutex_lock(&telescope.mutex); // prepare user buffers
-    // read ringbuffer, run parser and change buffers in `telescope`
-    while((l = sl_RB_readto(rb, '\r', (uint8_t*)line, sizeof(line))) > 0){
-        line[l-1] = 0; // substitute '\r' with 0
-        DBG("IN: %s", line);
-        if(strncmp(line, TXT_ANS_STATUS, strlen(TXT_ANS_STATUS)) == 0){
-            DBG("Got status ans");
-            telescope.stattime = sl_dtime();
-            char *s = line + strlen(TXT_ANS_STATUS);
-            if(strncmp(s, "0,0,0,0,0", 9) == 0) snprintf(telescope.status, telescope.statlen, "closed");
-            else if(strncmp(s, "1,1,1,1,1", 9) == 0) snprintf(telescope.status, telescope.statlen, "opened");
-            else snprintf(telescope.status, telescope.statlen, "intermediate");
-        }else if(strncmp(line, TXT_ANS_COOLERSTAT, strlen(TXT_ANS_COOLERSTAT)) == 0){
-            DBG("Got cooler status");
-            int s;
-            if(sscanf(line + strlen(TXT_ANS_COOLERSTAT), "%d", &s) == 1){
-                telescope.cooler = s;
-            }
-        }else if(strncmp(line, TXT_ANS_COOLERT, strlen(TXT_ANS_COOLERT)) == 0){
-            DBG("Got weather ans");
-            float m, a;
-            if(sscanf(line + strlen(TXT_ANS_COOLERT), "%f,%f", &m, &a) == 2){
-                telescope.ambienttemp = a;
-                telescope.mirrortemp = m;
-            }
-        }else if(strncmp(line, TXT_ANS_FOCPOS, strlen(TXT_ANS_FOCPOS)) == 0){
-            DBG("Got focuser position");
-            int p;
-            if(sscanf(line + strlen(TXT_ANS_FOCPOS), "%d", &p) == 1){
-                telescope.focuserpos = p;
-            }
-        }else{
-            DBG("Unknown answer: %s", line);
-        }
-    }
-    pthread_mutex_unlock(&telescope.mutex);
-}
-
 // dome polling; @return TRUE if all OK
 static int poll_device(){
-    static const char *reqcmds[] = {TXT_FOCGET, TXT_STATUS, TXT_COOLERT, TXT_COOLERSTAT, NULL};
-    for(const char **cmd = reqcmds; *cmd; ++cmd){
-        if(write_cmd(*cmd)){
-            LOGWARN("Can't write command %s", *cmd);
-            DBG("Can't write command %s", *cmd);
-            return FALSE;
-        }
-        serial_parser();
+    char ans[ANSLEN];
+    char *data;
+    int I;
+
+    if(!(data = term_cmdwans(TXT_FOCGET, TXT_ANS_FOCPOS, ans))) return FALSE;
+    DBG("\nGot focuser position");
+    if(sscanf(data, "%d", &I) == 1){
+        pthread_mutex_lock(&telescope.mutex);
+        telescope.focuserpos = I;
+        pthread_mutex_unlock(&telescope.mutex);
+    }
+
+    if(!(data = term_cmdwans(TXT_STATUS, TXT_ANS_STATUS, ans))) return FALSE;
+    DBG("\nGot status");
+    pthread_mutex_lock(&telescope.mutex);
+    telescope.stattime = sl_dtime();
+    if(strncmp(data, "0,0,0,0,0", 9) == 0) snprintf(telescope.status, telescope.statlen, "closed");
+    else if(strncmp(data, "1,1,1,1,1", 9) == 0) snprintf(telescope.status, telescope.statlen, "opened");
+    else snprintf(telescope.status, telescope.statlen, "intermediate");
+    pthread_mutex_unlock(&telescope.mutex);
+
+    if(!(data = term_cmdwans(TXT_COOLERT, TXT_ANS_COOLERT, ans))) return FALSE;
+    DBG("\nGot weather ans");
+    float m, a;
+    if(sscanf(data, "%f,%f", &m, &a) == 2){
+        pthread_mutex_lock(&telescope.mutex);
+        telescope.ambienttemp = a;
+        telescope.mirrortemp = m;
+        pthread_mutex_unlock(&telescope.mutex);
+    }
+
+    if(!(data = term_cmdwans(TXT_COOLERSTAT, TXT_ANS_COOLERSTAT, ans))) return FALSE;
+    DBG("\nGot cooler status");
+    if(sscanf(data, "%d", &I) == 1){
+        pthread_mutex_lock(&telescope.mutex);
+        telescope.cooler = I;
+        pthread_mutex_unlock(&telescope.mutex);
     }
     return TRUE;
 }
 
 void runserver(int isunix, const char *node, int maxclients){
+    char ans[ANSLEN];
     int forbidden = 0;
     if(locksock) sl_sock_delete(&locksock);
-    if(rb) sl_RB_delete(&rb);
-    rb = sl_RB_new(BUFSIZ);
-    telescope.cmd = CMD_NONE;
+    telescope.errcmd = telescope.cmd = CMD_NONE;
     FREE(telescope.status);
     telescope.statlen = STATBUF_SZ;
     telescope.status = MALLOC(char, STATBUF_SZ);
@@ -294,7 +284,7 @@ void runserver(int isunix, const char *node, int maxclients){
     while(locksock && locksock->connected){
         if(ForbidObservations){
             if(!forbidden){
-                if(0 == write_cmd(TXT_CLOSE)) forbidden = 1;
+                if(term_cmdwans(TXT_CLOSE, TXT_ANS_OK, ans)) forbidden = 1;
                 pthread_mutex_lock(&telescope.mutex);
                 telescope.cmd = CMD_NONE;
                 pthread_mutex_unlock(&telescope.mutex);
@@ -310,33 +300,38 @@ void runserver(int isunix, const char *node, int maxclients){
         if(tnow - tgot > T_INTERVAL){
             if(poll_device()) tgot = tnow;
         }
+        if(ForbidObservations) continue;
         pthread_mutex_lock(&telescope.mutex);
-        if(telescope.cmd != CMD_NONE){
-            switch(telescope.cmd){
+        tel_commands_t tcmd = telescope.cmd;
+        pthread_mutex_unlock(&telescope.mutex);
+        if(tcmd != CMD_NONE){
+            switch(tcmd){
             case CMD_OPEN:
                 DBG("received command: open");
-                if(0 == write_cmd(TXT_OPEN)) telescope.cmd = CMD_NONE;
+                if(term_cmdwans(TXT_OPEN, TXT_ANS_OK, ans)) tcmd = CMD_NONE;
                 break;
             case CMD_CLOSE:
                 DBG("received command: close");
-                if(0 == write_cmd(TXT_CLOSE)) telescope.cmd = CMD_NONE;
+                if(term_cmdwans(TXT_CLOSE, TXT_ANS_OK, ans)) tcmd = CMD_NONE;
                 break;
             case CMD_FOCSTOP:
                 DBG("received command: stop focus");
-                if(0 == write_cmd(TXT_FOCSTOP)) telescope.cmd = CMD_NONE;
+                term_write(TXT_FOCSTOP, ans); tcmd = CMD_NONE; // erroreous thing: no answer for this command
                 break;
             case CMD_COOLEROFF:
                 DBG("received command: cooler off");
-                if(0 == write_cmd(TXT_COOLEROFF)) telescope.cmd = CMD_NONE;
+                if(term_cmdwans(TXT_COOLEROFF, TXT_ANS_OK, ans)) tcmd = CMD_NONE;
                 break;
             case CMD_COOLERON:
                 DBG("received command: cooler on");
-                if(0 == write_cmd(TXT_COOLERON)) telescope.cmd = CMD_NONE;
+                if(term_cmdwans(TXT_COOLERON, TXT_ANS_OK, ans)) tcmd = CMD_NONE;
                 break;
             default:
                 DBG("WTF?");
             }
         }
+        pthread_mutex_lock(&telescope.mutex);
+        telescope.cmd = telescope.errcmd = tcmd;
         pthread_mutex_unlock(&telescope.mutex);
         // check abs/rel move
         char buf[256];
@@ -345,7 +340,7 @@ void runserver(int isunix, const char *node, int maxclients){
             if(Absmove.val < FOC_MINPOS || Absmove.val > FOC_MAXPOS) Absmove.timestamp = 0.; // reset wrong data
             else{
                 snprintf(buf, 255, "%s%d\r", TXT_FOCUSABS, (int)Absmove.val);
-                if(0 == write_cmd(buf)){
+                if(term_cmdwans(buf, TXT_ANS_OK, ans)){
                     DBG("STARTED absmove");
                     Absmove.timestamp = 0.;
                 }
@@ -360,13 +355,12 @@ void runserver(int isunix, const char *node, int maxclients){
                 DBG("pos=%d", pos);
                 if(pos < 0){ cmd = TXT_FOCUSIN; pos = -pos; }
                 snprintf(buf, 255, "%s%d\r", cmd, pos);
-                if(0 == write_cmd(buf)){
+                if(term_cmdwans(buf, TXT_ANS_OK, ans)){
                     DBG("STARTED relmove");
                     Relmove.timestamp = 0.;
                 }
             }
         }
-        serial_parser();
     }
     stopserver();
 }

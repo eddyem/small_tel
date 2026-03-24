@@ -41,7 +41,8 @@ typedef struct{
 
 static parameters G = {
     .maxclients = 2,
-    .serspeed = 9600
+    .serspeed = 9600,
+    .sertmout = 5000
 };
 
 static sl_option_t cmdlnopts[] = {
@@ -77,7 +78,7 @@ void signals(int sig){
     DBG("Stop server");
     stopserver();
     DBG("Close terminal");
-    close_term();
+    term_close();
     DBG("Exit");
     exit(sig);
 }
@@ -94,7 +95,7 @@ int main(int argc, char **argv){
     if(lvl >= LOGLEVEL_AMOUNT) lvl = LOGLEVEL_AMOUNT - 1;
     if(G.logfile) OPENLOG(G.logfile, lvl, 1);
     LOGMSG("Started");
-    if(!open_term(G.termpath, G.serspeed, G.sertmout)){
+    if(!term_open(G.termpath, G.serspeed, G.sertmout)){
         LOGERR("Can't open %s", G.termpath);
         ERRX("Fatal error");
     }
