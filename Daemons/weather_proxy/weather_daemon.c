@@ -10,6 +10,7 @@
 #include <arpa/inet.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <fcntl.h>
 #include <semaphore.h>
 #include <signal.h>
@@ -29,22 +30,6 @@ static sem_t *sem = NULL;
 static weather_data_t *shared_data = NULL;
 static volatile int running = 1;
 
-#if 0
-static void log_message(const char *fmt, ...) {
-    va_list ap;
-    va_start(ap, fmt);
-    vsyslog(LOG_DAEMON | LOG_INFO, fmt, ap);
-    va_end(ap);
-}
-
-static void log_error(const char *fmt, ...) {
-    va_list ap;
-    va_start(ap, fmt);
-    vsyslog(LOG_DAEMON | LOG_ERR, fmt, ap);
-    va_end(ap);
-}
-#endif
-
 #define log_message(...)    do{printf("message: "); printf(__VA_ARGS__); printf("\n");}while(0)
 #define log_error(...)      do{printf("error: "); printf(__VA_ARGS__); printf("\n");}while(0)
 
@@ -56,11 +41,12 @@ static void signal_handler(int sig) {
 }
 
 static int init_ipc(void) {
-    shm_fd = shm_open(SHM_NAME, O_RDWR, 0600); // try to open existant SHM
+    umask(0); // for read-write semaphore
+    shm_fd = shm_open(SHM_NAME, O_RDWR, 0644); // try to open existant SHM
     if (shm_fd == -1) {
         printf("Create new shared memory\n");
         // no - create new
-        shm_fd = shm_open(SHM_NAME, O_CREAT | O_RDWR, 0600);
+        shm_fd = shm_open(SHM_NAME, O_CREAT | O_RDWR, 0644);
         if (shm_fd == -1) {
             log_error("shm_open (create) failed: %s", strerror(errno));
             return -1;
@@ -90,7 +76,7 @@ static int init_ipc(void) {
     memset(shared_data, 0, sizeof(weather_data_t));
 
     // create samaphore if no
-    sem = sem_open(SEM_NAME, O_CREAT, 0600, 1);
+    sem = sem_open(SEM_NAME, O_CREAT, 0666, 1);
     if (sem == SEM_FAILED) {
         log_error("sem_open failed: %s", strerror(errno));
         return -1;
@@ -102,13 +88,16 @@ static int init_ipc(void) {
 static void cleanup_ipc(void) {
     if (sem != NULL) {
         sem_close(sem);
+        printf("semaphore closed\n");
         if(-1 == sem_unlink(SEM_NAME)) perror("Can't delete semaphore");
     }
     if (shared_data != NULL) {
+        printf("memory unmapped\n");
         munmap(shared_data, sizeof(weather_data_t));
     }
     if (shm_fd != -1) {
         close(shm_fd);
+        printf("close shared mem\n");
         if (shm_unlink(SHM_NAME) == -1) {
             perror("can't unlink SHM");
         }
@@ -256,46 +245,6 @@ static void run_daemon(const char *server_ip, int port) {
     }
     close(sock);
 }
-
-
-#if 0
-static void daemonize(void) {
-    pid_t pid = fork();
-    if (pid < 0) {
-        perror("fork");
-        exit(EXIT_FAILURE);
-    }
-    if (pid > 0) exit(EXIT_SUCCESS);
-
-    if (setsid() < 0) {
-        perror("setsid");
-        exit(EXIT_FAILURE);
-    }
-
-    signal(SIGHUP, SIG_IGN);
-
-    pid = fork();
-    if (pid < 0) {
-        perror("second fork");
-        exit(EXIT_FAILURE);
-    }
-    if (pid > 0) exit(EXIT_SUCCESS);
-
-    if (chdir("/") < 0) {
-        perror("chdir");
-        exit(EXIT_FAILURE);
-    }
-
-    umask(0);
-
-    close(STDIN_FILENO);
-    close(STDOUT_FILENO);
-    close(STDERR_FILENO);
-    open("/dev/null", O_RDWR);
-    dup(0);
-    dup(0);
-}
-#endif
 
 int main(int argc, char *argv[]) {
     if (argc != 3) {
