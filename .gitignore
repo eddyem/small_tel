@@ -2,6 +2,8 @@
 *
 !*.*
 !*/
+!Makefile
+![Rr][Ee][Aa][Dd][Mm][Ee]
 
 # Prerequisites
 *.d
@@ -33,6 +35,7 @@ mk/
 build/
 
 # diff
+.qtcreator/*
 *.log
 *.tgz
 *.tar.gz

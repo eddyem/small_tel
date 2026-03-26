@@ -1,0 +1,4 @@
+weather_client.c
+weather_clt_example.c
+weather_daemon.c
+weather_data.h
