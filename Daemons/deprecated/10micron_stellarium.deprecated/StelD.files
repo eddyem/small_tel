@@ -1,0 +1,14 @@
+cmdlnopts.c
+cmdlnopts.h
+daemon.c
+emulation.c
+emulation.h
+libsofa.c
+libsofa.h
+main.c
+main.h
+socket.c
+socket.h
+telescope.c
+telescope.h
+usefull_macro.c

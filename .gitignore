@@ -5,6 +5,13 @@
 !Makefile
 ![Rr][Ee][Aa][Dd][Mm][Ee]
 
+# build dirs
+mk/
+build/
+.qtc_clangd
+.qtcreator
+
+
 # Prerequisites
 *.d
 
@@ -30,9 +37,6 @@
 *.so
 *.so.*
 
-# build dirs
-mk/
-build/
 
 # diff
 .qtcreator/
