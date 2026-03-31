@@ -20,11 +20,21 @@
 #include <signal.h>
 #include <stdio.h>
 #include <string.h>
+#include <linux/prctl.h>
+#include <sys/prctl.h>
+#include <sys/wait.h>
 #include <sys/socket.h>
 #include <usefull_macros.h>
 
+#include "header.h"
 #include "socket.h"
 #include "term.h"
+
+#define DEFAULT_PIDFILE     "/tmp/teldaemon.pid"
+#define DEFAULT_HEADERFILE  "/tmp/telescope.pid"
+#define DEFAULT_TELNAME     "Astro-M (1)"
+
+static pid_t childpid = 0;
 
 typedef struct{
     int help;
@@ -32,65 +42,103 @@ typedef struct{
     int isunix;
     int maxclients;
     int serspeed;
+    int headermask;
     double sertmout;
     char *logfile;
     char *node;
     char *termpath;
     char *pidfile;
+    char *headerfile;
+    char *telescope_name;
 } parameters;
 
 static parameters G = {
     .maxclients = 2,
     .serspeed = 9600,
     .sertmout = 1000.,
+    .pidfile = DEFAULT_PIDFILE,
+    .headerfile = DEFAULT_HEADERFILE,
+    .telescope_name = DEFAULT_TELNAME,
+    .headermask = 0xff,
 };
 
 static sl_option_t cmdlnopts[] = {
     {"help",        NO_ARGS,    NULL,   'h',    arg_int,    APTR(&G.help),      "show this help"},
     {"verbose",     NO_ARGS,    NULL,   'v',    arg_none,   APTR(&G.verbose),   "verbose level (each -v adds 1)"},
-    {"logfile",     NEED_ARG,   NULL,   'l',    arg_string, APTR(&G.logfile),   "log file name"},
+    {"logfile",     NEED_ARG,   NULL,   'l',    arg_string, APTR(&G.logfile),   "log file name (FULL path)"},
     {"node",        NEED_ARG,   NULL,   'n',    arg_string, APTR(&G.node),      "node \"IP\", \"name:IP\" or path (could be \"\\0path\" for anonymous UNIX-socket)"},
     {"unixsock",    NO_ARGS,    NULL,   'u',    arg_int,    APTR(&G.isunix),    "UNIX socket instead of INET"},
     {"maxclients",  NEED_ARG,   NULL,   'm',    arg_int,    APTR(&G.maxclients),"max amount of clients connected to server (default: 2)"},
-    {"pidfile",     NEED_ARG,   NULL,   'p',    arg_string, APTR(&G.pidfile),   "PID-file"},
+    {"pidfile",     NEED_ARG,   NULL,   'p',    arg_string, APTR(&G.pidfile),   "PID-file (FULL path, default: " DEFAULT_PIDFILE ")"},
     {"serialdev",   NEED_ARG,   NULL,   'd',    arg_string, APTR(&G.termpath),  "full path to serial device"},
     {"baudrate",    NEED_ARG,   NULL,   'b',    arg_int,    APTR(&G.serspeed),  "serial device speed (baud)"},
-    {"sertmout",    NEED_ARG,   NULL,   'T',    arg_double, APTR(&G.sertmout),  "serial device timeout (us)"},
+    {"sertmout",    NEED_ARG,   NULL,   't',    arg_double, APTR(&G.sertmout),  "serial device timeout (us)"},
+    {"headerfile",  NEED_ARG,   NULL,   'H',    arg_string, APTR(&G.headerfile),"full path to output FITS-header"},
+    {"telname",     NEED_ARG,   NULL,   'N',    arg_string, APTR(&G.telescope_name), "telescope name in FITS-header"},
+    {"headermask",  NEED_ARG,   NULL,   'M',    arg_int,    APTR(&G.headermask), "mask of header file (try -1 for help; default: show all)"},
     end_option
 };
 
+void sl_iffound_deflt(pid_t pid){
+    WARNX("Another copy of this process found, pid=%d. Exit.", pid);
+    exit(1); // don't run `signals` to protect foreign PID-file from removal
+}
 
 // SIGUSR1 - FORBID observations
 // SIGUSR2 - allow
 void signals(int sig){
     if(sig){
-        if(sig == SIGUSR1){
-            forbid_observations(1);
-            return;
-        }else if(sig == SIGUSR2){
-            forbid_observations(0);
-            return;
+        if(signals != signal(sig, SIG_IGN)) exit(sig); // function called "as is", before sig registration
+        if(childpid == 0){ // child -> test USR1/USR2
+            LOGDBG("Child gotta signal %d", sig);
+            if(sig == SIGUSR1){
+                forbid_observations(1);
+                LOGMSG("Got signal `observations forbidden`");
+                signal(sig, signals);
+                return;
+            }else if(sig == SIGUSR2){
+                forbid_observations(0);
+                LOGMSG("Got signal `observations permitted`");
+                signal(sig, signals);
+                return;
+            }
         }
-        signal(sig, SIG_IGN);
-        DBG("Get signal %d, quit.\n", sig);
-        LOGERR("Exit with status %d", sig);
-    }else LOGERR("Exit");
-    DBG("Stop server");
-    stopserver();
-    DBG("Close terminal");
-    term_close();
-    DBG("Exit");
+        LOGDBG("Get signal %d, quit.\n", sig);
+    }
+    if(childpid == 0){
+        DBG("Stop server");
+        LOGMSG("Stop server");
+        stopserver();
+        DBG("Close terminal");
+        LOGMSG("Close terminal");
+        term_close();
+    }else{
+        if(G.pidfile){
+            LOGMSG("Unlink %s", G.pidfile);
+            usleep(10000);
+            unlink(G.pidfile);
+        }
+    }
+    LOGERR("Exit with status %d", sig);
     exit(sig);
 }
-
 
 int main(int argc, char **argv){
     sl_init();
     sl_parseargs(&argc, &argv, cmdlnopts);
     if(G.help) sl_showhelp(-1, cmdlnopts);
-    if(!G.node) ERRX("Point node");
+    if(G.headermask < 0){
+        green("Header mask bits (set to show info, clear to hide):\n");
+        printf("%s\n", getheadermaskhelp());
+        return 0;
+    }
+    if(!G.node) ERRX("Point communication node");
     if(!G.termpath) ERRX("Point serial device path");
-    sl_check4running((char*)__progname, G.pidfile);
+    if(!header_create(G.headerfile, G.headermask))
+        ERRX("Cannot write into '%s'", G.headerfile);
+    telname(G.telescope_name);
+    sl_check4running(NULL, G.pidfile);
+    if(sl_daemonize()) ERR("Can't daemonize!");
     sl_loglevel_e lvl = G.verbose + LOGLEVEL_ERR;
     if(lvl >= LOGLEVEL_AMOUNT) lvl = LOGLEVEL_AMOUNT - 1;
     if(G.logfile) OPENLOG(G.logfile, lvl, 1);
@@ -103,11 +151,26 @@ int main(int argc, char **argv){
     signal(SIGINT, signals);
     signal(SIGQUIT, signals);
     signal(SIGTSTP, SIG_IGN);
-    signal(SIGHUP, signals);
+    signal(SIGUSR1, SIG_IGN);
+    signal(SIGUSR2, SIG_IGN);
+    while(1){ // guard for dead processes
+        childpid = fork();
+        if(childpid){
+            LOGMSG("create child with PID %d\n", childpid);
+            DBG("Created child with PID %d\n", childpid);
+            wait(NULL);
+            WARNX("Child %d died\n", childpid);
+            LOGWARN("Child %d died\n", childpid);
+            sleep(1);
+        }else{
+            prctl(PR_SET_PDEATHSIG, SIGTERM); // send SIGTERM to child when parent dies
+            break; // go out to normal functional
+        }
+    }
+    // react for USRx only in child
     signal(SIGUSR1, signals);
     signal(SIGUSR2, signals);
     runserver(G.isunix, G.node, G.maxclients);
-    LOGMSG("Ended");
-    DBG("Close");
+    LOGERR("Server error -> exit");
     return 0;
 }

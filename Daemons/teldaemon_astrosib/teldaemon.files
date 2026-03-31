@@ -1,4 +1,6 @@
 commands.h
+header.c
+header.h
 main.c
 socket.c
 socket.h

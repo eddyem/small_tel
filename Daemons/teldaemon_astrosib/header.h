@@ -18,24 +18,22 @@
 
 #pragma once
 
-#include <usefull_macros.h>
+#include <stdint.h>
 
-// size of weather/status buffers
-#define STATBUF_SZ      256
-// dome polling interval (clear watchdog & get status)
-#define T_INTERVAL      (2.0)
+typedef union{
+    struct{
+    uint8_t telname : 1;    // show telescope name
+    uint8_t fosuser : 1;    // show focuser status
+    uint8_t cooler  : 1;    // show cooler status
+    uint8_t heater  : 1;    // show heater status
+    uint8_t exttemp : 1;    // show external temperature
+    uint8_t mirtemp : 1;    // show mirror temperature
+    uint8_t meastime: 1;    // show measurement time
+    };
+    uint8_t flags;          // alltogether as single flags
+} header_mask_t;
 
-typedef struct{
-    int focuserpos;     // focuser position
-    char status[STATBUF_SZ]; // device status
-    double stattime;    // time of last status
-    int cooler;         // cooler's status
-    int heater;         // heater's status
-    double mirrortemp;  // T mirror, degC
-    double ambienttemp; // T ambient, degC
-} telstatus_t;
-
-void runserver(int isunix, const char *node, int maxclients);
-void stopserver();
-void forbid_observations(int forbid);
-bool get_telescope_data(telstatus_t *t);
+const char *getheadermaskhelp();
+void write_header();
+int header_create(const char *file, int flags);
+void telname(const char *name);

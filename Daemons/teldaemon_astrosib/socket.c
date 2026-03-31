@@ -22,6 +22,7 @@
 #include <string.h>
 
 #include "commands.h"
+#include "header.h"
 #include "socket.h"
 #include "term.h"
 
@@ -31,22 +32,21 @@ typedef enum{
     CMD_FOCSTOP,
     CMD_COOLERON,
     CMD_COOLEROFF,
+    CMD_HEATERON,
+    CMD_HEATEROFF,
     CMD_NONE
 } tel_commands_t;
 
-
-
 typedef struct{
-    tel_commands_t cmd; // deferred command
-    tel_commands_t errcmd; // command ended with error
     int focuserpos;     // focuser position
-    char *status;       // device status
-    int statlen;        // size of `status` buffer
+    char status[STATBUF_SZ]; // device status
     double stattime;    // time of last status
     int cooler;         // cooler's status
+    int heater;         // heater's status
     double mirrortemp;  // T mirror, degC
     double ambienttemp; // T ambient, degC
-    double temptime;    // measurement time
+    tel_commands_t cmd; // deferred command
+    tel_commands_t errcmd; // command ended with error
     pthread_mutex_t mutex;
 } tel_t;
 
@@ -63,6 +63,19 @@ static sl_sock_int_t Relmove = {0};
 
 void stopserver(){
     if(locksock) sl_sock_delete(&locksock);
+}
+
+/**
+ * @brief get_telescope_data - copy local `telescope` to `t`
+ * @param t (i) - pointer to your struct
+ * @return true if observations are permitted and false if forbidden
+ */
+bool get_telescope_data(telstatus_t *t){
+    if(!t) return false;
+    pthread_mutex_lock(&telescope.mutex);
+    *t = *((telstatus_t*)&telescope);
+    pthread_mutex_unlock(&telescope.mutex);
+    return ForbidObservations;
 }
 
 // send "measuret=..."
@@ -160,6 +173,26 @@ static sl_sock_hresult_e coolerh(sl_sock_t *client, sl_sock_hitem_t *item, const
     return RESULT_SILENCE;
 }
 
+static sl_sock_hresult_e heaterh(sl_sock_t *client, sl_sock_hitem_t *item, const char *req){
+    char buf[256];
+    if(req){ // getter
+        int onoff;
+        if(!sl_str2i(&onoff, req)) return RESULT_BADVAL;
+        pthread_mutex_lock(&telescope.mutex);
+        if(onoff) telescope.cmd = CMD_HEATERON;
+        else telescope.cmd = CMD_HEATEROFF;
+        pthread_mutex_unlock(&telescope.mutex);
+        return RESULT_OK;
+    }
+    // getter
+    pthread_mutex_lock(&telescope.mutex);
+    snprintf(buf, 255, "%s=%d\n", item->key, telescope.heater);
+    pthread_mutex_unlock(&telescope.mutex);
+    sl_sock_sendstrmessage(client, buf);
+    return RESULT_SILENCE;
+}
+
+
 // focuser getter
 static sl_sock_hresult_e foch(sl_sock_t *client, sl_sock_hitem_t *item, _U_ const char *req){
     char buf[256];
@@ -217,6 +250,7 @@ static sl_sock_hitem_t handlers[] = {
     {statush, "status", "get shutters' status and temperatures", NULL},
     {fstoph, "focstop", "stop focuser moving", NULL},
     {coolerh, "cooler", "get/set cooler status", NULL},
+    {heaterh, "heater", "get/set heater status", NULL},
     {dtimeh, "dtime", "get server's UNIX time for all clients connected", NULL},
     {NULL, NULL, NULL, NULL}
 };
@@ -239,9 +273,9 @@ static int poll_device(){
     DBG("\nGot status");
     pthread_mutex_lock(&telescope.mutex);
     telescope.stattime = sl_dtime();
-    if(strncmp(data, "0,0,0,0,0", 9) == 0) snprintf(telescope.status, telescope.statlen, "closed");
-    else if(strncmp(data, "1,1,1,1,1", 9) == 0) snprintf(telescope.status, telescope.statlen, "opened");
-    else snprintf(telescope.status, telescope.statlen, "intermediate");
+    if(strncmp(data, "0,0,0,0,0", 9) == 0) snprintf(telescope.status, STATBUF_SZ-1, "closed");
+    else if(strncmp(data, "1,1,1,1,1", 9) == 0) snprintf(telescope.status, STATBUF_SZ-1, "opened");
+    else snprintf(telescope.status, STATBUF_SZ-1, "intermediate");
     pthread_mutex_unlock(&telescope.mutex);
 
     if(!(data = term_cmdwans(TXT_COOLERT, TXT_ANS_COOLERT, ans))) return FALSE;
@@ -253,12 +287,18 @@ static int poll_device(){
         telescope.mirrortemp = m;
         pthread_mutex_unlock(&telescope.mutex);
     }
-
     if(!(data = term_cmdwans(TXT_COOLERSTAT, TXT_ANS_COOLERSTAT, ans))) return FALSE;
     DBG("\nGot cooler status");
     if(sscanf(data, "%d", &I) == 1){
         pthread_mutex_lock(&telescope.mutex);
         telescope.cooler = I;
+        pthread_mutex_unlock(&telescope.mutex);
+    }
+    if(!(data = term_cmdwans(TXT_HEATSTAT, TXT_ANS_HEATSTAT, ans))) return FALSE;
+    DBG("\nGot heater status");
+    if(sscanf(data, "%d", &I) == 1){
+        pthread_mutex_lock(&telescope.mutex);
+        telescope.heater = I;
         pthread_mutex_unlock(&telescope.mutex);
     }
     return TRUE;
@@ -269,9 +309,6 @@ void runserver(int isunix, const char *node, int maxclients){
     int forbidden = 0;
     if(locksock) sl_sock_delete(&locksock);
     telescope.errcmd = telescope.cmd = CMD_NONE;
-    FREE(telescope.status);
-    telescope.statlen = STATBUF_SZ;
-    telescope.status = MALLOC(char, STATBUF_SZ);
     pthread_mutex_init(&telescope.mutex, NULL);
     sl_socktype_e type = (isunix) ? SOCKT_UNIX : SOCKT_NET;
     locksock = sl_sock_run_server(type, node, -1, handlers);
@@ -298,7 +335,10 @@ void runserver(int isunix, const char *node, int maxclients){
         }
         double tnow = sl_dtime();
         if(tnow - tgot > T_INTERVAL){
-            if(poll_device()) tgot = tnow;
+            if(poll_device()){
+                tgot = tnow;
+                write_header();
+            }
         }
         if(ForbidObservations) continue;
         pthread_mutex_lock(&telescope.mutex);
@@ -308,23 +348,50 @@ void runserver(int isunix, const char *node, int maxclients){
             switch(tcmd){
             case CMD_OPEN:
                 DBG("received command: open");
-                if(term_cmdwans(TXT_OPEN, TXT_ANS_OK, ans)) tcmd = CMD_NONE;
+                if(term_cmdwans(TXT_OPEN, TXT_ANS_OK, ans)){
+                    LOGMSG("Open dome");
+                    tcmd = CMD_NONE;
+                }
                 break;
             case CMD_CLOSE:
                 DBG("received command: close");
-                if(term_cmdwans(TXT_CLOSE, TXT_ANS_OK, ans)) tcmd = CMD_NONE;
+                if(term_cmdwans(TXT_CLOSE, TXT_ANS_OK, ans)){
+                    LOGMSG("Close dome");
+                    tcmd = CMD_NONE;
+                }
                 break;
             case CMD_FOCSTOP:
                 DBG("received command: stop focus");
+                LOGMSG("Stop focus");
                 term_write(TXT_FOCSTOP, ans); tcmd = CMD_NONE; // erroreous thing: no answer for this command
                 break;
             case CMD_COOLEROFF:
                 DBG("received command: cooler off");
-                if(term_cmdwans(TXT_COOLEROFF, TXT_ANS_OK, ans)) tcmd = CMD_NONE;
+                if(term_cmdwans(TXT_COOLEROFF, TXT_ANS_OK, ans)){
+                    LOGMSG("Cooler off");
+                    tcmd = CMD_NONE;
+                }
                 break;
             case CMD_COOLERON:
                 DBG("received command: cooler on");
-                if(term_cmdwans(TXT_COOLERON, TXT_ANS_OK, ans)) tcmd = CMD_NONE;
+                if(term_cmdwans(TXT_COOLERON, TXT_ANS_OK, ans)){
+                    LOGMSG("Cooler on");
+                    tcmd = CMD_NONE;
+                }
+                break;
+            case CMD_HEATERON:
+                DBG("received command: heater on");
+                if(term_cmdwans(TXT_HEATON, TXT_ANS_OK, ans)){
+                    LOGMSG("Heater on");
+                    tcmd = CMD_NONE;
+                }
+                break;
+            case CMD_HEATEROFF:
+                DBG("received command: heater off");
+                if(term_cmdwans(TXT_HEATOFF, TXT_ANS_OK, ans)){
+                    LOGMSG("Heater off");
+                    tcmd = CMD_NONE;
+                }
                 break;
             default:
                 DBG("WTF?");
