@@ -101,6 +101,7 @@ void write_header(){
 
     if(get_telescope_data(&st)) WRHDR("OPERATIO", "'FORBIDDEN'", "Observations are forbidden");
     if(header_mask.telname && telescope_name) WRHDR("TELESCOP", telescope_name, "Telescope name");
+    WRHDR("STATUS", st.status, "Telescope shutters' status");
     if(header_mask.fosuser){
         snprintf(val, 21, "%d", st.focuserpos);
         WRHDR("FOCUS", val, "Current focuser position");
