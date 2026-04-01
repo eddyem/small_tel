@@ -5,7 +5,7 @@ LDFLAGS += -lusefull_macros
 SRCS := $(wildcard *.c)
 DEFINES := $(DEF) -D_GNU_SOURCE -D_XOPEN_SOURCE=1111
 OBJDIR := mk
-CFLAGS += -O2 -Wall -Wextra -Wno-trampolines -std=gnu23
+CFLAGS += -O2 -Wall -Wextra -Wno-trampolines -Wno-format-truncation -std=gnu23
 OBJS := $(addprefix $(OBJDIR)/, $(SRCS:%.c=%.o))
 DEPS := $(OBJS:.o=.d)
 TARGFILE := $(OBJDIR)/TARGET

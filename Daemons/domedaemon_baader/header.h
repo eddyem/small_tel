@@ -18,21 +18,6 @@
 
 #pragma once
 
-#include <usefull_macros.h>
-
-// size of weather/status buffers
-#define STATBUF_SZ      256
-// dome polling interval (clear watchdog & get status)
-#define T_INTERVAL      (5.0)
-
-typedef struct{
-    int errcode;    // error code
-    char status[STATBUF_SZ]; // device status
-    double stattime;// time of last status
-    char weather[STATBUF_SZ];  // data from weather sensor
-} dome_data_t;
-
-int get_dome_data(dome_data_t *d);
-void runserver(int isunix, const char *node, int maxclients);
-void stopserver();
-void forbid_observations(int forbid);
+void write_header();
+int header_create(const char *file);
+void domename(const char *name);

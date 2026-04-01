@@ -31,7 +31,7 @@
 #include "term.h"
 
 #define DEFAULT_PIDFILE     "/tmp/teldaemon.pid"
-#define DEFAULT_HEADERFILE  "/tmp/telescope.pid"
+#define DEFAULT_HEADERFILE  "/tmp/telescope.fits"
 #define DEFAULT_TELNAME     "Astro-M (1)"
 
 static pid_t childpid = 0;

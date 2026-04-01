@@ -101,18 +101,18 @@ void write_header(){
 
     if(get_telescope_data(&st)) WRHDR("OPERATIO", "'FORBIDDEN'", "Observations are forbidden");
     if(header_mask.telname && telescope_name) WRHDR("TELESCOP", telescope_name, "Telescope name");
-    WRHDR("STATUS", st.status, "Telescope shutters' status");
+    WRHDR("TELSTAT", st.status, "Telescope shutters' status");
     if(header_mask.fosuser){
         snprintf(val, 21, "%d", st.focuserpos);
         WRHDR("FOCUS", val, "Current focuser position");
     }
     if(header_mask.cooler){
         snprintf(val, 21, "%d", st.cooler);
-        WRHDR("COOLER", val, "Primary mirror cooler status: 0/1 (off/on)");
+        WRHDR("TELCOOLR", val, "Primary mirror cooler status: 0/1 (off/on)");
     }
     if(header_mask.heater){
         snprintf(val, 21, "%d", st.heater);
-        WRHDR("HEATER", val, "Secondary mirror heater status: 0/1 (off/on)");
+        WRHDR("TELHEATR", val, "Secondary mirror heater status: 0/1 (off/on)");
     }
     if(header_mask.exttemp){
         snprintf(val, 21, "%.1f", st.ambienttemp);
@@ -128,11 +128,11 @@ void write_header(){
         time_t t = (time_t) st.stattime;
         struct tm *tmp;
         tmp = localtime(&t);
-        if(!tmp || 0 == strftime(timebuf, BUFSIZ, "Measurement time: %F %T", tmp)){
+        if(!tmp || 0 == strftime(timebuf, BUFSIZ, "Measurement time (telescope): %F %T", tmp)){
             LOGERR("localtime() returned NULL");
             goto returning;
         }
-        WRHDR("TMEAS", val, timebuf);
+        WRHDR("TTELMEAS", val, timebuf);
 
     }
 #undef WRHDR

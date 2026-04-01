@@ -22,6 +22,7 @@
 #include <string.h>
 
 #include "commands.h"
+#include "header.h"
 #include "socket.h"
 #include "term.h"
 
@@ -33,15 +34,12 @@ typedef enum{
 } dome_commands_t;
 
 typedef struct{
+    int errcode;    // error code
+    char status[STATBUF_SZ]; // device status
+    double stattime;// time of last status
+    char weather[STATBUF_SZ];  // data from weather sensor
     dome_commands_t cmd;
     dome_commands_t erroredcmd; // command didn't run - waiting or stalled
-    int errcode;    // error code
-    char *status;   // device status
-    int statlen;    // size of `status` buffer
-    double stattime;// time of last status
-    char *weather;  // data from weather sensor
-    int weathlen;   // length of `weather` buffer
-    double weathtime;// time of last weather
     pthread_mutex_t mutex;
 } dome_t;
 
@@ -52,6 +50,14 @@ static atomic_bool ForbidObservations = 0; // ==1 if all is forbidden -> close d
 
 static sl_sock_t *locksock = NULL; // local server socket
 static sl_ringbuffer_t *rb = NULL; // incoming serial data
+
+int get_dome_data(dome_data_t *d){
+    if(!d) return FALSE;
+    pthread_mutex_lock(&Dome.mutex);
+    *d = *((dome_data_t*)&Dome);
+    pthread_mutex_unlock(&Dome.mutex);
+    return ForbidObservations;
+}
 
 void stopserver(){
     if(locksock) sl_sock_delete(&locksock);
@@ -150,10 +156,10 @@ static sl_sock_hresult_e weathh(sl_sock_t *client, sl_sock_hitem_t *item, _U_ co
     char buf[256];
     double t = NAN;
     pthread_mutex_lock(&Dome.mutex);
-    if(!*Dome.weather || sl_dtime() - Dome.weathtime > 3.*T_INTERVAL) snprintf(buf, 255, "%s=unknown\n", item->key);
+    if(sl_dtime() - Dome.stattime > 3.*T_INTERVAL) snprintf(buf, 255, "%s=unknown\n", item->key);
     else{
         snprintf(buf, 255, "%s=%s\n", item->key, Dome.weather);
-        t = Dome.weathtime;
+        t = Dome.stattime;
     }
     pthread_mutex_unlock(&Dome.mutex);
     sl_sock_sendstrmessage(client, buf);
@@ -227,11 +233,11 @@ static int poll_device(){
     if(sscanf(data, "%d", &I) == 1){
         pthread_mutex_lock(&Dome.mutex);
         if(I == 1111)
-            snprintf(Dome.status, Dome.statlen, "opened");
+            snprintf(Dome.status, STATBUF_SZ-1, "opened");
         else if(I == 2222)
-            snprintf(Dome.status, Dome.statlen, "closed");
+            snprintf(Dome.status, STATBUF_SZ-1, "closed");
         else
-            snprintf(Dome.status, Dome.statlen, "intermediate");
+            snprintf(Dome.status, STATBUF_SZ-1, "intermediate");
         Dome.stattime = sl_dtime();
         pthread_mutex_unlock(&Dome.mutex);
     }
@@ -240,12 +246,11 @@ static int poll_device(){
     if(sscanf(data, "%d", &I) == 1){
         pthread_mutex_lock(&Dome.mutex);
         if(I == 0)
-            snprintf(Dome.weather, Dome.weathlen, "good");
+            snprintf(Dome.weather, STATBUF_SZ-1, "good");
         else if (I == 1)
-            snprintf(Dome.weather, Dome.weathlen, "rain/clouds");
+            snprintf(Dome.weather, STATBUF_SZ-1, "rain/clouds");
         else
-            snprintf(Dome.weather, Dome.weathlen, "unknown");
-        Dome.weathtime = sl_dtime();
+            snprintf(Dome.weather, STATBUF_SZ-1, "unknown");
         pthread_mutex_unlock(&Dome.mutex);
     }
     return TRUE;
@@ -258,12 +263,6 @@ void runserver(int isunix, const char *node, int maxclients){
     if(rb) sl_RB_delete(&rb);
     rb = sl_RB_new(BUFSIZ);
     Dome.cmd = CMD_NONE;
-    FREE(Dome.status);
-    Dome.statlen = STATBUF_SZ;
-    Dome.status = MALLOC(char, STATBUF_SZ);
-    FREE(Dome.weather);
-    Dome.weathlen = STATBUF_SZ;
-    Dome.weather = MALLOC(char, STATBUF_SZ);
     pthread_mutex_init(&Dome.mutex, NULL);
     sl_socktype_e type = (isunix) ? SOCKT_UNIX : SOCKT_NET;
     locksock = sl_sock_run_server(type, node, -1, handlers);
@@ -293,7 +292,10 @@ void runserver(int isunix, const char *node, int maxclients){
         }
         double tnow = sl_dtime();
         if(tnow - tgot > T_INTERVAL){
-            if(poll_device()) tgot = tnow;
+            if(poll_device()){
+                tgot = tnow;
+                write_header();
+            }
         }
         if(ForbidObservations) continue;
         pthread_mutex_lock(&Dome.mutex);
