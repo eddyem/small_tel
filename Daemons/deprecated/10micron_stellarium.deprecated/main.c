@@ -47,16 +47,21 @@ extern void check4running(char *self, char *pidfilename, void (*iffound)(pid_t p
 // pause for incoming message waiting (out coordinates sent after that timeout)
 #define SOCK_TMOUT  (1)
 
-static pid_t childpid = 1; // PID of child process
+static pid_t childpid = 0; // PID of child process
 volatile int global_quit = 0;
 // quit by signal
 void signals(int sig){
     signal(sig, SIG_IGN);
     if(!childpid){ // child process
+        DBG("STOP tel");
         stop_telescope();
+        DBG("Disconn tel");
         disconnect_telescope();
-        unlink(GP->pidfile);  // and remove pidfile
+        DBG("Disconn weat");
         weatherserver_disconnect();
+    }else{
+        DBG("Unlink PID");
+        unlink(GP->pidfile);  // and remove pidfile
     }
     DBG("Get signal %d, quit.\n", sig);
     global_quit = 1;

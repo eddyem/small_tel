@@ -113,6 +113,10 @@ static char *read_string(){
  */
 static char *write_cmd(const char *cmd, char *buff){
     static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+    if(!TTY || TTY->comfd < 0){
+        DBG("TTY destroyed");
+        return NULL;
+    }
     pthread_mutex_lock(&mutex);
     DBG("Write %s", cmd);
     if(sl_tty_write(TTY->comfd, cmd, strlen(cmd))) return NULL;
