@@ -481,6 +481,41 @@ static void chkModStopped(double *prev, double cur, int *nstopped, axis_status_t
     *prev = cur;
 }
 
+// Next two functions runs under locked mountdata_t mutex and shouldn't lock it again!!
+static axis_status_t chkstopstat(int32_t *prev, int32_t cur, int32_t tag, int *nstopped, axis_status_t stat){
+    if(*prev == INT32_MAX){
+        stat = AXIS_STOPPED;
+        DBG("START");
+    }else if(stat == AXIS_GONNASTOP || (stat != AXIS_STOPPED && cur == tag)){ // got command "stop" or motor is on target
+        if(*prev == cur){
+            DBG("Test for stop, nstopped=%d", *nstopped);
+            if(++(*nstopped) > MOTOR_STOPPED_CNT){
+                stat = AXIS_STOPPED;
+                DBG("AXIS stopped");
+            }
+        }else *nstopped = 0;
+    }else if(*prev != cur){
+        DBG("AXIS moving");
+        *nstopped = 0;
+    }
+    *prev = cur;
+    return stat;
+}
+
+// check for stopped/pointing states
+static void ChkStopped(const SSstat *s, mountdata_t *m){
+    static int32_t Xmot_prev = INT32_MAX, Ymot_prev = INT32_MAX; // previous coordinates
+    static int Xnstopped = 0, Ynstopped = 0; // counters to get STOPPED state
+    axis_status_t Xstat, Ystat;
+    Xstat = chkstopstat(&Xmot_prev, s->Xmot, m->Xtarget, &Xnstopped, m->Xstate);
+    Ystat = chkstopstat(&Ymot_prev, s->Ymot, m->Ytarget, &Ynstopped, m->Ystate);
+    if(Xstat != m->Xstate || Ystat != m->Ystate){
+        DBG("Status changed");
+        mountdata.Xstate = Xstat;
+        mountdata.Ystate = Ystat;
+    }
+}
+
 // main mount thread
 static void *mountthread(void _U_ *u){
     int errctr = 0;
@@ -552,6 +587,7 @@ static void *mountthread(void _U_ *u){
         pthread_mutex_lock(&datamutex);
         // now change data
         SSconvstat(status, &mountdata, &tcur);
+        ChkStopped(status, &mountdata);
         pthread_mutex_unlock(&datamutex);
         // allow writing & getters
         do{
@@ -585,11 +621,12 @@ static int ttyopen(const char *path, speed_t speed){
     tty.c_lflag     = 0; // ~(ICANON | ECHO | ECHOE | ISIG)
     tty.c_iflag     = 0; // don't do any changes in input stream
     tty.c_oflag     = 0; // don't do any changes in output stream
-    tty.c_cflag     = BOTHER | CS8 | CREAD | CLOCAL; // other speed, 8bit, RW, ignore line ctrl
+    // wihthout "HUPCL" it doesn't disconnects
+    tty.c_cflag     = HUPCL | BOTHER | CS8 | CREAD | CLOCAL; // other speed, 8bit, RW, ignore line ctrl
     tty.c_ispeed = speed;
     tty.c_ospeed = speed;
     tty.c_cc[VMIN]  = 0;  // non-canonical mode
-    tty.c_cc[VTIME] = 5;
+    tty.c_cc[VTIME] = 0;
     if(ioctl(fd, TCSETS2, &tty)){
         DBG("Can't set TTY settings");
         close(fd);
@@ -674,6 +711,7 @@ create_thread:
 // close all opened serial devices and quit threads
 void closeSerial(){
     GlobExit = 1;
+    pthread_mutex_unlock(&datamutex);
     DBG("Give 100ms to proper close");
     usleep(100000);
     DBG("Force closed all devices");

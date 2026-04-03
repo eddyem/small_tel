@@ -44,39 +44,6 @@ uint16_t SScalcChecksum(uint8_t *buf, int len){
     return checksum;
 }
 
-// Next three functions runs under locked mountdata_t mutex and shouldn't call locked it again!!
-static axis_status_t chkstopstat(int32_t *prev, int32_t cur, int32_t tag, int *nstopped, axis_status_t stat){
-    if(*prev == INT32_MAX){
-        stat = AXIS_STOPPED;
-        DBG("START");
-    }else if(stat == AXIS_GONNASTOP || (stat != AXIS_STOPPED && cur == tag)){ // got command "stop" or motor is on target
-        if(*prev == cur){
-            DBG("Test for stop, nstopped=%d", *nstopped);
-            if(++(*nstopped) > MOTOR_STOPPED_CNT){
-                stat = AXIS_STOPPED;
-                DBG("AXIS stopped");
-            }
-        }else *nstopped = 0;
-    }else if(*prev != cur){
-        DBG("AXIS moving");
-        *nstopped = 0;
-    }
-    *prev = cur;
-    return stat;
-}
-// check for stopped/pointing states
-static void ChkStopped(const SSstat *s, mountdata_t *m){
-    static int32_t Xmot_prev = INT32_MAX, Ymot_prev = INT32_MAX; // previous coordinates
-    static int Xnstopped = 0, Ynstopped = 0; // counters to get STOPPED state
-    axis_status_t Xstat, Ystat;
-    Xstat = chkstopstat(&Xmot_prev, s->Xmot, m->Xtarget, &Xnstopped, m->Xstate);
-    Ystat = chkstopstat(&Ymot_prev, s->Ymot, m->Ytarget, &Ynstopped, m->Ystate);
-    if(Xstat != m->Xstate || Ystat != m->Ystate){
-        DBG("Status changed");
-        setStat(Xstat, Ystat);
-    }
-}
-
 /**
  * @brief SSconvstat - convert stat from SSII format to human
  * @param s (i) - just read data
@@ -87,7 +54,6 @@ void SSconvstat(const SSstat *s, mountdata_t *m, struct timespec *t){
     if(!s || !m || !t) return;
     m->motXposition.val = X_MOT2RAD(s->Xmot);
     m->motYposition.val = Y_MOT2RAD(s->Ymot);
-    ChkStopped(s, m);
     m->motXposition.t = m->motYposition.t = *t;
     // fill encoder data from here, as there's no separate enc thread
     if(!Conf.SepEncoder){

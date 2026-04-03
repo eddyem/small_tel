@@ -65,8 +65,12 @@ void signals(int sig){
         signal(sig, SIG_IGN);
         DBG("Get signal %d, quit.\n", sig);
     }
+    DBG("Stop!");
+    Mount.stop();
+    usleep(10000);
     DBG("Quit");
     Mount.quit();
+    usleep(10000);
     DBG("close");
     if(fcoords) fclose(fcoords);
     exit(sig);
