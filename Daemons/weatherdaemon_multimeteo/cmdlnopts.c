@@ -21,7 +21,9 @@
 #include <string.h>
 #include <strings.h>
 #include <usefull_macros.h>
+
 #include "cmdlnopts.h"
+#include "mainweather.h"
 
 /*
  * here are global parameters initialisation
@@ -38,11 +40,31 @@ static glob_pars defpars = {
     .port = DEFAULT_PORT,
     .logfile = NULL,
     .verb = 0,
-    .pidfile = DEFAULT_PID
+    .pidfile = DEFAULT_PID,
 };
 // default config: all values should be wrong or empty to understand than user change them
 static glob_pars defconf = {
     .verb = -1,
+};
+// only for config
+weather_conf_t WeatherConf = {
+    .ahtung_delay = 30*60,      // 30 minutes
+    .wind.good = 5.,            // < 5m/s - good weather
+    .wind.bad = 10.,            // > 10m/s - bad weather
+    .wind.terrible = 15.,       // > 15m/s - terrible weather
+    .wind.negflag = 0,
+    .humidity.good = 65.,
+    .humidity.bad = 80.,
+    .humidity.terrible = 90.,
+    .humidity.negflag = 0,
+    .clouds.good = 2500.,
+    .clouds.bad = 2000.,
+    .clouds.terrible = 500.,
+    .clouds.negflag = 1,
+    .sky.good = -40.,
+    .sky.bad = -10.,
+    .sky.terrible = 0.,
+    .sky.negflag = 0
 };
 
 static glob_pars G;
@@ -62,13 +84,26 @@ static glob_pars G;
 sl_option_t cmdlnopts[] = {
     {"help",    NO_ARGS,    NULL,   'h',    arg_int,    APTR(&help),        "show this help"},
     {"conffile",NEED_ARG,   NULL,   'c',    arg_string, APTR(&G.conffile),  "configuration file name (consists all or a part of long-named parameters and their values (e.g. plugin=liboldweather.so:D:/dev/ttyS0:115200)"},
-    {"verb",    NO_ARGS,    NULL,   'v',    arg_none,   APTR(&G.verb),      "logfile verbocity level (each -v increased)"}, \
+    {"verb",    NO_ARGS,    NULL,   'v',    arg_none,   APTR(&G.verb),      "logfile verbocity level (each -v increased)"},
     COMMON_OPTS
     end_option
 };
 
 sl_option_t confopts[] = {
-    {"verbose",  NEED_ARG,  NULL,   'v',    arg_int,    APTR(&G.verb),      "logfile verbocity level"}, \
+    {"verbose",  NEED_ARG,  NULL,   'v',    arg_int,    APTR(&G.verb),      "logfile verbocity level"},
+    {"ahtung_delay",NEED_ARG,NULL,  0,      arg_int,    APTR(&WeatherConf.ahtung_delay),"delay in seconds after bad weather to change to good"},
+    {"good_wind",NEED_ARG,  NULL,   0,      arg_double, APTR(&WeatherConf.wind.good), "good wind while less this"},
+    {"bad_wind", NEED_ARG,  NULL,   0,      arg_double, APTR(&WeatherConf.wind.bad), "bad wind if more than this"},
+    {"terrible_wind",NEED_ARG, NULL,0,      arg_double, APTR(&WeatherConf.wind.terrible), "terrible wind if more than this"},
+    {"good_humidity",NEED_ARG, NULL,0,      arg_double, APTR(&WeatherConf.humidity.good), "humidity is good until this"},
+    {"bad_humidity",NEED_ARG,  NULL,0,      arg_double, APTR(&WeatherConf.humidity.bad), "humidity is bad if greater"},
+    {"terrible_humidity",NEED_ARG,NULL, 0,  arg_double, APTR(&WeatherConf.humidity.terrible), "humidity is terrible if greater"},
+    {"good_clouds",NEED_ARG,  NULL, 0,      arg_double, APTR(&WeatherConf.clouds.good), "good weather when \"clouds value\" greater than this"},
+    {"bad_clouds",NEED_ARG,  NULL,  0,      arg_double, APTR(&WeatherConf.clouds.bad), "if less than this, clouds are bad"},
+    {"terrible_clouds",NEED_ARG, NULL, 0,   arg_double, APTR(&WeatherConf.clouds.terrible), "if less, clouds are terrible"},
+    {"good_sky",NEED_ARG,   NULL,   0,      arg_double, APTR(&WeatherConf.sky.good), "sky-ambient less than this is good"},
+    {"bad_sky",NEED_ARG,    NULL,   0,      arg_double, APTR(&WeatherConf.sky.bad), "sky-ambient greater than this is bad"},
+    {"terrible_sky",NEED_ARG,NULL,  0,      arg_double, APTR(&WeatherConf.sky.terrible), "sky-ambient greater than this is terrible"},
     COMMON_OPTS
     end_option
 };

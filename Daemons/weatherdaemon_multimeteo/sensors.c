@@ -21,7 +21,9 @@
 #include <usefull_macros.h>
 
 #include "fd.h"
+#include "mainweather.h"
 #include "sensors.h"
+#include "weathlib.h"
 
 #define WARNXL(...) do{ LOGWARN(__VA_ARGS__); WARNX(__VA_ARGS__); } while(0)
 #define WARNL(...) do{ LOGWARN(__VA_ARGS__); WARN(__VA_ARGS__); } while(0)
@@ -44,6 +46,8 @@ int set_pollT(time_t t){
     poll_interval = t;
     return TRUE;
 }
+
+time_t get_pollT(){ return poll_interval;}
 
 /**
  * @brief get_plugin - get link to opened plugin
@@ -71,11 +75,17 @@ void *open_plugin(const char *name){
     return dlh;
 }
 
-#ifdef EBUG
-// in release this function can be used for meteo logging
+/**
+ * @brief dumpsensors - this function called each time some `station` got new data
+ *
+ * @param station - pointer to N'th station opened
+ */
 static void dumpsensors(struct sensordata_t* station){
     FNAME();
     if(!station || !station->get_value || station->Nvalues < 1) return;
+    refresh_sensval(station);
+    DBG("New values...");
+#ifdef EBUG
     char buf[FULL_LEN+1];
     uint64_t Tsum = 0; int nsum = 0;
     int N = (nplugins > 1) ? station->PluginNo : -1;
@@ -91,8 +101,8 @@ static void dumpsensors(struct sensordata_t* station){
     if(0 < format_msrmttm(last, buf, FULL_LEN+1)){
         printf("%s\n\n", buf);
     }
-}
 #endif
+}
 
 /**
  * @brief openplugins - open sensors' plugin and init it
@@ -130,9 +140,7 @@ int openplugins(char **paths, int N){
             int ns = S->init(S, nplugins, poll_interval, fd); // here nplugins is index in array
             if(ns < 1) WARNXL("Can't init plugin %s", paths[i]);
             else{
-#ifdef EBUG
-                if(!S->onrefresh(S, dumpsensors)) WARNXL("Can't init refresh funtion");
-#endif
+                if(!S->onrefresh || !S->onrefresh(S, dumpsensors)) WARNXL("Can't init refresh funtion");
                 LOGMSG("Plugin %s nave %d sensors", paths[i], ns);
                 allplugins[nplugins++] = S;
             }
@@ -172,7 +180,7 @@ int format_sensval(const val_t *v, char *buf, int buflen, int Np){
         case VALT_FLOAT: snprintf(strval, VAL_LEN, "%g", v->value.f); break;
         default: sprintf(strval, "'ERROR'");
     }
-    const char* const NM[] = { // names of standard fields
+    const char* const NM[IS_OTHER] = { // names of standard fields
         [IS_WIND]       = "WIND",
         [IS_WINDDIR]    = "WINDDIR",
         [IS_HUMIDITY]   = "HUMIDITY",
@@ -186,7 +194,7 @@ int format_sensval(const val_t *v, char *buf, int buflen, int Np){
         [IS_CLOUDS]     = "CLOUDS",
         [IS_SKYTEMP]    = "SKYTEMP"
     };
-    const char* const CMT[] = { // comments for standard fields
+    const char* const CMT[IS_OTHER] = { // comments for standard fields
         [IS_WIND]       = "Wind, m/s",
         [IS_WINDDIR]    = "Wind direction, degr (CW from north to FROM)",
         [IS_HUMIDITY]   = "Humidity, percent",

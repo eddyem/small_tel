@@ -43,8 +43,10 @@ static int format_values(char *buf){
         DBG("TOKEN: %s", token);
         if(sl_str2d(&v, token)){
             DBG("next value: %g", v);
+            pthread_mutex_lock(&sensor.valmutex);
             sensor.values[gotvals].value.f = (float) v;
             sensor.values[gotvals].time = tnow;
+            pthread_mutex_unlock(&sensor.valmutex);
             ++gotvals;
         }
         token = strtok(NULL, ",");
@@ -135,17 +137,12 @@ static int init(struct sensordata_t *s, int N, time_t pollt, int fd){
     return NS;
 }
 
-static int getval(struct sensordata_t *s, val_t *o, int N){
-    if(!s || N < 0 || N >= NS) return FALSE;
-    if(o) *o = s->values[N];
-    return TRUE;
-}
-
 sensordata_t sensor = {
     .name = "Dummy socket or serial device weatherstation",
     .Nvalues = NS,
     .init = init,
     .onrefresh = common_onrefresh,
-    .get_value = getval,
+    .valmutex = PTHREAD_MUTEX_INITIALIZER,
+    .get_value = common_getval,
     .kill = common_kill,
 };

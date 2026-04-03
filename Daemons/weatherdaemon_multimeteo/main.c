@@ -24,40 +24,54 @@
 #include <usefull_macros.h>
 
 #include "cmdlnopts.h"
+#include "mainweather.h"
 #include "sensors.h"
 #include "server.h"
 
 static pid_t childpid = 0;
+static glob_pars *GP = NULL;
 
+// SIGUSR1 - FORBID observations
+// SIGUSR2 - allow
 void signals(int signo){
-    if(childpid){
+    if(signo){
+        if(signals != signal(signo, SIG_IGN)) exit(signo); // function called "as is", before sig registration
+        if(childpid == 0){ // child -> test USR1/USR2
+            LOGDBG("Child gotta signal %d", signo);
+            if(signo == SIGUSR1){
+                forbid_observations(1);
+                LOGMSG("Got signal `observations forbidden`");
+                signal(signo, signals);
+                return;
+            }else if(signo == SIGUSR2){
+                forbid_observations(0);
+                LOGMSG("Got signal `observations permitted`");
+                signal(signo, signals);
+                return;
+            }
+        }
+    }
+    if(childpid){ // master
+        LOGERR("Main process exits with status %d", signo);
+        if(GP && GP->pidfile) unlink(GP->pidfile);
+    }else{ // child
         LOGERR("Killed with status %d", signo);
         closeplugins();
         kill_servers();
-        usleep(1000); // let child close everything before dead
-    }else{
-        LOGERR("Main process exits with status %d", signo);
     }
+    usleep(1000); // let child close everything before dead
     exit(signo);
 }
 
 static void getpipe(int _U_ signo){
     WARNX("Get sigpipe!");
+    LOGWARN("SIGPIPE: something disconnected?");
     // TODO: check all sensors for disconnected one
     signal(SIGPIPE, getpipe);
 }
 
-extern const char *__progname;
-
 int main(int argc, char **argv){
-    glob_pars *GP = NULL;
     sl_init();
-    signal(SIGTERM, signals); // kill (-15) - quit
-    signal(SIGHUP, SIG_IGN);  // hup - ignore
-    signal(SIGINT, signals);  // ctrl+C - quit
-    signal(SIGQUIT, signals); // ctrl+\ - quit
-    signal(SIGTSTP, SIG_IGN); // ignore ctrl+Z
-    signal(SIGPIPE, getpipe); // socket disconnected
     GP = parse_args(argc, argv);
     if(!GP) ERRX("Error parsing args");
     if(!GP->sockname) ERRX("Point command socket name");
@@ -71,14 +85,23 @@ int main(int argc, char **argv){
     if(GP->pollt > 0){
         if(!set_pollT((time_t)GP->pollt)) ERRX("Can't set polling time to %d seconds", GP->pollt);
     }
+    signal(SIGTERM, signals); // kill (-15) - quit
+    signal(SIGHUP, SIG_IGN);  // hup - ignore
+    signal(SIGINT, signals);  // ctrl+C - quit
+    signal(SIGQUIT, signals); // ctrl+\ - quit
+    signal(SIGTSTP, SIG_IGN); // ignore ctrl+Z
+    signal(SIGPIPE, getpipe); // socket disconnected
+    signal(SIGUSR1, SIG_IGN);
+    signal(SIGUSR2, SIG_IGN);
     int nopened = openplugins(GP->plugins, GP->nplugins);
     if(nopened < 1){
         LOGERR("No plugins found; exit!");
         ERRX("Can't find any sensor plugin");
     }
     if(GP->nplugins && GP->nplugins != nopened) LOGWARN("Work without some plugins");
-    #ifndef EBUG
     sl_check4running((char*)__progname, GP->pidfile);
+    #ifndef EBUG
+    sl_daemonize();
     while(1){ // guard for dead processes
         childpid = fork();
         if(childpid){
@@ -94,6 +117,9 @@ int main(int argc, char **argv){
         }
     }
     #endif
+    // react for USRx only in child
+    signal(SIGUSR1, signals);
+    signal(SIGUSR2, signals);
     if(!start_servers(GP->port, GP->sockname)) ERRX("Can't run server's threads");
     while(1);
     //WARNX("TEST ends");

@@ -37,19 +37,23 @@ static void *mainthread(void _U_ *U){
     FNAME();
     double t0 = sl_dtime();
     while(1){
+        DBG("locked");
+        pthread_mutex_lock(&sensor.valmutex);
         float f = sensor.values[0].value.f + (drand48() - 0.5) / 2.;
         if(f >= 0.) sensor.values[0].value.f = f;
         f = sensor.values[1].value.f + (drand48() - 0.5) * 4.;
         if(f > 160. && f < 200.) sensor.values[1].value.f = f;
-        f = sensor.values[2].value.f + (drand48() - 0.5) / 20.;
+        f = sensor.values[2].value.f + (drand48() - 0.5) / 2.;
         if(f > 13. && f < 21.) sensor.values[2].value.f = f;
         f = sensor.values[3].value.f + (drand48() - 0.5) / 100.;
         if(f > 585. && f < 615.) sensor.values[3].value.f = f;
-        f = sensor.values[4].value.f + (drand48() - 0.5) / 10.;
+        f = sensor.values[4].value.f + (drand48() - 0.5)*10.;
         if(f > 60. && f <= 100.) sensor.values[4].value.f = f;
         sensor.values[5].value.u = (f > 98.) ? 1 : 0;
         time_t cur = time(NULL);
         for(int i = 0; i < NS; ++i) sensor.values[i].time = cur;
+        pthread_mutex_unlock(&sensor.valmutex);
+        DBG("unlocked");
         if(sensor.freshdatahandler) sensor.freshdatahandler(&sensor);
         while(sl_dtime() - t0 < sensor.tpoll) usleep(500);
         t0 = sl_dtime();
@@ -73,23 +77,12 @@ static int init(struct sensordata_t* s, int N, time_t pollt, int _U_ fd){
     return NS;
 }
 
-/**
- * @brief getval - value's getter
- * @param o (o) - value
- * @param N - it's index
- * @return FALSE if failed
- */
-static int getval(struct sensordata_t* s, val_t *o, int N){
-    if(N < 0 || N >= NS) return FALSE;
-    if(o) *o = s->values[N];
-    return TRUE;
-}
-
 sensordata_t sensor = {
     .name = "Dummy weatherstation",
     .Nvalues = NS,
     .init = init,
     .onrefresh = common_onrefresh,
-    .get_value = getval,
+    .valmutex = PTHREAD_MUTEX_INITIALIZER,
+    .get_value = common_getval,
     .kill = common_kill,
 };

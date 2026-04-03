@@ -20,6 +20,7 @@
 #include <string.h>
 #include <usefull_macros.h>
 
+#include "mainweather.h"
 #include "sensors.h"
 #include "server.h"
 
@@ -55,12 +56,11 @@ static sl_sock_hresult_e listhandler(sl_sock_t *client, _U_ sl_sock_hitem_t *ite
 }
 
 /**
- * @brief showdata - send to user meteodata
+ * @brief showdataN - send to user meteodata of Nth station
  * @param client - client data
  * @param N - index of station
- * @param showidx - == TRUE to show index in square brackets
  */
-static void showdata(sl_sock_t *client, int N, int showidx){
+static void showdataN(sl_sock_t *client, int N){
     char buf[FULL_LEN+1];
     val_t v;
     sensordata_t *s = NULL;
@@ -69,7 +69,6 @@ static void showdata(sl_sock_t *client, int N, int showidx){
         sl_sock_sendstrmessage(client, buf);
         return;
     }
-    if(!showidx || get_nplugins() == 1) N = -1; // only one -> don't show indexes
     time_t oldest = time(NULL) - oldest_interval;
     uint64_t Tsum = 0; int nsum = 0;
     for(int i = 0; i < s->Nvalues; ++i){
@@ -81,24 +80,56 @@ static void showdata(sl_sock_t *client, int N, int showidx){
         sl_sock_sendbyte(client, '\n');
         ++nsum; Tsum += v.time;
     }
-    oldest = (time_t)(Tsum / nsum);
-    if(0 < format_msrmttm(oldest, buf, FULL_LEN+1)){ // send mean measuring time
-        DBG("Formatted time: '%s'", buf);
-        sl_sock_sendstrmessage(client, buf);
-        sl_sock_sendbyte(client, '\n');
+    if(nsum > 0){
+        oldest = (time_t)(Tsum / nsum);
+        if(0 < format_msrmttm(oldest, buf, FULL_LEN+1)){ // send mean measuring time
+            DBG("Formatted time: '%s'", buf);
+            sl_sock_sendstrmessage(client, buf);
+            sl_sock_sendbyte(client, '\n');
+        }
     }
 }
+
+/**
+ * @brief showdata - send to client common gathered data
+ * @param client  - client data
+ */
+static void showdata(sl_sock_t *client){
+    char buf[FULL_LEN+1];
+    val_t v;
+    int Ncoll = collected_amount();
+    time_t oldest = time(NULL) - oldest_interval;
+    uint64_t Tsum = 0; int nsum = 0;
+    for(int i = 0; i < Ncoll; ++i){
+        if(!get_collected(&v, i)) continue;
+        if(v.time < oldest) continue;
+        if(1 > format_sensval(&v, buf, FULL_LEN+1, -1)) continue;
+        DBG("formatted: '%s'", buf);
+        sl_sock_sendstrmessage(client, buf);
+        sl_sock_sendbyte(client, '\n');
+        ++nsum; Tsum += v.time;
+    }
+    if(nsum > 0){
+        oldest = (time_t)(Tsum / nsum);
+        if(0 < format_msrmttm(oldest, buf, FULL_LEN+1)){ // send mean measuring time
+            DBG("Formatted time: '%s'", buf);
+            sl_sock_sendstrmessage(client, buf);
+            sl_sock_sendbyte(client, '\n');
+        }
+    }
+}
+
 
 // get meteo data
 static sl_sock_hresult_e gethandler(sl_sock_t *client, _U_ sl_sock_hitem_t *item, const char *req){
     if(!client) return RESULT_FAIL;
     int N = get_nplugins();
     if(N < 1) return RESULT_FAIL;
-    if(!req) for(int i = 0; i < N; ++i) showdata(client, i, TRUE);
+    if(!req) showdata(client);
     else{
         int n;
         if(!sl_str2i(&n, req) || n < 0 || n >= N) return RESULT_BADVAL;
-        showdata(client, n, FALSE);
+        showdataN(client, n);
     }
     return RESULT_SILENCE;
 }
@@ -140,17 +171,18 @@ static sl_sock_hresult_e defhandler(struct sl_sock *s, const char *str){
     return RESULT_SILENCE;
 }
 
+#define COMMONHANDLERS \
+    {gethandler,  "get",  "get all meteo or only for given plugin number", NULL}, \
+    {listhandler, "list", "show all opened plugins", NULL}, \
+    {timehandler, "time", "get server's UNIX time", NULL},
+
 // handlers for network and local (UNIX) sockets
 static sl_sock_hitem_t nethandlers[] = { // net - only getters and client-only setters
-    {gethandler,  "get",  "get all meteo or only for given plugin number", NULL},
-    {listhandler, "list", "show all opened plugins", NULL},
-    {timehandler, "time", "get server's UNIX time", NULL},
+    COMMONHANDLERS
     {NULL, NULL, NULL, NULL}
 };
 static sl_sock_hitem_t localhandlers[] = { // local - full amount of setters/getters
-    {gethandler,  "get",  "get all meteo or only for given plugin number", NULL},
-    {listhandler, "list", "show all opened plugins", NULL},
-    {timehandler, "time", "get server's UNIX time", NULL},
+    COMMONHANDLERS
     {NULL, NULL, NULL, NULL}
 };
 
@@ -223,7 +255,7 @@ void kill_servers(){
     sl_sock_delete(&netsocket);
     LOGMSG("Server sockets destroyed");
     //usleep(500);
-    //pthread_kill(locthread, 9);
-    //pthread_kill(netthread, 9);
-    //LOGMSG("Server threads killed");
+    //pthread_join(locthread, NULL);
+    //pthread_join(netthread, NULL);
+    //LOGMSG("Server threads are dead");
 }

@@ -136,8 +136,9 @@ static int opensocket(char *path, sl_socktype_e type){
  * @return opened file descriptor or -1 in case of error
  */
 int getFD(char *path){
-    if(!path || !*path) return -1;
+    if(!path || !*path || strlen(path) < 2) return -1;
     char type = *path;
+    if(path[1] != ':') return -1; // after protocol letter should be delimeter
     path += 2;
     switch(type){
         case 'D': // serial device

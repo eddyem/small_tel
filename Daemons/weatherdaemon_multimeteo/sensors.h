@@ -30,3 +30,4 @@ int get_nplugins();
 int format_sensval(const val_t *v, char *buf, int buflen, int Np);
 int format_msrmttm(time_t t, char *buf, int buflen);
 int set_pollT(time_t t);
+time_t get_pollT();

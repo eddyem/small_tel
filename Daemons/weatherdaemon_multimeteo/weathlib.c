@@ -50,8 +50,8 @@ int common_onrefresh(sensordata_t *s, void (*handler)(sensordata_t *)){
 void common_kill(sensordata_t *s){
     FNAME();
     if(!s) return;
-    if(0 == pthread_kill(s->thread, -9)){
-        DBG("%s main thread killed, join", s->name);
+    if(0 == pthread_cancel(s->thread)){
+        DBG("%s main thread canceled, join", s->name);
         pthread_join(s->thread, NULL);
         DBG("Done");
     }
@@ -63,4 +63,21 @@ void common_kill(sensordata_t *s){
     }
     FREE(s->values);
     DBG("Sensor %s killed", s->name);
+}
+
+/**
+ * @brief common_getval - common value getter
+ * @param s (i) - station
+ * @param o (o) - value or NULL (if you just wants test N)
+ * @param N - number of sensor
+ * @return FALSE if failed
+ */
+int common_getval(struct sensordata_t *s, val_t *o, int N){
+    if(!s || N < 0 || N >= s->Nvalues) return FALSE;
+    if(o){
+        pthread_mutex_lock(&s->valmutex);
+        *o = s->values[N];
+        pthread_mutex_unlock(&s->valmutex);
+    }
+    return TRUE;
 }

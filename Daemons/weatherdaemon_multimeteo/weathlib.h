@@ -96,6 +96,7 @@ typedef struct sensordata_t{
     // private members:
     val_t *values;          // array of values
     pthread_t thread;       // main thread
+    pthread_mutex_t valmutex;// value getter/setter mutex
     void (*freshdatahandler)(struct sensordata_t*); // handler of fresh data
     int fdes;               // file descriptor of device/socket
     sl_ringbuffer_t *ringbuffer; // ringbuffer for device reading
@@ -106,3 +107,4 @@ typedef struct sensordata_t{
 int common_onrefresh(sensordata_t*, void (*handler)(sensordata_t*));
 void common_kill(sensordata_t *s);
 int sensor_alive(sensordata_t *s);
+int common_getval(struct sensordata_t *s, val_t *o, int N);
