@@ -53,6 +53,7 @@ static int openserial(char *path){
         WARN("Can't open %s @ speed %d", path, speed);
         return -1;
     }
+    DBG("Opened %s @ %d", path, speed);
     return serial->comfd;
 }
 

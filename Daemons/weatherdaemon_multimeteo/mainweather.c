@@ -43,7 +43,7 @@ enum{
     NWINDDIR1,
     NWINDDIR2,
     NHUMIDITY,
-    NABM_TEMP,
+    NAMB_TEMP,
     NPRESSURE,
     NPRECIP,
     NPRECIP_LEVEL,
@@ -63,15 +63,15 @@ static val_t collected_data[NAMOUNT_OF_DATA] = {
     [NWINDDIR1] = {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT, .meaning = IS_OTHER, .name = "WINDDIR1", .comment = "Mean wind speed direction for last hour"},
     [NWINDDIR2] = {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT, .meaning = IS_OTHER, .name = "WINDDIR2", .comment = "Mean wind speed^2 direction for last hour"},
     [NHUMIDITY] = {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT, .meaning = IS_HUMIDITY},
-    [NABM_TEMP] = {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT, .meaning = IS_AMB_TEMP},
+    [NAMB_TEMP] = {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT, .meaning = IS_AMB_TEMP},
     [NPRESSURE] = {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT, .meaning = IS_PRESSURE},
-    [NPRECIP] = {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT, .meaning = IS_PRECIP},
+    [NPRECIP] = {.sense = VAL_OBLIGATORY, .type = VALT_UINT, .meaning = IS_PRECIP},
     [NPRECIP_LEVEL] = {.sense = VAL_OBLIGATORY, .type = VALT_INT,   .meaning = IS_PRECIP_LEVEL},
-    [NMIST] = {.sense = VAL_OBLIGATORY, .type = VALT_INT,   .meaning = IS_MIST},
+    [NMIST] = {.sense = VAL_OBLIGATORY, .type = VALT_UINT,   .meaning = IS_MIST},
     [NCLOUDS] = {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT,   .meaning = IS_CLOUDS},
     [NSKYTEMP] = {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT, .meaning = IS_SKYTEMP},
-    [NCOMMWEATH] = {.value.i = 0, .sense = VAL_OBLIGATORY, .type = VALT_INT,   .meaning = IS_OTHER, .name = "WEATHER", .comment = "Weather level (0 - good, 3 - obs. prohibited)"},
-    [NLASTAHTUNG] = {.value.i = 0, .sense = VAL_RECOMMENDED, .type = VALT_INT, .meaning = IS_OTHER, .name = "EVTTIME", .comment = "UNIX-time of last weather level increasing"},
+    [NCOMMWEATH] = {.value.i = 0, .sense = VAL_OBLIGATORY, .type = VALT_UINT,   .meaning = IS_OTHER, .name = "WEATHER", .comment = "Weather level (0 - good, 3 - obs. prohibited)"},
+    [NLASTAHTUNG] = {.value.i = 0, .sense = VAL_RECOMMENDED, .type = VALT_UINT, .meaning = IS_OTHER, .name = "EVTTIME", .comment = "UNIX-time of last weather level increasing"},
 //    {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT, .meaning = IS_OTHER},
 };
 
@@ -285,7 +285,7 @@ void refresh_sensval(sensordata_t *s){
                 curcond = &WeatherConf.humidity;
                 break;
             case IS_AMB_TEMP:
-                idx = NABM_TEMP;
+                idx = NAMB_TEMP;
                 break;
             case IS_PRESSURE:
                 idx = NPRESSURE;

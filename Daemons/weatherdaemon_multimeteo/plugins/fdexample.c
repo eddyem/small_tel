@@ -116,6 +116,7 @@ static void *mainthread(void _U_ *U){
         }
     }
     DBG("OOOOps!");
+    common_kill(&sensor);
     return NULL;
 }
 
@@ -132,6 +133,7 @@ static int init(struct sensordata_t *s, int N, time_t pollt, int fd){
     for(int i = 0; i < NS; ++i) s->values[i] = values[i];
     if(!(s->ringbuffer = sl_RB_new(BUFSIZ))){
         WARNX("Can't init ringbuffer!");
+        common_kill(s);
         return -1;
     }
     return NS;

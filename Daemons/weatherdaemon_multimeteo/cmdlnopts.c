@@ -90,9 +90,9 @@ sl_option_t cmdlnopts[] = {
 };
 
 sl_option_t confopts[] = {
-    {"verbose",  NEED_ARG,  NULL,   'v',    arg_int,    APTR(&G.verb),      "logfile verbocity level"},
-    {"ahtung_delay",NEED_ARG,NULL,  0,      arg_int,    APTR(&WeatherConf.ahtung_delay),"delay in seconds after bad weather to change to good"},
-    {"good_wind",NEED_ARG,  NULL,   0,      arg_double, APTR(&WeatherConf.wind.good), "good wind while less this"},
+    {"verbose",  NEED_ARG,  NULL,   'a',      arg_int,    APTR(&G.verb),      "logfile verbocity level"},
+    {"ahtung_delay",NEED_ARG,NULL,  'b',      arg_int,    APTR(&WeatherConf.ahtung_delay),"delay in seconds after bad weather to change to good"},
+    {"good_wind",NEED_ARG,  NULL,   'c',      arg_double, APTR(&WeatherConf.wind.good), "good wind while less this"},
     {"bad_wind", NEED_ARG,  NULL,   0,      arg_double, APTR(&WeatherConf.wind.bad), "bad wind if more than this"},
     {"terrible_wind",NEED_ARG, NULL,0,      arg_double, APTR(&WeatherConf.wind.terrible), "terrible wind if more than this"},
     {"good_humidity",NEED_ARG, NULL,0,      arg_double, APTR(&WeatherConf.humidity.good), "humidity is good until this"},
@@ -182,6 +182,7 @@ glob_pars *parse_args(int argc, char **argv){
         glob_pars oldpars = G; // save cmdline opts
         G = defconf;
         if(!sl_conf_readopts(oldpars.conffile, confopts)){
+            fprintf(stderr, "\nDefault options:\n%s\n", sl_print_opts(confopts, 1));
             sl_conf_showhelp(-1, confopts);
             return NULL;
         }
@@ -189,6 +190,7 @@ glob_pars *parse_args(int argc, char **argv){
         if((0 == strcmp(oldpars.port, DEFAULT_PORT)) && G.port) oldpars.port = G.port;
         if(!oldpars.logfile && G.logfile) oldpars.logfile = G.logfile;
         if(!oldpars.verb && G.verb > -1) oldpars.verb = G.verb;
+        if(G.pollt > 0 && oldpars.pollt == 0) oldpars.pollt = G.pollt;
         if((0 == strcmp(oldpars.pidfile, DEFAULT_PID)) && G.pidfile) oldpars.pidfile = G.pidfile;
         if(!oldpars.sockname && G.sockname) oldpars.sockname = G.sockname;
         // now check plugins

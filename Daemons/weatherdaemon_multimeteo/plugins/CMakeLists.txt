@@ -21,4 +21,20 @@ if(FDEXAMPLE)
     list(APPEND LIBS fdex)
 endif()
 
+if(HYDREON)
+    add_library(hydreon SHARED hydreon.c)
+    list(APPEND LIBS hydreon)
+endif()
+
+if(BTAMETEO)
+    add_library(btameteo SHARED btameteo.c bta_shdata.c) 
+    target_link_libraries(btameteo -lcrypt)
+    list(APPEND LIBS btameteo)
+endif()
+
+if(REINHARDT)
+    add_library(reinhardt SHARED reinhardt.c) 
+    list(APPEND LIBS reinhardt)
+endif()
+
 install(TARGETS ${LIBS} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})

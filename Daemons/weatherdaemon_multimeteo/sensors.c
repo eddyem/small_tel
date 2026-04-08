@@ -89,17 +89,21 @@ static void dumpsensors(struct sensordata_t* station){
     char buf[FULL_LEN+1];
     uint64_t Tsum = 0; int nsum = 0;
     int N = (nplugins > 1) ? station->PluginNo : -1;
+    time_t oldest = time(NULL) - 100;
     for(int i = 0; i < station->Nvalues; ++i){
         val_t v;
         if(!station->get_value(station, &v, i)) continue;
+        if(v.time < oldest) continue;
         if(0 < format_sensval(&v, buf, FULL_LEN+1, N)){
             printf("%s\n", buf);
             ++nsum; Tsum += v.time;
         }
     }
-    time_t last = (time_t)(Tsum / nsum);
-    if(0 < format_msrmttm(last, buf, FULL_LEN+1)){
-        printf("%s\n\n", buf);
+    if(nsum > 0){
+        time_t last = (time_t)(Tsum / nsum);
+        if(0 < format_msrmttm(last, buf, FULL_LEN+1)){
+            printf("%s\n\n", buf);
+        }
     }
 #endif
 }

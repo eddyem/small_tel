@@ -6,8 +6,13 @@ fd.h
 main.c
 mainweather.c
 mainweather.h
+plugins/bta_shdata.c
+plugins/bta_shdata.h
+plugins/btameteo.c
 plugins/dummy.c
 plugins/fdexample.c
+plugins/hydreon.c
+plugins/reinhardt.c
 sensors.c
 sensors.h
 server.c

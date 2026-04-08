@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 4.0)
-set(PROJ weatherdaemon)
+set(PROJ superweatherdaemon)
 set(PROJLIB senslib)
 set(MAJOR_VERSION "0")
 set(MID_VERSION "0")
@@ -15,6 +15,10 @@ message("VER: ${VERSION}")
 option(DEBUG "Compile in debug mode" OFF)
 option(DUMMY "Dummy device plugin" ON)
 option(FDEXAMPLE "Example of file descriptor plugin" ON)
+option(HYDREON "Hydreon rain sensor plugin" ON)
+option(BTAMETEO "BTA main meteostation plugin" ON)
+option(REINHARDT "Old Reinhardt meteostation plugin" ON)
+
 
 # default flags
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -W -Wextra -pedantic-errors -fPIC")
