@@ -101,9 +101,9 @@ static void showdata(sl_sock_t *client){
     time_t oldest = time(NULL) - oldest_interval;
     uint64_t Tsum = 0; int nsum = 0;
     for(int i = 0; i < Ncoll; ++i){
-        if(!get_collected(&v, i)) continue;
-        if(v.time < oldest) continue;
-        if(1 > format_sensval(&v, buf, FULL_LEN+1, -1)) continue;
+        if(!get_collected(&v, i)){ DBG("Can't get %dth value", i); continue; }
+        if(v.time < oldest){ DBG("%dth value is too old", i); continue; }
+        if(1 > format_sensval(&v, buf, FULL_LEN+1, -1)){ DBG("Can't format"); continue; }
         DBG("formatted: '%s'", buf);
         sl_sock_sendstrmessage(client, buf);
         sl_sock_sendbyte(client, '\n');

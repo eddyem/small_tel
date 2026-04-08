@@ -177,7 +177,7 @@ int format_sensval(const val_t *v, char *buf, int buflen, int Np){
     switch(v->type){
         case VALT_UINT:  snprintf(strval, VAL_LEN, "%u", v->value.u); break;
         case VALT_INT:   snprintf(strval, VAL_LEN, "%d", v->value.i); break;
-        case VALT_FLOAT: snprintf(strval, VAL_LEN, "%g", v->value.f); break;
+        case VALT_FLOAT: snprintf(strval, VAL_LEN, "%.2f", v->value.f); break;
         default: sprintf(strval, "'ERROR'");
     }
     const char* const NM[IS_OTHER] = { // names of standard fields
@@ -196,7 +196,7 @@ int format_sensval(const val_t *v, char *buf, int buflen, int Np){
     };
     const char* const CMT[IS_OTHER] = { // comments for standard fields
         [IS_WIND]       = "Wind, m/s",
-        [IS_WINDDIR]    = "Wind direction, degr (CW from north to FROM)",
+        [IS_WINDDIR]    = "Instant wind direction, degr (CW from north to FROM)",
         [IS_HUMIDITY]   = "Humidity, percent",
         [IS_AMB_TEMP]   = "Ambient temperature, degC",
         [IS_INNER_TEMP] = "In-dome temperature, degC",

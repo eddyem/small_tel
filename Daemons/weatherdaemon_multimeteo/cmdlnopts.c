@@ -83,7 +83,7 @@ static glob_pars G;
 
 sl_option_t cmdlnopts[] = {
     {"help",    NO_ARGS,    NULL,   'h',    arg_int,    APTR(&help),        "show this help"},
-    {"conffile",NEED_ARG,   NULL,   'c',    arg_string, APTR(&G.conffile),  "configuration file name (consists all or a part of long-named parameters and their values (e.g. plugin=liboldweather.so:D:/dev/ttyS0:115200)"},
+    {"conffile",NEED_ARG,   NULL,   'c',    arg_string, APTR(&G.conffile),  "configuration file name (or non-existant file for help)"},
     {"verb",    NO_ARGS,    NULL,   'v',    arg_none,   APTR(&G.verb),      "logfile verbocity level (each -v increased)"},
     COMMON_OPTS
     end_option
@@ -181,7 +181,10 @@ glob_pars *parse_args(int argc, char **argv){
     if(G.conffile){ // read conffile and fix parameters (cmdline args are in advantage)
         glob_pars oldpars = G; // save cmdline opts
         G = defconf;
-        if(!sl_conf_readopts(oldpars.conffile, confopts)) ERRX("Can't get options from %s", G.conffile);
+        if(!sl_conf_readopts(oldpars.conffile, confopts)){
+            sl_conf_showhelp(-1, confopts);
+            return NULL;
+        }
         DBG("CONF: \n-------------\n%s-------------\n\n", sl_print_opts(confopts, 1));
         if((0 == strcmp(oldpars.port, DEFAULT_PORT)) && G.port) oldpars.port = G.port;
         if(!oldpars.logfile && G.logfile) oldpars.logfile = G.logfile;
