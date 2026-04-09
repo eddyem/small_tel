@@ -18,7 +18,29 @@
 
 // Some common functions and handlers for sensors
 
+#include <pthread.h>
+
 #include "weathlib.h"
+
+// private functions (for plugins usage only)
+static int common_onrefresh(sensordata_t*, void (*handler)(sensordata_t*));
+static void common_kill(sensordata_t *);
+static int common_getval(sensordata_t*, val_t*, int);
+//static int common_init(sensordata_t*, int, time_t, int);
+
+/**
+ * @brief common_new - call this function from your plugin's `sensor_new`
+ * @return
+ */
+sensordata_t *common_new(){
+    sensordata_t *s = MALLOC(sensordata_t, 1);
+    s->fdes = -1; // not inited
+    s->onrefresh = common_onrefresh;
+    s->get_value = common_getval;
+    s->kill = common_kill;
+    pthread_mutex_init(&s->valmutex, NULL);
+    return s;
+}
 
 /**
  * @brief sensor_alive - test if sensor's thread isn't dead
@@ -26,7 +48,7 @@
  * @return FALSE if thread is dead
  */
 int sensor_alive(sensordata_t *s){
-    if(!s) return FALSE;
+    if(!s || s->fdes < 0) return FALSE;
     if(pthread_kill(s->thread, 0)) return FALSE;
     return TRUE;
 }
@@ -50,19 +72,23 @@ int common_onrefresh(sensordata_t *s, void (*handler)(sensordata_t *)){
 void common_kill(sensordata_t *s){
     FNAME();
     if(!s) return;
-    if(0 == pthread_cancel(s->thread)){
-        DBG("%s main thread canceled, join", s->name);
-        pthread_join(s->thread, NULL);
-        DBG("Done");
+    if(s->fdes > -1){ // inited and maybe have opened file/socket
+        if(0 == pthread_cancel(s->thread)){
+            DBG("%s main thread canceled, join", s->name);
+            pthread_join(s->thread, NULL);
+            DBG("Done");
+        }
+        close(s->fdes);
     }
     DBG("Delete RB");
-    sl_RB_delete(&s->ringbuffer);
-    if(s->fdes > -1){
-        close(s->fdes);
-        DBG("FD closed");
-    }
+    if(s->ringbuffer) sl_RB_delete(&s->ringbuffer);
     FREE(s->values);
-    DBG("Sensor %s killed", s->name);
+    if(s->privdatafree) s->privdatafree(s->privdata);
+    else FREE(s->privdata);
+    DBG("Sensor '%s' killed", s->name);
+    LOGERR("Sensor '%s' killed", s->name);
+    FREE(s);
+    DBG("There's no more this sensor");
 }
 
 /**

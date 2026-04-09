@@ -13,6 +13,7 @@ plugins/dummy.c
 plugins/fdexample.c
 plugins/hydreon.c
 plugins/reinhardt.c
+plugins/wxa100.c
 sensors.c
 sensors.h
 server.c

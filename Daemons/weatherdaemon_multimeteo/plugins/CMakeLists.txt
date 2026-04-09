@@ -37,4 +37,9 @@ if(REINHARDT)
     list(APPEND LIBS reinhardt)
 endif()
 
+if(WXA100)
+    add_library(wxa100 SHARED wxa100.c) 
+    list(APPEND LIBS wxa100)
+endif()
+
 install(TARGETS ${LIBS} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})

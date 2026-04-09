@@ -18,10 +18,10 @@ option(FDEXAMPLE "Example of file descriptor plugin" ON)
 option(HYDREON "Hydreon rain sensor plugin" ON)
 option(BTAMETEO "BTA main meteostation plugin" ON)
 option(REINHARDT "Old Reinhardt meteostation plugin" ON)
-
+option(WXA100 "WXA100-06 meteostation plugin" ON)
 
 # default flags
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -W -Wextra -pedantic-errors -fPIC")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -W -Wextra -fPIC")
 
 message("Install dir prefix: ${CMAKE_INSTALL_PREFIX}")
 

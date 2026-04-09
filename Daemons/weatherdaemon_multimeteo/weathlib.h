@@ -21,6 +21,7 @@
 #include <pthread.h>
 #include <signal.h> // pthread_kill
 #include <stdint.h>
+#include <string.h>
 #include <time.h>
 #include <usefull_macros.h>
 
@@ -89,7 +90,6 @@ typedef struct sensordata_t{
     char name[NAME_LEN+1];  // max 31 symbol of sensor's name (e.g. "rain sensor")
     int Nvalues;            // amount of values
     int PluginNo;           // plugin number in array (if several)
-    int (*init)(struct sensordata_t*, int, time_t, int); // init meteostation with given PluginNo, poll_interval and fd; return amount of parameters found or -1 if error
     int (*onrefresh)(struct sensordata_t*, void (*handler)(struct sensordata_t*)); // handler of new data; return TRUE if OK
     int (*get_value)(struct sensordata_t*, val_t*, int); // getter of Nth value
     void (*kill)(struct sensordata_t*); // close everything and remove sensor
@@ -97,14 +97,21 @@ typedef struct sensordata_t{
     val_t *values;          // array of values
     pthread_t thread;       // main thread
     pthread_mutex_t valmutex;// value getter/setter mutex
-    void (*freshdatahandler)(struct sensordata_t*); // handler of fresh data
-    int fdes;               // file descriptor of device/socket
+    // !!! if your plugin don't use file descriptor, you should set fdes to any non-negative value after running main thread
+    int fdes;               // file descriptor of device/socket or "init" flag (should be > -1)
     sl_ringbuffer_t *ringbuffer; // ringbuffer for device reading
     time_t tpoll;           // forced polling time for sensor
+    void (*freshdatahandler)(struct sensordata_t*); // handler of fresh data
+    void (*privdatafree)(void*); // free private data (if don't wanna write own `kill` instead of `common kill`
+    void *privdata;         // some private data like struct
 } sensordata_t;
 
-// library functions and other
-int common_onrefresh(sensordata_t*, void (*handler)(sensordata_t*));
-void common_kill(sensordata_t *s);
+// type for function extraction
+typedef sensordata_t* (*sensor_new_t)(int, time_t, int);
+
+// init meteostation with given PluginNo, poll_interval and fd
+sensordata_t *sensor_new(int PluginNo, time_t poll_interval, int fd);  // external initial function for any plugin
 int sensor_alive(sensordata_t *s);
-int common_getval(struct sensordata_t *s, val_t *o, int N);
+
+// private function (for plugins usage only)
+sensordata_t *common_new();

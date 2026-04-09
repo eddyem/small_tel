@@ -23,9 +23,8 @@
 
 // dummy example of file descriptors usage
 
+#define SENSOR_NAME "Dummy socket or serial device weatherstation"
 #define NS (4)
-
-extern sensordata_t sensor;
 
 static const val_t values[NS] = { // fields `name` and `comment` have no sense until value meaning is `IS_OTHER`
     {.sense = VAL_OBLIGATORY,  .type = VALT_FLOAT, .meaning = IS_WIND},
@@ -34,23 +33,23 @@ static const val_t values[NS] = { // fields `name` and `comment` have no sense u
     {.sense = VAL_RECOMMENDED, .type = VALT_FLOAT, .meaning = IS_HUMIDITY},
 };
 
-static int format_values(char *buf){
+static int format_values(sensordata_t *sensor, char *buf){
     int gotvals = 0;
     char *token = strtok(buf, ",");
     time_t tnow = time(NULL);
+    pthread_mutex_lock(&sensor->valmutex);
     while(token && gotvals < NS){
         double v;
         DBG("TOKEN: %s", token);
         if(sl_str2d(&v, token)){
             DBG("next value: %g", v);
-            pthread_mutex_lock(&sensor.valmutex);
-            sensor.values[gotvals].value.f = (float) v;
-            sensor.values[gotvals].time = tnow;
-            pthread_mutex_unlock(&sensor.valmutex);
+            sensor->values[gotvals].value.f = (float) v;
+            sensor->values[gotvals].time = tnow;
             ++gotvals;
         }
         token = strtok(NULL, ",");
     }
+    pthread_mutex_unlock(&sensor->valmutex);
     DBG("GOT: %d", gotvals);
     return gotvals;
 }
@@ -79,72 +78,68 @@ static ssize_t writedata(int fd, const char *str, size_t size){
     return sent;
 }
 
-static void *mainthread(void _U_ *U){
+static void *mainthread(void *s){
     FNAME();
     time_t task = 0;
     const char begging[] = "Enter comma-separated data: wind, exttemp, pressure, humidity\n";
     char buf[128];
-    while(sensor.fdes > -1){
+    sensordata_t *sensor = (sensordata_t *)s;
+    while(sensor->fdes > -1){
         time_t tnow = time(NULL);
-        int canread = sl_canread(sensor.fdes);
+        int canread = sl_canread(sensor->fdes);
         if(canread < 0){
-            WARNX("Disconnected fd %d", sensor.fdes);
+            WARNX("Disconnected fd %d", sensor->fdes);
             break;
         }else if(canread == 1){
-            ssize_t got = read(sensor.fdes, buf, 128);
+            ssize_t got = read(sensor->fdes, buf, 128);
             if(got > 0){
-                sl_RB_write(sensor.ringbuffer, (uint8_t*)buf, got);
+                sl_RB_write(sensor->ringbuffer, (uint8_t*)buf, got);
             }else if(got < 0){
                 DBG("Disconnected?");
                 break;
             }
         }
-        if(sl_RB_readline(sensor.ringbuffer, buf, 127) > 0){
-            if(NS == format_values(buf) && sensor.freshdatahandler)
-                sensor.freshdatahandler(&sensor);
+        if(sl_RB_readline(sensor->ringbuffer, buf, 127) > 0){
+            if(NS == format_values(sensor, buf) && sensor->freshdatahandler)
+                sensor->freshdatahandler(sensor);
         }
-        if(sensor.tpoll){
+        if(sensor->tpoll){
             if(tnow >= task){
                 DBG("write %s", begging);
-                ssize_t got = writedata(sensor.fdes, begging, sizeof(begging)-1);
-                if(got > 0) task = tnow + sensor.tpoll;
+                ssize_t got = writedata(sensor->fdes, begging, sizeof(begging)-1);
+                if(got > 0) task = tnow + sensor->tpoll;
                 else if(got < 0){
-                    close(sensor.fdes);
-                    sensor.fdes = -1;
+                    close(sensor->fdes);
+                    sensor->fdes = -1;
                 }
             }
         }
     }
     DBG("OOOOps!");
-    common_kill(&sensor);
+    sensor->kill(sensor);
     return NULL;
 }
 
-static int init(struct sensordata_t *s, int N, time_t pollt, int fd){
+sensordata_t *sensor_new(int N, time_t pollt, int fd){
     FNAME();
-    if(!s) return -1;
+    if(fd < 0) return NULL;
+    sensordata_t *s = common_new();
+    if(!s) return NULL;
     s->fdes = fd;
-    if(s->fdes < 0) return -1;
-    sensor.PluginNo = N;
+    s->PluginNo = N;
     if(pollt) s->tpoll = pollt;
-    if(pthread_create(&s->thread, NULL, mainthread, NULL)) return -1;
+    strncpy(s->name, SENSOR_NAME, NAME_LEN);
     s->values = MALLOC(val_t, NS);
     // don't use memcpy, as `values` could be aligned
     for(int i = 0; i < NS; ++i) s->values[i] = values[i];
     if(!(s->ringbuffer = sl_RB_new(BUFSIZ))){
         WARNX("Can't init ringbuffer!");
-        common_kill(s);
-        return -1;
+        s->kill(s);
+        return NULL;
     }
-    return NS;
+    if(pthread_create(&s->thread, NULL, mainthread, (void*)s)){
+        s->kill(s);
+        return NULL;
+    }
+    return s;
 }
-
-sensordata_t sensor = {
-    .name = "Dummy socket or serial device weatherstation",
-    .Nvalues = NS,
-    .init = init,
-    .onrefresh = common_onrefresh,
-    .valmutex = PTHREAD_MUTEX_INITIALIZER,
-    .get_value = common_getval,
-    .kill = common_kill,
-};

@@ -60,12 +60,16 @@ sensordata_t *get_plugin(int N){
     return allplugins[N];
 }
 
+// TODO: fix for usage with several identical meteostations
 void *open_plugin(const char *name){
     DBG("try to open lib %s", name);
-    void* dlh = dlopen(name, RTLD_NOLOAD); // library may be already opened
+    void* dlh = dlopen(name, RTLD_NOW | RTLD_NOLOAD); // library may be already opened
     if(!dlh){
         DBG("Not loaded - load");
         dlh = dlopen(name, RTLD_NOW);
+    }else{
+        WARNX("Library %s already opened", name);
+        //return NULL;
     }
     if(!dlh){
         char *e = dlerror();
@@ -131,24 +135,18 @@ int openplugins(char **paths, int N){
         void* dlh = open_plugin(buf);
         if(!dlh) continue;
         DBG("OPENED");
-        void *s = dlsym(dlh, "sensor");
-        if(s){
-            sensordata_t *S = (sensordata_t*) s;
-            if(!S->get_value) WARNXL("Sensor library %s have no values' getter!", paths[i]);
-            if(!S->init){
-                WARNXL("Sensor library %s have no init funtion");
-                continue;
-            }
+        sensor_new_t sensnew = (sensor_new_t) dlsym(dlh, "sensor_new");
+        if(sensnew){
             int fd = -1;
             if(colon) fd = getFD(colon);
-            int ns = S->init(S, nplugins, poll_interval, fd); // here nplugins is index in array
-            if(ns < 1) WARNXL("Can't init plugin %s", paths[i]);
+            sensordata_t *S = sensnew(nplugins, poll_interval, fd); // here nplugins is index in array
+            if(!S) WARNXL("Can't init plugin %s", paths[i]);
             else{
                 if(!S->onrefresh || !S->onrefresh(S, dumpsensors)) WARNXL("Can't init refresh funtion");
-                LOGMSG("Plugin %s nave %d sensors", paths[i], ns);
+                LOGMSG("Plugin %s nave %d sensors", paths[i], S->Nvalues);
                 allplugins[nplugins++] = S;
             }
-        }else WARNXL("Can't find field `sensor` in plugin %s: %s", paths[i], dlerror());
+        }else WARNXL("Can't find initing function in plugin %s: %s", paths[i], dlerror());
     }
     return nplugins;
 }
@@ -207,9 +205,9 @@ int format_sensval(const val_t *v, char *buf, int buflen, int Np){
         [IS_HW_TEMP]    = "Hardware (mirror?) termperature, degC",
         [IS_PRESSURE]   = "Atmospheric pressure, mmHg",
         [IS_PRECIP]     = "Precipitation (1 - yes, 0 - no)",
-        [IS_PRECIP_LEVEL]="Precipitation level (mm)",
+        [IS_PRECIP_LEVEL]="Cumulative precipitation level (mm)",
         [IS_MIST]       = "Mist (1 - yes, 0 - no)",
-        [IS_CLOUDS]     = "Integral clouds value (bigger - better)",
+        [IS_CLOUDS]     = "Integral sky quality value (bigger - better)",
         [IS_SKYTEMP]    = "Mean sky temperatyre"
     };
     const char *name = NULL, *comment = NULL;

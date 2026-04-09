@@ -66,7 +66,7 @@ static val_t collected_data[NAMOUNT_OF_DATA] = {
     [NAMB_TEMP] = {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT, .meaning = IS_AMB_TEMP},
     [NPRESSURE] = {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT, .meaning = IS_PRESSURE},
     [NPRECIP] = {.sense = VAL_OBLIGATORY, .type = VALT_UINT, .meaning = IS_PRECIP},
-    [NPRECIP_LEVEL] = {.sense = VAL_OBLIGATORY, .type = VALT_INT,   .meaning = IS_PRECIP_LEVEL},
+    [NPRECIP_LEVEL] = {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT,   .meaning = IS_PRECIP_LEVEL},
     [NMIST] = {.sense = VAL_OBLIGATORY, .type = VALT_UINT,   .meaning = IS_MIST},
     [NCLOUDS] = {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT,   .meaning = IS_CLOUDS},
     [NSKYTEMP] = {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT, .meaning = IS_SKYTEMP},
@@ -182,10 +182,10 @@ int get_collected(val_t *val, int N){
 }
 
 static void fix_new_data(val_t *collected, val_t *fresh){
-    FNAME();
     if(!collected || !fresh) return;
     collected->time = fresh->time;
     if(collected->type == fresh->type){ // good case
+        DBG("Types are the same");
         collected->value = fresh->value;
         return;
     }
@@ -194,30 +194,36 @@ static void fix_new_data(val_t *collected, val_t *fresh){
     case VALT_UINT:
         switch(fresh->type){
         case VALT_INT:
-            collected->value.u = (uint32_t) collected->value.i;
+            collected->value.u = (uint32_t) fresh->value.i;
+            DBG("i->u");
             break;
         case VALT_FLOAT:
-            collected->value.u = (uint32_t) collected->value.f;
+            collected->value.u = (uint32_t) fresh->value.f;
+            DBG("f->u");
         default: break;
         }
         break;
     case VALT_INT:
         switch(fresh->type){
         case VALT_UINT:
-            collected->value.i = (int32_t) collected->value.u;
+            collected->value.i = (int32_t) fresh->value.u;
+            DBG("u->i");
             break;
         case VALT_FLOAT:
-            collected->value.i = (int32_t) collected->value.f;
+            collected->value.i = (int32_t) fresh->value.f;
+            DBG("f->i");
         default: break;
         }
         break;
     case VALT_FLOAT:
         switch(fresh->type){
         case VALT_UINT:
-            collected->value.f = (float) collected->value.u;
+            collected->value.f = (float) fresh->value.u;
+            DBG("u->f");
             break;
         case VALT_INT:
-            collected->value.f = (float) collected->value.i;
+            collected->value.f = (float) fresh->value.i;
+            DBG("i->f");
         default: break;
         }
         break;
@@ -262,7 +268,7 @@ void refresh_sensval(sensordata_t *s){
     double dir = -100., dir2 = -100.; // mean wind directions
     DBG("%d meteo values", s->Nvalues);
     for(int i = 0; i < s->Nvalues; ++i){
-        DBG("Try to get %dth value", i);
+        DBG("\nTry to get %dth value", i);
         if(!s->get_value(s, &value, i)) continue;
         DBG("got value");
         int idx = -1;
@@ -321,7 +327,7 @@ void refresh_sensval(sensordata_t *s){
         }
         if(idx < 0 || idx >= NAMOUNT_OF_DATA) continue;
         DBG("IDX=%d", idx);
-        time_t freshdelay = (s->PluginNo == 0) ? 0 : poll_time; // use data of less imrortant plugins only if our data is too old
+        time_t freshdelay = (s->PluginNo == 0) ? 0 : 90; // use data of less imrortant plugins only if our data is too old
         time_t curmt = collected_data[idx].time + freshdelay;
         if(value.time < curmt){
             DBG("Data too old (value: %zd, curr: %zd", value.time, curmt);

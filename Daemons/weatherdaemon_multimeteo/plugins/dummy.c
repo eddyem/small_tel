@@ -20,9 +20,9 @@
 
 #include "weathlib.h"
 
-#define NS (6)
+#define SENSOR_NAME     "Dummy weatherstation"
 
-extern sensordata_t sensor;
+#define NS (6)
 
 static const val_t values[NS] = { // fields `name` and `comment` have no sense until value meaning is `IS_OTHER`
     {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT, .meaning = IS_WIND},
@@ -33,56 +33,55 @@ static const val_t values[NS] = { // fields `name` and `comment` have no sense u
     {.sense = VAL_OBLIGATORY, .type = VALT_UINT, .meaning = IS_PRECIP},
 };
 
-static void *mainthread(void _U_ *U){
+static void *mainthread(void *s){
     FNAME();
     double t0 = sl_dtime();
+    sensordata_t *sensor = (sensordata_t *)s;
     while(1){
         DBG("locked");
-        pthread_mutex_lock(&sensor.valmutex);
-        float f = sensor.values[0].value.f + (drand48() - 0.5) / 2.;
-        if(f >= 0.) sensor.values[0].value.f = f;
-        f = sensor.values[1].value.f + (drand48() - 0.5) * 4.;
-        if(f > 160. && f < 200.) sensor.values[1].value.f = f;
-        f = sensor.values[2].value.f + (drand48() - 0.5) / 2.;
-        if(f > 13. && f < 21.) sensor.values[2].value.f = f;
-        f = sensor.values[3].value.f + (drand48() - 0.5) / 100.;
-        if(f > 585. && f < 615.) sensor.values[3].value.f = f;
-        f = sensor.values[4].value.f + (drand48() - 0.5)*10.;
-        if(f > 60. && f <= 100.) sensor.values[4].value.f = f;
-        sensor.values[5].value.u = (f > 98.) ? 1 : 0;
+        pthread_mutex_lock(&sensor->valmutex);
+        float f = sensor->values[0].value.f + (drand48() - 0.5) / 2.;
+        if(f >= 0.) sensor->values[0].value.f = f;
+        f = sensor->values[1].value.f + (drand48() - 0.5) * 4.;
+        if(f > 160. && f < 200.) sensor->values[1].value.f = f;
+        f = sensor->values[2].value.f + (drand48() - 0.5) / 2.;
+        if(f > 13. && f < 21.) sensor->values[2].value.f = f;
+        f = sensor->values[3].value.f + (drand48() - 0.5) / 100.;
+        if(f > 585. && f < 615.) sensor->values[3].value.f = f;
+        f = sensor->values[4].value.f + (drand48() - 0.5)*10.;
+        if(f > 60. && f <= 100.) sensor->values[4].value.f = f;
+        sensor->values[5].value.u = (f > 98.) ? 1 : 0;
         time_t cur = time(NULL);
-        for(int i = 0; i < NS; ++i) sensor.values[i].time = cur;
-        pthread_mutex_unlock(&sensor.valmutex);
+        for(int i = 0; i < NS; ++i) sensor->values[i].time = cur;
+        pthread_mutex_unlock(&sensor->valmutex);
         DBG("unlocked");
-        if(sensor.freshdatahandler) sensor.freshdatahandler(&sensor);
-        while(sl_dtime() - t0 < sensor.tpoll) usleep(500);
+        if(sensor->freshdatahandler) sensor->freshdatahandler(sensor);
+        while(sl_dtime() - t0 < sensor->tpoll) usleep(500);
         t0 = sl_dtime();
     }
     return NULL;
 }
 
-static int init(struct sensordata_t* s, int N, time_t pollt, int _U_ fd){
+sensordata_t *sensor_new(int N, time_t pollt, int _U_ fd){
     FNAME();
-    if(pthread_create(&s->thread, NULL, mainthread, NULL)) return 0;
+    sensordata_t *s = common_new();
+    if(!s) return NULL;
+    s->Nvalues = NS;
+    strncpy(s->name, SENSOR_NAME, NAME_LEN);
     if(pollt) s->tpoll = pollt;
     s->values = MALLOC(val_t, NS);
     for(int i = 0; i < NS; ++i) s->values[i] = values[i];
-    sensor.values[0].value.f = 1.;
-    sensor.values[1].value.f = 180.;
-    sensor.values[2].value.f = 17.;
-    sensor.values[3].value.f = 600.;
-    sensor.values[4].value.f = 80.;
-    sensor.values[5].value.u = 0;
-    sensor.PluginNo = N;
-    return NS;
+    s->values[0].value.f = 1.;
+    s->values[1].value.f = 180.;
+    s->values[2].value.f = 17.;
+    s->values[3].value.f = 600.;
+    s->values[4].value.f = 80.;
+    s->values[5].value.u = 0;
+    s->PluginNo = N;
+    if(pthread_create(&s->thread, NULL, mainthread, (void*)s)){
+        s->kill(s);
+        return NULL;
+    }
+    s->fdes = 0;
+    return s;
 }
-
-sensordata_t sensor = {
-    .name = "Dummy weatherstation",
-    .Nvalues = NS,
-    .init = init,
-    .onrefresh = common_onrefresh,
-    .valmutex = PTHREAD_MUTEX_INITIALIZER,
-    .get_value = common_getval,
-    .kill = common_kill,
-};

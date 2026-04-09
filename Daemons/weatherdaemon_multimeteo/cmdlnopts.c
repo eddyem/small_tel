@@ -107,13 +107,15 @@ sl_option_t confopts[] = {
     COMMON_OPTS
     end_option
 };
-
+#if 0
 static int sortstrings(const void *v1, const void *v2){
     const char **s1 = (const char **)v1, **s2 = (const char **)v2;
     return strcmp(*s1, *s2);
 }
+#endif
 
 // compare plugins from configuration and command line; add to command line plugins all new
+// to use similar stations several times you should point for them different settings
 static void compplugins(glob_pars *cmdline, glob_pars *conf){
     if(!cmdline) return;
     char **p;
@@ -136,10 +138,28 @@ static void compplugins(glob_pars *cmdline, glob_pars *conf){
         for(int i = 0; i < nconf; ++i){ newarray[i+ncmd] = conf->plugins[i]; }
         FREE(conf->plugins);
     }
-    qsort(newarray, newsize, sizeof(char*), sortstrings);
+    // don't sort: we need leave priority as user pointed
+    //qsort(newarray, newsize, sizeof(char*), sortstrings);
     DBG("NOW together:"); p = newarray; while(*p) printf("\t%s\n", *p++);
-    p = newarray;
-    int nondobuleidx = 0;
+    for(int i = 0; i < newsize-1; ++i){
+        if(NULL == newarray[i]) continue;
+        for(int j = i+1; j < newsize; ++j){
+            if(NULL == newarray[j]) continue;
+            if(0 == strcmp(newarray[i], newarray[j])) FREE(newarray[j]);
+        }
+    }
+    // now collect them in order
+    int nondoubleidx = 0;
+    for(int i = 0; i < newsize; ++i){
+        if(newarray[i]){
+            if(i != nondoubleidx){
+                newarray[nondoubleidx] = newarray[i];
+                newarray[i] = NULL;
+            }
+            ++nondoubleidx;
+        }
+    }
+#if 0
     for(int i = 0; i < newsize;){
         int j = i + 1;
         for(; j < newsize; ++j){
@@ -153,9 +173,10 @@ static void compplugins(glob_pars *cmdline, glob_pars *conf){
         ++nondobuleidx;
         i = j;
     }
+#endif
     DBG("Result:"); p = newarray; while(*p) printf("\t%s\n", *p++);
     cmdline->plugins = newarray;
-    cmdline->nplugins = nondobuleidx;
+    cmdline->nplugins = nondoubleidx;
 }
 
 /**

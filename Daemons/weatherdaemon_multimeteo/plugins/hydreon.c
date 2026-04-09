@@ -23,6 +23,8 @@
 
 // HYDREON rain sensor
 
+#define SENSOR_NAME "Hydreon RG-11 rain sensor"
+
 // amount of datafields
 #define RREGNUM     6
 #define RGBITNUM    8
@@ -82,8 +84,6 @@ typedef struct{
     uint8_t LightAD;      // (???) seems correlated with RainAD8
     uint8_t RainThr;      // (??? == 12)
 } slowregs;
-
-extern sensordata_t sensor;
 
 enum{
     NPRECIP = 0,
@@ -146,78 +146,71 @@ static int encodepacket(const char *buf, int len, rg11 *Rregs, slowregs *Sregs){
     return TRUE;
 }
 
-static void *mainthread(void _U_ *U){
+static void *mainthread(void *s){
     FNAME();
     char buf[128];
     rg11 Rregs;
     slowregs Sregs;
-    while(sensor.fdes > -1){
+    sensordata_t *sensor = (sensordata_t *)s;
+    while(sensor->fdes > -1){
         time_t tnow = time(NULL);
-        int canread = sl_canread(sensor.fdes);
+        int canread = sl_canread(sensor->fdes);
         if(canread < 0){
-            WARNX("Disconnected fd %d", sensor.fdes);
+            WARNX("Disconnected fd %d", sensor->fdes);
             break;
         }else if(canread == 1){
-            ssize_t got = read(sensor.fdes, buf, 128);
+            ssize_t got = read(sensor->fdes, buf, 128);
             if(got > 0){
                 //DBG("write into buffer: %s[%zd]", buf, got);
-                sl_RB_write(sensor.ringbuffer, (uint8_t*)buf, got);
+                sl_RB_write(sensor->ringbuffer, (uint8_t*)buf, got);
             }else if(got < 0){
                 DBG("Disconnected?");
                 break;
             }
         }
-        int got = sl_RB_readto(sensor.ringbuffer, 's', (uint8_t*)buf, 127);
+        int got = sl_RB_readto(sensor->ringbuffer, 's', (uint8_t*)buf, 127);
         if(got > 0){
             buf[--got] = 0;
             if(encodepacket(buf, got, &Rregs, &Sregs)){
                 DBG("refresh...");
-                pthread_mutex_lock(&sensor.valmutex);
+                pthread_mutex_lock(&sensor->valmutex);
                 for(int i = 0; i < NAMOUNT; ++i)
-                    sensor.values[i].time = tnow;
-                sensor.values[NPRECIP].value.u = (Rregs.RGBits & (Raining | Storm)) ? 1 : 0;
+                    sensor->values[i].time = tnow;
+                sensor->values[NPRECIP].value.u = (Rregs.RGBits & (Raining | Storm)) ? 1 : 0;
                 float f = Sregs.Barrel * 256.f + Sregs.Bucket - 14.f;
-                sensor.values[NPRECIP_LEVEL].value.f = (f > 0.f) ? f : 0.f;
-                sensor.values[NSINCERN].value.u = Sregs.SinceRn;
-                sensor.values[NPOW].value.u = Rregs.PeakRS;
-                sensor.values[NAVG].value.u = Rregs.LRA;
-                sensor.values[NAMBL].value.u = Sregs.AmbLight;
-                sensor.values[NFREEZ].value.u = (Rregs.RGBits & Freeze) ? 1 : 0;
-                pthread_mutex_unlock(&sensor.valmutex);
-                if(sensor.freshdatahandler) sensor.freshdatahandler(&sensor);
+                sensor->values[NPRECIP_LEVEL].value.f = (f > 0.f) ? f : 0.f;
+                sensor->values[NSINCERN].value.u = Sregs.SinceRn;
+                sensor->values[NPOW].value.u = Rregs.PeakRS;
+                sensor->values[NAVG].value.u = Rregs.LRA;
+                sensor->values[NAMBL].value.u = Sregs.AmbLight;
+                sensor->values[NFREEZ].value.u = (Rregs.RGBits & Freeze) ? 1 : 0;
+                pthread_mutex_unlock(&sensor->valmutex);
+                if(sensor->freshdatahandler) sensor->freshdatahandler(sensor);
             }
         }
     }
     DBG("OOOOps!");
-    common_kill(&sensor);
+    sensor->kill(sensor);
     return NULL;
 }
 
-static int init(struct sensordata_t *s, int N, time_t pollt, int fd){
+sensordata_t *sensor_new(int N, time_t pollt, int fd){
     FNAME();
-    if(!s) return -1;
+    if(fd < 0) return NULL;
+    sensordata_t *s = common_new();
+    if(!s) return NULL;
+    strncpy(s->name, SENSOR_NAME, NAME_LEN);
     s->fdes = fd;
-    if(s->fdes < 0) return -1;
-    sensor.PluginNo = N;
+    s->PluginNo = N;
+    s->Nvalues = NAMOUNT;
     if(pollt) s->tpoll = pollt;
-    if(pthread_create(&s->thread, NULL, mainthread, NULL)) return -1;
     s->values = MALLOC(val_t, NAMOUNT);
     // don't use memcpy, as `values` could be aligned
     for(int i = 0; i < NAMOUNT; ++i) s->values[i] = values[i];
-    if(!(s->ringbuffer = sl_RB_new(BUFSIZ))){
-        WARNX("Can't init ringbuffer!");
-        common_kill(s);
-        return -1;
+    if(!(s->ringbuffer = sl_RB_new(BUFSIZ)) ||
+        pthread_create(&s->thread, NULL, mainthread,  (void*)s)){
+        s->kill(s);
+        return NULL;
     }
-    return NAMOUNT;
+    return s;
 }
-
-sensordata_t sensor = {
-    .name = "Hydreon RG-11 rain sensor",
-    .Nvalues = NAMOUNT,
-    .init = init,
-    .onrefresh = common_onrefresh,
-    .valmutex = PTHREAD_MUTEX_INITIALIZER,
-    .get_value = common_getval,
-    .kill = common_kill,
-};
