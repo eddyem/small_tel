@@ -15,26 +15,33 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-
-#include <stdio.h>
+#if 0
 #include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
 #include <errno.h>
-#include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <sys/types.h>
+#include <stdarg.h>
+#endif
+
 #include <fcntl.h>
 #include <semaphore.h>
 #include <signal.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/mman.h>
+#include <sys/prctl.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 #include <time.h>
-#include <stdarg.h>
+#include <unistd.h>
+
+#include <usefull_macros.h>
 
 #include "weather_data.h"
+
+#define DEFAULT_PID     "/tmp/weather_proxy.pid"
 
 #define DEAD_TMOUT      15
 #define RECONN_TMOUT    5
@@ -43,81 +50,118 @@
 #define SHM_NAME "/weather_shm"
 #define SEM_NAME "/weather_sem"
 
+typedef struct{
+    char *node;             // node of server
+    int isunix;             // use UNIX-sockets instead of net
+    char *logfile;          // logfile name
+    int verb;               // verbocity level
+    char *pidfile;          // pidfile name
+} glob_pars;
+
+static pid_t childpid;
 static int shm_fd = -1;
+static int forbidden = 0;
 static sem_t *sem = NULL;
 static weather_data_t *shared_data = NULL;
 static volatile int running = 1;
+static glob_pars G = {0};
 
-#define log_message(...)    do{printf("message: "); printf(__VA_ARGS__); printf("\n");}while(0)
-#define log_error(...)      do{printf("error: "); printf(__VA_ARGS__); printf("\n");}while(0)
+static sl_option_t opts[] = {
+    {"node",    NEED_ARG,   NULL,   'n',    arg_string, APTR(&G.node),      "node to connect (host:port or UNIX socket name)"},
+    {"logfile", NEED_ARG,   NULL,   'l',    arg_string, APTR(&G.logfile),   "save logs to file"},
+    {"pidfile", NEED_ARG,   NULL,   'p',    arg_string, APTR(&G.pidfile),   "pidfile name (default: " DEFAULT_PID ")"},
+    {"isunix",  NO_ARGS,    NULL,   'u',    arg_string, APTR(&G.isunix),    "use UNIX socket instead of network"},
+    {"verbose", NO_ARGS,    NULL,   'v',    arg_int,    APTR(&G.verb),      "verbose level (each -v increases)"},
+    end_option
+};
 
-static void signal_handler(int sig) {
-    if (sig == SIGTERM || sig == SIGINT) {
-        running = 0;
-        log_message("Received signal %d, shutting down", sig);
+void signals(int signo){
+    if(signo){
+        if(signals != signal(signo, SIG_IGN)) exit(signo); // function called "as is", before sig registration
+        if(childpid == 0){ // child -> test USR1/USR2
+            LOGDBG("Child gotta signal %d", signo);
+            if(signo == SIGUSR1){
+                forbidden = 1;
+                LOGMSG("Got signal `observations forbidden`");
+                signal(signo, signals);
+                return;
+            }else if(signo == SIGUSR2){
+                forbidden = 0;
+                LOGMSG("Got signal `observations permitted`");
+                signal(signo, signals);
+                return;
+            }
+        }
     }
+    if(childpid){ // master
+        LOGERR("Main process exits with status %d", signo);
+        if(G.pidfile) unlink(G.pidfile);
+        exit(1);
+    }else{ // child
+        LOGERR("Killed with status %d", signo);
+        running = 0; // let make cleanup
+    }
+    sleep(1);
+    exit(signo); // force exit if stubs
 }
 
-static int init_ipc(void) {
+static int init_ipc(void){
     umask(0); // for read-write semaphore
     shm_fd = shm_open(SHM_NAME, O_RDWR, 0644); // try to open existant SHM
-    if (shm_fd == -1) {
+    if(shm_fd == -1){
         printf("Create new shared memory\n");
         // no - create new
         shm_fd = shm_open(SHM_NAME, O_CREAT | O_RDWR, 0644);
-        if (shm_fd == -1) {
-            log_error("shm_open (create) failed: %s", strerror(errno));
+        if(shm_fd == -1){
+            LOGERR("shm_open (create) failed: %s", strerror(errno));
             return -1;
         }
-        if (ftruncate(shm_fd, sizeof(weather_data_t)) == -1) {
-            log_error("ftruncate failed: %s", strerror(errno));
+        if(ftruncate(shm_fd, sizeof(weather_data_t)) == -1){
+            LOGERR("ftruncate failed: %s", strerror(errno));
             return -1;
         }
         shared_data = mmap(NULL, sizeof(weather_data_t), PROT_READ | PROT_WRITE,
                            MAP_SHARED, shm_fd, 0);
-        if (shared_data == MAP_FAILED) {
-            log_error("mmap failed: %s", strerror(errno));
+        if(shared_data == MAP_FAILED){
+            LOGERR("mmap failed: %s", strerror(errno));
             return -1;
         }
         // default values to data
-    } else {
-        printf("Use existant SHM\n");
-        // use existant SHM
+    }else{
+        DBG("Use existant SHM\n");
         shared_data = mmap(NULL, sizeof(weather_data_t), PROT_READ | PROT_WRITE,
                            MAP_SHARED, shm_fd, 0);
-        if (shared_data == MAP_FAILED) {
-            log_error("mmap failed: %s", strerror(errno));
+        if(shared_data == MAP_FAILED){
+            LOGERR("mmap failed: %s", strerror(errno));
             return -1;
         }
     }
-
     memset(shared_data, 0, sizeof(weather_data_t));
-
     // create samaphore if no
     sem = sem_open(SEM_NAME, O_CREAT, 0666, 1);
-    if (sem == SEM_FAILED) {
-        log_error("sem_open failed: %s", strerror(errno));
+    if(sem == SEM_FAILED){
+        LOGERR("sem_open failed: %s", strerror(errno));
         return -1;
     }
     return 0;
 }
 
 // free IPC
-static void cleanup_ipc(void) {
+static void cleanup_ipc(void){
     if (sem != NULL) {
         sem_close(sem);
-        printf("semaphore closed\n");
-        if(-1 == sem_unlink(SEM_NAME)) perror("Can't delete semaphore");
+        DBG("semaphore closed\n");
+        if(-1 == sem_unlink(SEM_NAME)) LOGERR("Can't delete semaphore");
     }
-    if (shared_data != NULL) {
-        printf("memory unmapped\n");
+    if(shared_data != NULL){
+        DBG("memory unmapped\n");
         munmap(shared_data, sizeof(weather_data_t));
     }
-    if (shm_fd != -1) {
+    if(shm_fd != -1){
         close(shm_fd);
-        printf("close shared mem\n");
-        if (shm_unlink(SHM_NAME) == -1) {
-            perror("can't unlink SHM");
+        DBG("close shared mem\n");
+        if(shm_unlink(SHM_NAME) == -1){
+            LOGERR("can't unlink SHM");
         }
     }
 }
@@ -154,137 +198,113 @@ static void parse_line(const char *line, weather_data_t *data) {
             data->prohibited = atoi(value);
         } else if (strcmp(key, "TMEAS") == 0) {
             data->last_update = atof(value);
-            if(data->weather == WEATHER_PROHIBITED) data->prohibited = 1;
+            if(data->weather == WEATHER_PROHIBITED || forbidden) data->prohibited = 1;
             else if(data->weather < WEATHER_TERRIBLE) data->prohibited = 0;
             // update all
             if (sem_wait(sem) == -1) {
-                log_error("sem_wait failed: %s", strerror(errno));
+                LOGWARN("sem_wait failed: %s", strerror(errno));
             } else {
                 memcpy(shared_data, data, sizeof(weather_data_t));
                 sem_post(sem);
-                log_message("Weather data updated");
+                LOGMSG("Weather data updated");
             }
         }
     }
 }
 
-static int sock = -1;
-static FILE *sock_file = NULL;
-
-static int opensock(const char *server_ip, int port){
-    sock = socket(AF_INET, SOCK_STREAM, 0);
-    if (sock < 0) {
-        log_error("socket creation failed: %s", strerror(errno));
-        return -1;
-    }
-
-    struct sockaddr_in server_addr;
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(port);
-    if (inet_pton(AF_INET, server_ip, &server_addr.sin_addr) <= 0) {
-        log_error("invalid address: %s", server_ip);
-        close(sock);
-        sock = -1;
-        return -1;
-    }
-
-    if (connect(sock, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
-        log_error("connect failed: %s", strerror(errno));
-        close(sock);
-        sock = -1;
-        return -1;
-    }
-
-    int flags = fcntl(sock, F_GETFL, 0);
-    if (flags == -1){
-        perror("fcntl F_GETFL");
-    }else{
-        if (fcntl(sock, F_SETFL, flags | O_NONBLOCK) == -1)  perror("fcntl F_SETFL");
-    }
-
-    sock_file = fdopen(sock, "r");
-    if (!sock_file) {
-        log_error("fdopen failed: %s", strerror(errno));
-        close(sock);
-        sock = -1;
-        return -1;
-    }
-
-    return 0;
-}
-
-static int request_weather_data() {
+static int request_weather_data(sl_sock_t *sock){
     static time_t tcur = 0;
-
     char *request = "get\n";
     time_t tnow = time(NULL);
     if(tnow - tcur >= WEAT_TMOUT){
         tcur = tnow;
     }else return 1; // not now
 
-    printf("try to send request: '%s", request);
-    if (send(sock, request, strlen(request), 0) < 0) {
-        log_error("send failed: %s", strerror(errno));
-        close(sock);
-        sock = -1;
+    DBG("try to send request: '%s", request);
+    if(sl_sock_sendstrmessage(sock, request) < 1){
+        LOGERR("Can't poll new data");
         return -1;
     }
-
     return 0;
 }
 
-static void run_daemon(const char *server_ip, int port) {
+static void run_daemon(){
     char line[256];
     weather_data_t new_data;
-    opensock(server_ip, port); // just try: in case of error reopen next time
+    sl_socktype_e stype = (G.isunix) ? SOCKT_UNIX : SOCKT_NET;
+    DBG("Try to connect to %s", G.node);
+    sl_sock_t *sock = sl_sock_run_client(stype, G.node, 4096);
+    if(!sock){
+        DBG("Can't connect");
+        LOGERR("Can't connect to meteodaemon over socket with node %s", G.node);
+        return;
+    }
     memcpy(&new_data, shared_data, sizeof(weather_data_t));
     time_t lastert = time(NULL);
-    while (running) {
+
+    while(running){
         time_t tnow = time(NULL);
-        if (-1 == sock || request_weather_data() == -1) {
+        if(!sock || request_weather_data(sock) == -1){
             if(tnow - lastert > RECONN_TMOUT){ // try to reconnect
-                log_error("Failed to request weather data, retry");
-                if(-1 == opensock(server_ip, port)) lastert += 5;
+                LOGERR("Failed to request weather data, retry");
+                if(sock) sl_sock_delete(&sock);
+                if(!(sock = sl_sock_run_client(stype, G.node, 4096))) lastert += 5;
                 else lastert = tnow;
             }
         }else lastert = tnow;
 
-        while (fgets(line, sizeof(line), sock_file)) {
-            line[strcspn(line, "\r\n")] = '\0';
-            printf("parse '%s'\n", line);
+        while(sl_sock_readline(sock, line, 255) > 0){
+            DBG("Parse '%s'", line);
             parse_line(line, &new_data);
         }
     }
-    close(sock);
+    sl_sock_delete(&sock); // disconnect and clear memory
 }
 
-int main(int argc, char *argv[]) {
-    if (argc != 3) {
-        fprintf(stderr, "Usage: %s <server_ip> <port>\n", argv[0]);
-        exit(EXIT_FAILURE);
+int main(int argc, char *argv[]){
+    sl_init();
+    sl_parseargs(&argc, &argv, opts);
+    if(!G.node) ERRX("Point node to connect");
+    sl_check4running(NULL, G.pidfile);
+    if(G.logfile){
+        sl_loglevel_e lvl = LOGLEVEL_ERR + G.verb;
+        if(lvl >= LOGLEVEL_AMOUNT) lvl = LOGLEVEL_AMOUNT - 1;
+        DBG("Loglevel: %d", lvl);
+        if(!OPENLOG(G.logfile, lvl, 1)) ERRX("Can't open log file %s", G.logfile);
+        LOGMSG("Started");
     }
-
-    const char *server_ip = argv[1];
-    int port = atoi(argv[2]);
-    if (port <= 0 || port > 65535) {
-        fprintf(stderr, "Invalid port\n");
-        exit(EXIT_FAILURE);
-    }
-
-    log_message("Starting weather daemon, server %s:%d", server_ip, port);
-
-    signal(SIGTERM, signal_handler);
-    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signals);
+    signal(SIGINT, signals);
+    signal(SIGUSR1, SIG_IGN);
+    signal(SIGUSR2, SIG_IGN);
     signal(SIGPIPE, SIG_IGN);
+#ifndef EBUG
+    sl_daemonize();
+    while(1){ // guard for dead processes
+        childpid = fork();
+        if(childpid){
+            LOGDBG("create child with PID %d\n", childpid);
+            DBG("Created child with PID %d\n", childpid);
+            wait(NULL);
+            WARNX("Child %d died\n", childpid);
+            LOGWARN("Child %d died\n", childpid);
+            sleep(1);
+        }else{
+            prctl(PR_SET_PDEATHSIG, SIGTERM); // send SIGTERM to child when parent dies
+            break; // go out to normal functional
+        }
+    }
+#endif
+    // react for USRx only in child
+    signal(SIGUSR1, signals);
+    signal(SIGUSR2, signals);
 
-    if (init_ipc() != 0) {
-        log_error("IPC initialization failed");
+    if(init_ipc() != 0){
+        LOGERR("IPC initialization failed");
         exit(EXIT_FAILURE);
     }
-
-    run_daemon(server_ip, port);
-
+    run_daemon();
     cleanup_ipc();
-    log_message("Weather daemon stopped");
+    LOGMSG("Daemon is dead");
     return 0;
 }

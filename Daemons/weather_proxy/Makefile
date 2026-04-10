@@ -1,6 +1,6 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -fPIC
-LDFLAGS = -lrt -pthread
+CFLAGS = -Wall -Wextra -fPIC -DEBUG
+LDFLAGS = -lrt -pthread -lusefull_macros
 
 all: weather_daemon libweather.so weather_clt_example
 
