@@ -119,6 +119,7 @@ static void showdata(sl_sock_t *client){
         sl_sock_sendbyte(client, '\n');
         ++nsum; Tsum += v.time;
     }
+    DBG("nsum=%d", nsum);
     if(nsum > 0){
         oldest = (time_t)(Tsum / nsum);
         if(0 < format_msrmttm(oldest, buf, FULL_LEN)){ // send mean measuring time

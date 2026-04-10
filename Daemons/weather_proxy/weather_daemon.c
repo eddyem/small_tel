@@ -1,4 +1,21 @@
-#include "weather_data.h"
+/*
+ * This file is part of the weather_proxy project.
+ * Copyright 2026 Edward V. Emelianov <edward.emelianoff@gmail.com>.
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,10 +34,11 @@
 #include <time.h>
 #include <stdarg.h>
 
+#include "weather_data.h"
+
 #define DEAD_TMOUT      15
 #define RECONN_TMOUT    5
-#define STAT_TMOUT      60
-#define WEAT_TMOUT      5
+#define WEAT_TMOUT      1
 
 #define SHM_NAME "/weather_shm"
 #define SEM_NAME "/weather_sem"
@@ -108,39 +126,36 @@ static void parse_line(const char *line, weather_data_t *data) {
     char key[64];
     char value[256];
     if (sscanf(line, "%63[^=]=%255s", key, value) == 2) {
-        if (strcmp(key, "weather") == 0) {
-            if (strcmp(value, "good") == 0)
-                data->weather = WEATHER_GOOD;
-            else if (strcmp(value, "bad") == 0)
-                data->weather = WEATHER_BAD;
-            else if (strcmp(value, "terrible") == 0)
-                data->weather = WEATHER_TERRIBLE;
+        if (strcmp(key, "WEATHER") == 0) {
+            data->weather = (weather_condition_t) atoi(value);
             printf("got weather: %d\n", data->weather);
-        } else if (strcmp(key, "Windmax") == 0) {
+        } else if (strcmp(key, "WINDMAX1") == 0) {
             data->windmax = atof(value);
             printf("got windmax: %g\n", data->windmax);
-        } else if (strcmp(key, "Rain") == 0) {
+        } else if (strcmp(key, "PRECIP") == 0) {
             data->rain = atoi(value);
             printf("got rain: %d\n", data->rain);
-        } else if (strcmp(key, "Clouds") == 0) {
+        } else if (strcmp(key, "CLOUDS") == 0) {
             data->clouds = atof(value);
             printf("got clouds: %g\n", data->clouds);
-        } else if (strcmp(key, "Wind") == 0) {
+        } else if (strcmp(key, "WIND") == 0) {
             data->wind = atof(value);
             printf("got wind: %g\n", data->wind);
-        } else if (strcmp(key, "Temperature") == 0) {
+        } else if (strcmp(key, "EXTTEMP") == 0) {
             data->exttemp = atof(value);
             printf("got temp: %g\n", data->exttemp);
-        } else if (strcmp(key, "Pressure") == 0) {
+        } else if (strcmp(key, "PRESSURE") == 0) {
             data->pressure = atof(value);
             printf("got pressure: %g\n", data->pressure);
-        } else if (strcmp(key, "Humidity") == 0) {
+        } else if (strcmp(key, "HUMIDITY") == 0) {
             data->humidity = atof(value);
             printf("got humidity: %g\n", data->humidity);
-        } else if (strcmp(key, "prohibited") == 0) {
+        } else if (strcmp(key, "PROHIBIT") == 0) {
             data->prohibited = atoi(value);
-        } else if (strcmp(key, "Time") == 0) {
+        } else if (strcmp(key, "TMEAS") == 0) {
             data->last_update = atof(value);
+            if(data->weather == WEATHER_PROHIBITED) data->prohibited = 1;
+            else if(data->weather < WEATHER_TERRIBLE) data->prohibited = 0;
             // update all
             if (sem_wait(sem) == -1) {
                 log_error("sem_wait failed: %s", strerror(errno));
@@ -199,15 +214,12 @@ static int opensock(const char *server_ip, int port){
 }
 
 static int request_weather_data() {
-    static time_t tstat = 0, tcur = 0;
+    static time_t tcur = 0;
 
-    char *request = "\n";
+    char *request = "get\n";
     time_t tnow = time(NULL);
     if(tnow - tcur >= WEAT_TMOUT){
         tcur = tnow;
-    }else if(tnow - tstat >= STAT_TMOUT){
-        tstat = tnow;
-        request = "stat60\n";
     }else return 1; // not now
 
     printf("try to send request: '%s", request);
@@ -259,16 +271,10 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    //daemonize();
-
     log_message("Starting weather daemon, server %s:%d", server_ip, port);
 
-    struct sigaction sa;
-    memset(&sa, 0, sizeof(sa));
-    sa.sa_handler = signal_handler;
-    sigemptyset(&sa.sa_mask);
-    sigaction(SIGTERM, &sa, NULL);
-    sigaction(SIGINT, &sa, NULL);
+    signal(SIGTERM, signal_handler);
+    signal(SIGINT, signal_handler);
     signal(SIGPIPE, SIG_IGN);
 
     if (init_ipc() != 0) {

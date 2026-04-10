@@ -240,12 +240,12 @@ int format_sensval(const val_t *v, char *buf, int buflen, int Np){
 
 // the same for measurement time formatting
 int format_msrmttm(time_t t, char *buf, int buflen){
-    --buflen; // for trailing zero
-    if(!buf || buflen < FULL_LEN) return -1;
+    if(!buf || buflen < 1) return -1;
     char cmt[COMMENT_LEN+1];
     struct tm *T = localtime(&t);
     strftime(cmt, COMMENT_LEN, "%F %T", T);
-    return snprintf(buf, buflen, "TMEAS=%zd / Last measurement time: %s", t, cmt);
+    int got = snprintf(buf, buflen, "TMEAS=%zd / Last measurement time: %s", t, cmt);
+    return (got < buflen) ? got : buflen;
 }
 
 // find sensor's value by its name; @return index or -1 if not found
