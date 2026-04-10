@@ -39,7 +39,8 @@ typedef enum{
     VAL_OBLIGATORY,     // can't be omitted
     VAL_RECOMMENDED,    // recommended to show
     VAL_UNNECESSARY,    // may be shown by user request
-    VAL_BROKEN          // sensor is broken, omit it
+    VAL_BROKEN,         // sensor is broken, omit it
+    VAL_AMOUNT          // amount of values
 } valsense_t;
 
 // meaning of values

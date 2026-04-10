@@ -85,9 +85,10 @@ void *open_plugin(const char *name){
  * @param station - pointer to N'th station opened
  */
 static void dumpsensors(struct sensordata_t* station){
-    FNAME();
+    //FNAME();
     if(!station || !station->get_value || station->Nvalues < 1) return;
     refresh_sensval(station);
+#if 0
     DBG("New values...");
 #ifdef EBUG
     char buf[FULL_LEN+1];
@@ -109,6 +110,7 @@ static void dumpsensors(struct sensordata_t* station){
             printf("%s\n\n", buf);
         }
     }
+#endif
 #endif
 }
 
@@ -164,6 +166,32 @@ void closeplugins(){
     nplugins = 0;
 }
 
+static const char* const NM[IS_OTHER] = { // names of standard fields
+    [IS_WIND]       = "WIND",
+    [IS_WINDDIR]    = "WINDDIR",
+    [IS_HUMIDITY]   = "HUMIDITY",
+    [IS_AMB_TEMP]   = "EXTTEMP",
+    [IS_INNER_TEMP] = "INTTEMP",
+    [IS_HW_TEMP]    = "HWTEMP", // mirror?
+    [IS_PRESSURE]   = "PRESSURE",
+    [IS_PRECIP]     = "PRECIP",
+    [IS_PRECIP_LEVEL]="PRECIPLV",
+    [IS_MIST]       = "MIST",
+    [IS_CLOUDS]     = "CLOUDS",
+    [IS_SKYTEMP]    = "SKYTEMP"
+};
+
+// format "sense" of sensor, like "[WIND][1]=2"
+int format_senssense(const val_t *v, char *buf, int buflen, int Np){
+    if(!v || !buf || buflen < 1) return -1;
+    int idx = v->meaning;
+    const char *name = (idx < IS_OTHER) ? NM[idx] : v->name;
+    int got;
+    if(Np > -1) got = snprintf(buf, buflen, "[%s][%d]=%d", name, Np, v->sense);
+    else got = snprintf(buf, buflen, "[%s]=%d", name, v->sense);
+    return (got < buflen) ? got : buflen; // full or truncated
+}
+
 /**
  * @brief format_sensval - snprintf sensor's value into buffer
  * @param v - value to get
@@ -173,8 +201,7 @@ void closeplugins(){
  * @return amount of symbols printed or -1 if error
  */
 int format_sensval(const val_t *v, char *buf, int buflen, int Np){
-    --buflen; // for trailing zero
-    if(!v || !buf || buflen < FULL_LEN) return -1;
+    if(!v || !buf || buflen < 1) return -1;
     char strval[VAL_LEN+1];
     switch(v->type){
         case VALT_UINT:  snprintf(strval, VAL_LEN, "%u", v->value.u); break;
@@ -182,20 +209,6 @@ int format_sensval(const val_t *v, char *buf, int buflen, int Np){
         case VALT_FLOAT: snprintf(strval, VAL_LEN, "%.2f", v->value.f); break;
         default: sprintf(strval, "'ERROR'");
     }
-    const char* const NM[IS_OTHER] = { // names of standard fields
-        [IS_WIND]       = "WIND",
-        [IS_WINDDIR]    = "WINDDIR",
-        [IS_HUMIDITY]   = "HUMIDITY",
-        [IS_AMB_TEMP]   = "EXTTEMP",
-        [IS_INNER_TEMP] = "INTTEMP",
-        [IS_HW_TEMP]    = "HWTEMP", // mirror?
-        [IS_PRESSURE]   = "PRESSURE",
-        [IS_PRECIP]     = "PRECIP",
-        [IS_PRECIP_LEVEL]="PRECIPLV",
-        [IS_MIST]       = "MIST",
-        [IS_CLOUDS]     = "CLOUDS",
-        [IS_SKYTEMP]    = "SKYTEMP"
-    };
     const char* const CMT[IS_OTHER] = { // comments for standard fields
         [IS_WIND]       = "Wind, m/s",
         [IS_WINDDIR]    = "Instant wind direction, degr (CW from north to FROM)",
@@ -222,7 +235,7 @@ int format_sensval(const val_t *v, char *buf, int buflen, int Np){
     int got;
     if(Np > -1) got = snprintf(buf, buflen, "%s[%d]=%s / %s", name, Np, strval, comment);
     else got = snprintf(buf, buflen, "%s=%s / %s", name, strval, comment);
-    return got;
+    return (got < buflen) ? got : buflen; // full or truncated
 }
 
 // the same for measurement time formatting
@@ -233,4 +246,36 @@ int format_msrmttm(time_t t, char *buf, int buflen){
     struct tm *T = localtime(&t);
     strftime(cmt, COMMENT_LEN, "%F %T", T);
     return snprintf(buf, buflen, "TMEAS=%zd / Last measurement time: %s", t, cmt);
+}
+
+// find sensor's value by its name; @return index or -1 if not found
+int find_val_by_name(sensordata_t *s, const char *name){
+    if(!s || !name)  return -1;
+    if(s->Nvalues < 1) return -1;
+    // check standard "meaning"
+    valmeaning_t mnng = 0;
+    for(; mnng < IS_OTHER; ++mnng){
+        if(0 == strcmp(NM[mnng], name)) break; // found in standard
+    }
+    for(int i = 0; i < s->Nvalues; ++i){
+        val_t val;
+        if(!s->get_value(s, &val, i) || val.meaning != mnng) continue;
+        if(mnng != IS_OTHER){ // found in standard values
+            return i;
+        }else{ // non-standard: check by name
+            if(0 == strcmp(val.name, name)){ // found by name
+                return i;
+            }
+        }
+    }
+    return -1; // not found
+}
+
+// chane 'sense' field of given meteostation for value with index=`idx`; @return FALSE if failed
+int change_val_sense(sensordata_t *s, int idx, valsense_t sense){
+    if(!s || sense < 0 || sense >= VAL_AMOUNT) return FALSE;
+    int N = s->Nvalues;
+    if(idx < 0 || idx >= N) return FALSE;
+    s->values[idx].sense = sense;
+    return TRUE;
 }

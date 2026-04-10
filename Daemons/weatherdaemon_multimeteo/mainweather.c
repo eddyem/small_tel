@@ -55,21 +55,24 @@ enum{
     NAMOUNT_OF_DATA
 };
 
+// starting sense values are VAL_BROKEN except of calculated values
+// they would be changed later in `fix_new_data` to lowest level
 static val_t collected_data[NAMOUNT_OF_DATA] = {
-    [NWIND] = {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT, .meaning = IS_WIND},
-    [NWINDMAX] = {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT, .meaning = IS_OTHER, .name = "WINDMAX", .comment = "Maximal wind speed for last 24 hours"},
-    [NWINDMAX1] = {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT, .meaning = IS_OTHER, .name = "WINDMAX1", .comment = "Maximal wind speed for last hour"},
-    [NWINDDIR] = {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT, .meaning = IS_WINDDIR},
-    [NWINDDIR1] = {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT, .meaning = IS_OTHER, .name = "WINDDIR1", .comment = "Mean wind speed direction for last hour"},
-    [NWINDDIR2] = {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT, .meaning = IS_OTHER, .name = "WINDDIR2", .comment = "Mean wind speed^2 direction for last hour"},
-    [NHUMIDITY] = {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT, .meaning = IS_HUMIDITY},
-    [NAMB_TEMP] = {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT, .meaning = IS_AMB_TEMP},
-    [NPRESSURE] = {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT, .meaning = IS_PRESSURE},
-    [NPRECIP] = {.sense = VAL_OBLIGATORY, .type = VALT_UINT, .meaning = IS_PRECIP},
-    [NPRECIP_LEVEL] = {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT,   .meaning = IS_PRECIP_LEVEL},
-    [NMIST] = {.sense = VAL_OBLIGATORY, .type = VALT_UINT,   .meaning = IS_MIST},
-    [NCLOUDS] = {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT,   .meaning = IS_CLOUDS},
-    [NSKYTEMP] = {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT, .meaning = IS_SKYTEMP},
+    [NWIND] = {.sense = VAL_BROKEN, .type = VALT_FLOAT, .meaning = IS_WIND},
+    [NWINDMAX] = {.sense = VAL_RECOMMENDED, .type = VALT_FLOAT, .meaning = IS_OTHER, .name = "WINDMAX", .comment = "Maximal wind speed for last 24 hours"},
+    [NWINDMAX1] = {.sense = VAL_RECOMMENDED, .type = VALT_FLOAT, .meaning = IS_OTHER, .name = "WINDMAX1", .comment = "Maximal wind speed for last hour"},
+    [NWINDDIR] = {.sense = VAL_BROKEN, .type = VALT_FLOAT, .meaning = IS_WINDDIR},
+    [NWINDDIR1] = {.sense = VAL_RECOMMENDED, .type = VALT_FLOAT, .meaning = IS_OTHER, .name = "WINDDIR1", .comment = "Mean wind speed direction for last hour"},
+    [NWINDDIR2] = {.sense = VAL_RECOMMENDED, .type = VALT_FLOAT, .meaning = IS_OTHER, .name = "WINDDIR2", .comment = "Mean wind speed^2 direction for last hour"},
+    [NHUMIDITY] = {.sense = VAL_BROKEN, .type = VALT_FLOAT, .meaning = IS_HUMIDITY},
+    [NAMB_TEMP] = {.sense = VAL_BROKEN, .type = VALT_FLOAT, .meaning = IS_AMB_TEMP},
+    [NPRESSURE] = {.sense = VAL_BROKEN, .type = VALT_FLOAT, .meaning = IS_PRESSURE},
+    [NPRECIP] = {.sense = VAL_BROKEN, .type = VALT_UINT, .meaning = IS_PRECIP},
+    [NPRECIP_LEVEL] = {.sense = VAL_BROKEN, .type = VALT_FLOAT,   .meaning = IS_PRECIP_LEVEL},
+    [NMIST] = {.sense = VAL_BROKEN, .type = VALT_UINT,   .meaning = IS_MIST},
+    [NCLOUDS] = {.sense = VAL_BROKEN, .type = VALT_FLOAT,   .meaning = IS_CLOUDS},
+    [NSKYTEMP] = {.sense = VAL_BROKEN, .type = VALT_FLOAT, .meaning = IS_SKYTEMP},
+    // these are calculated values
     [NCOMMWEATH] = {.value.i = 0, .sense = VAL_OBLIGATORY, .type = VALT_UINT,   .meaning = IS_OTHER, .name = "WEATHER", .comment = "Weather level (0 - good, 3 - obs. prohibited)"},
     [NLASTAHTUNG] = {.value.i = 0, .sense = VAL_RECOMMENDED, .type = VALT_UINT, .meaning = IS_OTHER, .name = "EVTTIME", .comment = "UNIX-time of last weather level increasing"},
 //    {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT, .meaning = IS_OTHER},
@@ -181,11 +184,18 @@ int get_collected(val_t *val, int N){
     return TRUE;
 }
 
+// take only data with `sense value` less than collected have
 static void fix_new_data(val_t *collected, val_t *fresh){
     if(!collected || !fresh) return;
+    if(collected->time > fresh->time) return;
+    // lower `collected` level if data is too old
+    if(fresh->time - collected->time > 60) collected->sense = VAL_UNNECESSARY;
+    if(collected->sense < fresh->sense) return;
+    if(collected->sense != fresh->sense) collected->sense = fresh->sense; // take new lower level
+    //DBG("Refresh collected value");
     collected->time = fresh->time;
     if(collected->type == fresh->type){ // good case
-        DBG("Types are the same");
+        //DBG("Types are the same");
         collected->value = fresh->value;
         return;
     }
@@ -195,11 +205,11 @@ static void fix_new_data(val_t *collected, val_t *fresh){
         switch(fresh->type){
         case VALT_INT:
             collected->value.u = (uint32_t) fresh->value.i;
-            DBG("i->u");
+            //DBG("i->u");
             break;
         case VALT_FLOAT:
             collected->value.u = (uint32_t) fresh->value.f;
-            DBG("f->u");
+            //DBG("f->u");
         default: break;
         }
         break;
@@ -207,11 +217,11 @@ static void fix_new_data(val_t *collected, val_t *fresh){
         switch(fresh->type){
         case VALT_UINT:
             collected->value.i = (int32_t) fresh->value.u;
-            DBG("u->i");
+            //DBG("u->i");
             break;
         case VALT_FLOAT:
             collected->value.i = (int32_t) fresh->value.f;
-            DBG("f->i");
+            //DBG("f->i");
         default: break;
         }
         break;
@@ -219,11 +229,11 @@ static void fix_new_data(val_t *collected, val_t *fresh){
         switch(fresh->type){
         case VALT_UINT:
             collected->value.f = (float) fresh->value.u;
-            DBG("u->f");
+            //DBG("u->f");
             break;
         case VALT_INT:
             collected->value.f = (float) fresh->value.i;
-            DBG("i->f");
+            //DBG("i->f");
         default: break;
         }
         break;
@@ -257,7 +267,7 @@ static void chkweatherlevel(int *curlevel, double curvalue, weather_cond_t *curc
 }
 
 void refresh_sensval(sensordata_t *s){
-    FNAME();
+    //FNAME();
     static time_t poll_time = 0;
     val_t value;
     if(!s || !s->get_value) return;
@@ -266,11 +276,11 @@ void refresh_sensval(sensordata_t *s){
     int curahtungtime = collected_data[NLASTAHTUNG].value.i;
     time_t curtime = time(NULL);
     double dir = -100., dir2 = -100.; // mean wind directions
-    DBG("%d meteo values", s->Nvalues);
+    //DBG("%d meteo values", s->Nvalues);
     for(int i = 0; i < s->Nvalues; ++i){
-        DBG("\nTry to get %dth value", i);
-        if(!s->get_value(s, &value, i)) continue;
-        DBG("got value");
+        //DBG("\nTry to get %dth value", i);
+        if(!s->get_value(s, &value, i) || value.sense > VAL_RECOMMENDED) continue;
+        //DBG("got value");
         int idx = -1;
         double curvalue;
         weather_cond_t *curcond = NULL;
@@ -326,13 +336,7 @@ void refresh_sensval(sensordata_t *s){
             default : break;
         }
         if(idx < 0 || idx >= NAMOUNT_OF_DATA) continue;
-        DBG("IDX=%d", idx);
-        time_t freshdelay = (s->PluginNo == 0) ? 0 : 90; // use data of less imrortant plugins only if our data is too old
-        time_t curmt = collected_data[idx].time + freshdelay;
-        if(value.time < curmt){
-            DBG("Data too old (value: %zd, curr: %zd", value.time, curmt);
-            continue; // old data
-        }
+        //DBG("IDX=%d", idx);
         pthread_mutex_lock(&datamutex);
         fix_new_data(&collected_data[idx], &value);
         pthread_mutex_unlock(&datamutex);
@@ -352,14 +356,14 @@ void refresh_sensval(sensordata_t *s){
     collected_data[NWINDMAX].time = curtime;
     collected_data[NWINDMAX1].value.f = (float) get_max_forT(&windspeeds, curtime - T_ONE_HOUR);
     collected_data[NWINDMAX1].time = curtime;
-    DBG("check ahtung");
+    //DBG("check ahtung");
     if(Forbidden) collected_data[NCOMMWEATH].value.i = WEATHER_PROHIBITED;
     else collected_data[NCOMMWEATH].value.i = curlevel;
     if(collected_data[NLASTAHTUNG].value.i < curahtungtime) collected_data[NLASTAHTUNG].value.i = curahtungtime;
     collected_data[NCOMMWEATH].time = curtime;
     collected_data[NLASTAHTUNG].time = curtime;
     pthread_mutex_unlock(&datamutex);
-    DBG("Refreshed");
+    //DBG("Refreshed");
 }
 
 void forbid_observations(int f){

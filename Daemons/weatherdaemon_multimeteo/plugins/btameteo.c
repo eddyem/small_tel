@@ -43,7 +43,7 @@ static void *mainthread(void *s){
     sensordata_t *sensor = (sensordata_t *)s;
     while(1){
         if(check_shm_block(&sdat)){
-            DBG("Got next");
+            //DBG("Got next");
             time_t tnow = time(NULL);
             pthread_mutex_lock(&sensor->valmutex);
             for(int i = 0; i < NAMOUNT; ++i)
@@ -52,7 +52,7 @@ static void *mainthread(void *s){
             sensor->values[NPRESSURE].value.f = val_B;
             sensor->values[NAMB_TEMP].value.f = val_T1;
             sensor->values[NHUMIDITY].value.f = val_Hmd;
-            DBG("Tprecip=%.1f, tnow=%.1f", Precip_time, sl_dtime());
+            //DBG("Tprecip=%.1f, tnow=%.1f", Precip_time, sl_dtime());
             sensor->values[NPRECIP].value.u = (tnow - (time_t)Precip_time < 60) ? 1 : 0;
             pthread_mutex_unlock(&sensor->valmutex);
             if(sensor->freshdatahandler) sensor->freshdatahandler(sensor);

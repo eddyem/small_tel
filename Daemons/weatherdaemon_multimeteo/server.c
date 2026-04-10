@@ -16,7 +16,9 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <ctype.h>
 #include <signal.h>
+#include <stdlib.h>
 #include <string.h>
 #include <usefull_macros.h>
 
@@ -55,26 +57,34 @@ static sl_sock_hresult_e listhandler(sl_sock_t *client, _U_ sl_sock_hitem_t *ite
     return RESULT_SILENCE;
 }
 
+// get N'th plugin or send error message
+sensordata_t *get_plugin_w_message(sl_sock_t *client, int N){
+    char buf[FULL_LEN];
+    sensordata_t *s = NULL;
+    if(!(s = get_plugin(N)) || (s->Nvalues < 1)){
+        snprintf(buf, FULL_LEN, "Can't get plugin[%d]\n", N);
+        sl_sock_sendstrmessage(client, buf);
+        return NULL;
+    }
+    return s;
+}
+
 /**
  * @brief showdataN - send to user meteodata of Nth station
  * @param client - client data
  * @param N - index of station
  */
 static void showdataN(sl_sock_t *client, int N){
-    char buf[FULL_LEN+1];
+    char buf[FULL_LEN];
     val_t v;
-    sensordata_t *s = NULL;
-    if(!(s = get_plugin(N)) || (s->Nvalues < 1)){
-        snprintf(buf, FULL_LEN, "Can't get plugin[%d]\n", N);
-        sl_sock_sendstrmessage(client, buf);
-        return;
-    }
+    sensordata_t *s = get_plugin_w_message(client, N);
+    if(!s) return;
     time_t oldest = time(NULL) - oldest_interval;
     uint64_t Tsum = 0; int nsum = 0;
     for(int i = 0; i < s->Nvalues; ++i){
         if(!s->get_value(s, &v, i)) continue;
         if(v.time < oldest) continue;
-        if(1 > format_sensval(&v, buf, FULL_LEN+1, N)) continue;
+        if(1 > format_sensval(&v, buf, FULL_LEN, N)) continue;
         DBG("formatted: '%s'", buf);
         sl_sock_sendstrmessage(client, buf);
         sl_sock_sendbyte(client, '\n');
@@ -82,7 +92,7 @@ static void showdataN(sl_sock_t *client, int N){
     }
     if(nsum > 0){
         oldest = (time_t)(Tsum / nsum);
-        if(0 < format_msrmttm(oldest, buf, FULL_LEN+1)){ // send mean measuring time
+        if(0 < format_msrmttm(oldest, buf, FULL_LEN)){ // send mean measuring time
             DBG("Formatted time: '%s'", buf);
             sl_sock_sendstrmessage(client, buf);
             sl_sock_sendbyte(client, '\n');
@@ -95,7 +105,7 @@ static void showdataN(sl_sock_t *client, int N){
  * @param client  - client data
  */
 static void showdata(sl_sock_t *client){
-    char buf[FULL_LEN+1];
+    char buf[FULL_LEN];
     val_t v;
     int Ncoll = collected_amount();
     time_t oldest = time(NULL) - oldest_interval;
@@ -103,7 +113,7 @@ static void showdata(sl_sock_t *client){
     for(int i = 0; i < Ncoll; ++i){
         if(!get_collected(&v, i)){ DBG("Can't get %dth value", i); continue; }
         if(v.time < oldest){ DBG("%dth value is too old", i); continue; }
-        if(1 > format_sensval(&v, buf, FULL_LEN+1, -1)){ DBG("Can't format"); continue; }
+        if(1 > format_sensval(&v, buf, FULL_LEN, -1)){ DBG("Can't format"); continue; }
         DBG("formatted: '%s'", buf);
         sl_sock_sendstrmessage(client, buf);
         sl_sock_sendbyte(client, '\n');
@@ -111,7 +121,7 @@ static void showdata(sl_sock_t *client){
     }
     if(nsum > 0){
         oldest = (time_t)(Tsum / nsum);
-        if(0 < format_msrmttm(oldest, buf, FULL_LEN+1)){ // send mean measuring time
+        if(0 < format_msrmttm(oldest, buf, FULL_LEN)){ // send mean measuring time
             DBG("Formatted time: '%s'", buf);
             sl_sock_sendstrmessage(client, buf);
             sl_sock_sendbyte(client, '\n');
@@ -132,6 +142,121 @@ static sl_sock_hresult_e gethandler(sl_sock_t *client, _U_ sl_sock_hitem_t *item
         showdataN(client, n);
     }
     return RESULT_SILENCE;
+}
+
+// get parameters' level
+static sl_sock_hresult_e getlvlhandler(sl_sock_t *client, _U_ sl_sock_hitem_t *item, const char *req){
+    if(!client) if(!client) return RESULT_FAIL;
+    int N = get_nplugins();
+    if(N < 1) return RESULT_FAIL;
+    val_t v;
+    char buf[FULL_LEN];
+    if(!req){ // level of collected parameters
+        DBG("User asks for collected");
+        int Ncoll = collected_amount();
+        if(Ncoll < 1) return RESULT_FAIL;
+        for(int i = 0; i < Ncoll; ++i){
+            if(!get_collected(&v, i)){ DBG("Can't get %dth value", i); continue; }
+            if(1 > format_senssense(&v, buf, FULL_LEN, -1)){ DBG("Can't format"); continue; }
+            sl_sock_sendstrmessage(client, buf);
+            sl_sock_sendbyte(client, '\n');
+        }
+    }else{
+        int n;
+        if(!sl_str2i(&n, req) || n < 0 || n >= N) return RESULT_BADVAL;
+        DBG("User asks for %d", n);
+        sensordata_t *s = get_plugin_w_message(client, n);
+        if(!s) return RESULT_SILENCE;
+        for(int i = 0; i < s->Nvalues; ++i){
+            if(!s->get_value(s, &v, i)) continue;
+            if(1 > format_senssense(&v, buf, FULL_LEN, n)){ DBG("Can't format"); continue; }
+            sl_sock_sendstrmessage(client, buf);
+            sl_sock_sendbyte(client, '\n');
+        }
+    }
+    return RESULT_SILENCE;
+}
+
+// set parameters' level; format: setlevel=N1:par=level,...,N1:par=level...
+// Nx - "station" number, par - parameter name (like "HUMIDITY"), level - new level (0..3)
+static sl_sock_hresult_e setlvlhandler(sl_sock_t *client, _U_ sl_sock_hitem_t *item, const char *req){
+    if(!client) if(!client) return RESULT_FAIL;
+    int N = get_nplugins();
+    if(N < 1) return RESULT_FAIL;
+    if(!req) return RESULT_BADVAL;
+    sl_sock_hresult_e result = RESULT_OK;
+    char *s = (char *)req;
+    while(*s){
+        while (isspace(*s) || *s == ',') s++;
+        if (!*s) break;
+        // get station number
+        char *end;
+        long st_num = strtol(s, &end, 10);
+        if(s == end) break;
+        s = end;
+        // wait for ':'
+        while (isspace(*s)) s++;
+        if(*s != ':') break;
+        ++s;
+        DBG("ST %ld:\n", st_num);
+        sensordata_t *sd;
+        if(st_num < 0 || st_num >= N || !(sd = get_plugin((int)st_num))){
+            result = RESULT_BADVAL;
+            break;
+        }
+        while(1){
+            while(isspace(*s)) ++s;
+            if(*s == '\0') break;
+            if(isdigit((unsigned char)*s)) break; // - next block
+            const char *par_start = s;
+            while(isalnum(*s)) ++s;
+            if(par_start == s) break;
+            int l = (int)(s - par_start);
+            DBG("  par: %.*s = ", l, par_start);
+            if(l > KEY_LEN){
+                result = RESULT_BADVAL;
+                break;
+            }
+            char buf[KEY_LEN + 1];
+            memcpy(buf, par_start, l);
+            buf[l] = 0;
+            int validx = find_val_by_name(sd, buf);
+            // search for given value
+            if(validx < 0){
+                result = RESULT_BADVAL;
+                break;
+            }
+            while(isspace(*s)) ++s;
+            // fait for '='
+            if(*s != '='){
+                result = RESULT_BADVAL;
+                break;
+            }
+            ++s;
+            // get new level
+            while(isspace(*s)) s++;
+            long val = strtol(s, &end, 10);
+            if(s == end){
+                result = RESULT_BADVAL;
+                break;
+            }
+            s = end;
+            DBG("%ld\n", val);
+            if(!change_val_sense(sd, validx, (valsense_t)val)){
+                result = RESULT_BADVAL;
+                break;
+            }
+            while(isspace((unsigned char)*s)) s++;
+            if(*s == ','){ // omit delimeter
+                ++s;
+                continue;
+            }else{
+                if(*s == ';') ++s; // omit ; as block's end
+                break;
+            }
+        }
+    }
+    return result;
 }
 
 // graceful closing socket: let client know that he's told to fuck off
@@ -173,6 +298,7 @@ static sl_sock_hresult_e defhandler(struct sl_sock *s, const char *str){
 
 #define COMMONHANDLERS \
     {gethandler,  "get",  "get all meteo or only for given plugin number", NULL}, \
+    {getlvlhandler,"chklevel",  "check 'sense level' of given plugin parameters", NULL}, \
     {listhandler, "list", "show all opened plugins", NULL}, \
     {timehandler, "time", "get server's UNIX time", NULL},
 
@@ -182,6 +308,7 @@ static sl_sock_hitem_t nethandlers[] = { // net - only getters and client-only s
     {NULL, NULL, NULL, NULL}
 };
 static sl_sock_hitem_t localhandlers[] = { // local - full amount of setters/getters
+    {setlvlhandler, "setlevel", "set 'sense level' (0..3) for given plugin parameters, e.g. setlevel=1:WIND=3,HUMIDITY=3 - disable fields for station 1", NULL},
     COMMONHANDLERS
     {NULL, NULL, NULL, NULL}
 };
