@@ -16,7 +16,6 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include "weather_data.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,8 +26,7 @@
 #include <semaphore.h>
 #include <unistd.h>
 
-#define SHM_NAME "/weather_shm"
-#define SEM_NAME "/weather_sem"
+#include "weather_data.h"
 
 int get_weather_data(weather_data_t *data) {
     int shm_fd;

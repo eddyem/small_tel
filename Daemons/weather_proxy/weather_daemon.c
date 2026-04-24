@@ -15,19 +15,12 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-#if 0
-#include <stdlib.h>
-#include <errno.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <stdarg.h>
-#endif
 
 #include <fcntl.h>
 #include <semaphore.h>
 #include <signal.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/prctl.h>
@@ -43,12 +36,10 @@
 
 #define DEFAULT_PID     "/tmp/weather_proxy.pid"
 
-#define DEAD_TMOUT      15
+// if we have no fresh data more than `RECONN_TMOUT`, try to reconect
 #define RECONN_TMOUT    5
+// don't ask new data less than `WEAT_TMOUT` seconds
 #define WEAT_TMOUT      1
-
-#define SHM_NAME "/weather_shm"
-#define SEM_NAME "/weather_sem"
 
 typedef struct{
     char *node;             // node of server
@@ -56,6 +47,7 @@ typedef struct{
     char *logfile;          // logfile name
     int verb;               // verbocity level
     char *pidfile;          // pidfile name
+    char *fitsheader;       // FITS-header with collected weather data
 } glob_pars;
 
 static pid_t childpid;
@@ -64,14 +56,15 @@ static int forbidden = 0;
 static sem_t *sem = NULL;
 static weather_data_t *shared_data = NULL;
 static volatile int running = 1;
-static glob_pars G = {0};
+static glob_pars G = {.pidfile = DEFAULT_PID};
 
 static sl_option_t opts[] = {
     {"node",    NEED_ARG,   NULL,   'n',    arg_string, APTR(&G.node),      "node to connect (host:port or UNIX socket name)"},
     {"logfile", NEED_ARG,   NULL,   'l',    arg_string, APTR(&G.logfile),   "save logs to file"},
     {"pidfile", NEED_ARG,   NULL,   'p',    arg_string, APTR(&G.pidfile),   "pidfile name (default: " DEFAULT_PID ")"},
     {"isunix",  NO_ARGS,    NULL,   'u',    arg_string, APTR(&G.isunix),    "use UNIX socket instead of network"},
-    {"verbose", NO_ARGS,    NULL,   'v',    arg_int,    APTR(&G.verb),      "verbose level (each -v increases)"},
+    {"verbose", NO_ARGS,    NULL,   'v',    arg_none,    APTR(&G.verb),     "verbose level (each -v increases)"},
+    {"fitsheader",NEED_ARG, NULL,   'f',    arg_string, APTR(&G.fitsheader),"fits-header for weather data"},
     end_option
 };
 
@@ -96,13 +89,14 @@ void signals(int signo){
     if(childpid){ // master
         LOGERR("Main process exits with status %d", signo);
         if(G.pidfile) unlink(G.pidfile);
+        if(G.fitsheader) unlink(G.fitsheader);
         exit(1);
     }else{ // child
-        LOGERR("Killed with status %d", signo);
-        running = 0; // let make cleanup
+        if(running){
+            LOGERR("Stop running");
+            running = 0; // let make cleanup
+        }
     }
-    sleep(1);
-    exit(signo); // force exit if stubs
 }
 
 static int init_ipc(void){
@@ -166,48 +160,90 @@ static void cleanup_ipc(void){
     }
 }
 
+// update record of FITS header
+static void FITS_update(const char *line, int finish){
+    static FILE *tmp = NULL;
+    static char templ[32]; // temporary file name
+    if(!tmp){ // try to create new temporary file
+        sprintf(templ, "/tmp/fitshdrXXXXXX");
+        int fd = mkstemp(templ);
+        if(fd < 0){
+            WARN("mkstemp()");
+            LOGERR("Can't create temporary file!");
+            return;
+        }
+        tmp = fdopen(fd, "w");
+        if(!tmp){
+            WARN("fdopen()");
+            LOGERR("Error in fdopen()");
+            return;
+        }
+    }
+    fprintf(tmp, "%s\n", line);
+    if(finish){ // move temporary file into new location
+        fclose(tmp);
+        tmp = NULL;
+        chmod(templ, 0644);
+        if(rename(templ, G.fitsheader) < 0){
+            WARN("rename(%s, %s)", templ, G.fitsheader);
+            LOGERR("Error in rename()");
+        }
+    }
+}
+
+static void update_shm(weather_data_t *data){
+    if(sem_wait(sem) == -1){
+        LOGWARN("sem_wait failed: %s", strerror(errno));
+    }else{
+        memcpy(shared_data, data, sizeof(weather_data_t));
+        sem_post(sem);
+        LOGDBG("Weather data updated");
+    }
+}
+
 static void parse_line(const char *line, weather_data_t *data) {
-    char key[64];
-    char value[256];
-    if (sscanf(line, "%63[^=]=%255s", key, value) == 2) {
-        if (strcmp(key, "WEATHER") == 0) {
+    char key[SL_KEY_LEN];
+    char value[SL_VAL_LEN];
+
+    int update = 0; // 0 for updating, 1 for finishing, -1 for error
+
+    if(sl_get_keyval(line, key, value)){
+        if(strcmp(key, "WEATHER") == 0){
             data->weather = (weather_condition_t) atoi(value);
             printf("got weather: %d\n", data->weather);
-        } else if (strcmp(key, "WINDMAX1") == 0) {
+        }else if (strcmp(key, "WINDMAX1") == 0){
             data->windmax = atof(value);
             printf("got windmax: %g\n", data->windmax);
-        } else if (strcmp(key, "PRECIP") == 0) {
+        }else if (strcmp(key, "PRECIP") == 0){
             data->rain = atoi(value);
             printf("got rain: %d\n", data->rain);
-        } else if (strcmp(key, "CLOUDS") == 0) {
+        }else if (strcmp(key, "CLOUDS") == 0){
             data->clouds = atof(value);
             printf("got clouds: %g\n", data->clouds);
-        } else if (strcmp(key, "WIND") == 0) {
+        }else if (strcmp(key, "WIND") == 0){
             data->wind = atof(value);
             printf("got wind: %g\n", data->wind);
-        } else if (strcmp(key, "EXTTEMP") == 0) {
+        }else if (strcmp(key, "EXTTEMP") == 0){
             data->exttemp = atof(value);
             printf("got temp: %g\n", data->exttemp);
-        } else if (strcmp(key, "PRESSURE") == 0) {
+        }else if (strcmp(key, "PRESSURE") == 0){
             data->pressure = atof(value);
             printf("got pressure: %g\n", data->pressure);
-        } else if (strcmp(key, "HUMIDITY") == 0) {
+        }else if (strcmp(key, "HUMIDITY") == 0){
             data->humidity = atof(value);
             printf("got humidity: %g\n", data->humidity);
-        } else if (strcmp(key, "PROHIBIT") == 0) {
+        }else if (strcmp(key, "PROHIBIT") == 0){
             data->prohibited = atoi(value);
-        } else if (strcmp(key, "TMEAS") == 0) {
+        }else if (strcmp(key, "TMEAS") == 0){ // last line in message -> update
             data->last_update = atof(value);
             if(data->weather == WEATHER_PROHIBITED || forbidden) data->prohibited = 1;
-            else if(data->weather < WEATHER_TERRIBLE) data->prohibited = 0;
+            else if(data->weather < WEATHER_PROHIBITED) data->prohibited = 0;
             // update all
-            if (sem_wait(sem) == -1) {
-                LOGWARN("sem_wait failed: %s", strerror(errno));
-            } else {
-                memcpy(shared_data, data, sizeof(weather_data_t));
-                sem_post(sem);
-                LOGMSG("Weather data updated");
-            }
+            update_shm(data);
+            update = 1;
+        }else update = -1;
+        if(update > -1 && G.fitsheader){
+            FITS_update(line, update);
         }
     }
 }
@@ -222,7 +258,7 @@ static int request_weather_data(sl_sock_t *sock){
 
     DBG("try to send request: '%s", request);
     if(sl_sock_sendstrmessage(sock, request) < 1){
-        LOGERR("Can't poll new data");
+        LOGWARN("Can't poll new data");
         return -1;
     }
     return 0;
@@ -239,32 +275,52 @@ static void run_daemon(){
         LOGERR("Can't connect to meteodaemon over socket with node %s", G.node);
         return;
     }
+    LOGMSG("Connected to meteodaemon %s", G.node);
     memcpy(&new_data, shared_data, sizeof(weather_data_t));
     time_t lastert = time(NULL);
 
     while(running){
         time_t tnow = time(NULL);
-        if(!sock || request_weather_data(sock) == -1){
-            if(tnow - lastert > RECONN_TMOUT){ // try to reconnect
+        int req = -1;
+        if(sock) req = request_weather_data(sock);
+        if(req == -1){
+            int diff = tnow - lastert;
+            DBG("diff = %d", diff);
+            if(diff > RECONN_TMOUT){ // try to reconnect
                 LOGERR("Failed to request weather data, retry");
                 if(sock) sl_sock_delete(&sock);
-                if(!(sock = sl_sock_run_client(stype, G.node, 4096))) lastert += 5;
-                else lastert = tnow;
+                if(!(sock = sl_sock_run_client(stype, G.node, 4096))){
+                    new_data.weather = WEATHER_TERRIBLE; // no connection to weather server, don't allow to open
+                    update_shm(&new_data);
+                    lastert += RECONN_TMOUT;
+                }else{
+                    LOGMSG("Reconnected to %s", G.node);
+                    lastert = tnow;
+                }
             }
-        }else lastert = tnow;
+        }else if(req == 0) lastert = tnow;
 
         while(sl_sock_readline(sock, line, 255) > 0){
             DBG("Parse '%s'", line);
             parse_line(line, &new_data);
         }
+        usleep(500000);
     }
     sl_sock_delete(&sock); // disconnect and clear memory
+    DBG("run_daemon() exited");
 }
 
 int main(int argc, char *argv[]){
     sl_init();
     sl_parseargs(&argc, &argv, opts);
     if(!G.node) ERRX("Point node to connect");
+    if(G.fitsheader){
+        FILE *fitsfile = fopen(G.fitsheader, "w");
+        if(!fitsfile){
+            WARN("Can't create FITS header %s", G.fitsheader);
+            FREE(G.fitsheader);
+        }else fclose(fitsfile);
+    }
     sl_check4running(NULL, G.pidfile);
     if(G.logfile){
         sl_loglevel_e lvl = LOGLEVEL_ERR + G.verb;
@@ -304,7 +360,8 @@ int main(int argc, char *argv[]){
         exit(EXIT_FAILURE);
     }
     run_daemon();
+    LOGDBG("Daemon is dead");
     cleanup_ipc();
-    LOGMSG("Daemon is dead");
+    LOGDBG("IPC cleaned");
     return 0;
 }

@@ -32,7 +32,7 @@ int help;
 
 // default values for Gdefault & help
 #define DEFAULT_PORT    "12345"
-#define DEFAULT_PID		"/tmp/weatherdaemon.pid"
+#define DEFAULT_PID     "/tmp/superweatherdaemon.pid"
 
 //            DEFAULTS
 // default global parameters

@@ -22,8 +22,12 @@
 int main() {
     weather_data_t wd;
     if(get_weather_data(&wd) == 0){
-        printf("Weather: %d, Max wind: %.1f, Wind: %.1f, Temp: %.1f; updated @%zd\n",
-               wd.weather, wd.windmax, wd.wind, wd.exttemp, wd.last_update);
+        char strt[64];
+        struct tm *T = localtime(&wd.last_update);
+        strftime(strt, 63, "%F %T", T);
+        printf("Prohibited: %d\nWeather: %d\nMax wind: %.1f\nWind: %.1f\nTemp: %.1f\nPressure: %.1f\nHumidity: %.1f\nupdated @%zd (%s)\n",
+               wd.prohibited, wd.weather, wd.windmax, wd.wind, wd.exttemp, wd.pressure, wd.humidity,
+               wd.last_update, strt);
     }else{
         fprintf(stderr, "Failed to get weather data\n");
     }
