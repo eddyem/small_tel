@@ -25,14 +25,16 @@ enum{
     WEATHER_GOOD,           // good to start observations
     WEATHER_BAD,            // bad for start, but can run
     WEATHER_TERRIBLE,       // need close the dome
-    WEATHER_PROHIBITED,     // need close all, park and power off <-- by SIGUSR1/SIGUSR2
+    WEATHER_PROHIBITED,     // need close all, park and power off equipment <-- by SIGUSR1/SIGUSR2 + by FORCEOFF
 };
 
 typedef struct{
     double good;        // if value less than this, weather is good
     double bad;         // if value greater than this, weather is bad
     double terrible;    // if value greater than this, weather is terrible
+    double prohibited;  // ...
     int negflag;        // reversal flag (good if > val,  etc)
+    int shtdnflag;      // ==1 to shut down if `terrible`
 } weather_cond_t;
 
 typedef struct{
@@ -45,6 +47,8 @@ typedef struct{
     weather_cond_t clouds;
     // sky temperature minus ambient temperature, degC
     weather_cond_t sky;
+    // distance to lightning
+    weather_cond_t ligtdist;
 } weather_conf_t;
 
 // defined in cmdlnopts.c
@@ -54,5 +58,6 @@ int collected_amount();
 int get_collected(val_t *val, int N);
 
 void forbid_observations(int f);
+int is_forbidden();
 void refresh_sensval(sensordata_t *s);
 //void run_mainweather();

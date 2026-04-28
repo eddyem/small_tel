@@ -52,19 +52,21 @@ weather_conf_t WeatherConf = {
     .wind.good = 5.,            // < 5m/s - good weather
     .wind.bad = 10.,            // > 10m/s - bad weather
     .wind.terrible = 15.,       // > 15m/s - terrible weather
-    .wind.negflag = 0,
     .humidity.good = 65.,
-    .humidity.bad = 80.,
-    .humidity.terrible = 90.,
-    .humidity.negflag = 0,
+    .humidity.bad = 87.,
+    .humidity.terrible = 94.,
     .clouds.good = 2500.,
     .clouds.bad = 2000.,
     .clouds.terrible = 500.,
-    .clouds.negflag = 1,
+    .clouds.negflag = 1,        // the higher values is the better
     .sky.good = -40.,
     .sky.bad = -10.,
     .sky.terrible = 0.,
-    .sky.negflag = 0
+    .ligtdist.good = 60.,       // no lightnings near
+    .ligtdist.bad = 10.,        // 10km
+    .ligtdist.terrible = 5.,    // <=5km - ahtung!
+    .ligtdist.negflag = 1,      // the nearest is the worse
+    .ligtdist.shtdnflag = 1,    // force shutdown if too close
 };
 
 static glob_pars G;
@@ -77,7 +79,7 @@ static glob_pars G;
     {"port",    NEED_ARG,   NULL,   0,      arg_string, APTR(&G.port),      "network port to connect (default: " DEFAULT_PORT "); hint: use \"localhost:port\" to make local net socket"}, \
     {"logfile", NEED_ARG,   NULL,   'l',    arg_string, APTR(&G.logfile),   "save logs to file (default: none)"}, \
     {"pidfile", NEED_ARG,   NULL,   'P',    arg_string, APTR(&G.pidfile),   "pidfile name (default: " DEFAULT_PID ")"}, \
-    {"sockpath",NEED_ARG,   NULL,   0,      arg_string, APTR(&G.sockname),  "UNIX socket path (starting from '\\0' for anonimous) of command socket"}, \
+    {"sockpath",NEED_ARG,   NULL,   0,      arg_string, APTR(&G.sockname),  "UNIX socket path (starting from '@' for anonimous) of command socket"}, \
     {"plugin",  MULT_PAR,   NULL,   'p',    arg_string, APTR(&G.plugins),   "add this weather plugin (may be a lot of); FORMAT: \"dlpath:l:dev\", where `dlpath` - path of plugin library; `l` - 'D' for device, 'U' for UNIX-socket or 'N' for INET socket; dev - path to device and speed (like /dev/ttyS0:9600), UNIX socket name or host:port for INET"}, \
     {"pollt",   NEED_ARG,   NULL,   'T',    arg_int,    APTR(&G.pollt),     "set maximal polling interval (seconds, integer)"},
 
@@ -90,20 +92,21 @@ sl_option_t cmdlnopts[] = {
 };
 
 sl_option_t confopts[] = {
-    {"verbose",  NEED_ARG,  NULL,   'a',      arg_int,    APTR(&G.verb),      "logfile verbocity level"},
-    {"ahtung_delay",NEED_ARG,NULL,  'b',      arg_int,    APTR(&WeatherConf.ahtung_delay),"delay in seconds after bad weather to change to good"},
-    {"good_wind",NEED_ARG,  NULL,   'c',      arg_double, APTR(&WeatherConf.wind.good), "good wind while less this"},
-    {"bad_wind", NEED_ARG,  NULL,   0,      arg_double, APTR(&WeatherConf.wind.bad), "bad wind if more than this"},
-    {"terrible_wind",NEED_ARG, NULL,0,      arg_double, APTR(&WeatherConf.wind.terrible), "terrible wind if more than this"},
-    {"good_humidity",NEED_ARG, NULL,0,      arg_double, APTR(&WeatherConf.humidity.good), "humidity is good until this"},
-    {"bad_humidity",NEED_ARG,  NULL,0,      arg_double, APTR(&WeatherConf.humidity.bad), "humidity is bad if greater"},
-    {"terrible_humidity",NEED_ARG,NULL, 0,  arg_double, APTR(&WeatherConf.humidity.terrible), "humidity is terrible if greater"},
-    {"good_clouds",NEED_ARG,  NULL, 0,      arg_double, APTR(&WeatherConf.clouds.good), "good weather when \"clouds value\" greater than this"},
-    {"bad_clouds",NEED_ARG,  NULL,  0,      arg_double, APTR(&WeatherConf.clouds.bad), "if less than this, clouds are bad"},
-    {"terrible_clouds",NEED_ARG, NULL, 0,   arg_double, APTR(&WeatherConf.clouds.terrible), "if less, clouds are terrible"},
-    {"good_sky",NEED_ARG,   NULL,   0,      arg_double, APTR(&WeatherConf.sky.good), "sky-ambient less than this is good"},
-    {"bad_sky",NEED_ARG,    NULL,   0,      arg_double, APTR(&WeatherConf.sky.bad), "sky-ambient greater than this is bad"},
-    {"terrible_sky",NEED_ARG,NULL,  0,      arg_double, APTR(&WeatherConf.sky.terrible), "sky-ambient greater than this is terrible"},
+    {"verbose",     NEED_ARG,   NULL,   'a',    arg_int,    APTR(&G.verb),                      "logfile verbocity level"},
+    {"ahtung_delay",NEED_ARG,   NULL,   'b',    arg_int,    APTR(&WeatherConf.ahtung_delay),    "delay in seconds after bad weather to change to good"},
+    {"good_wind",   NEED_ARG,   NULL,   'c',    arg_double, APTR(&WeatherConf.wind.good),       "good wind while less this"},
+    {"bad_wind",    NEED_ARG,   NULL,   0,      arg_double, APTR(&WeatherConf.wind.bad),        "bad wind if more than this"},
+    {"terrible_wind",NEED_ARG,  NULL,   0,      arg_double, APTR(&WeatherConf.wind.terrible),   "terrible wind if more than this"},
+    {"good_humidity",NEED_ARG,  NULL,   0,      arg_double, APTR(&WeatherConf.humidity.good),   "humidity is good until this"},
+    {"bad_humidity",NEED_ARG,   NULL,   0,      arg_double, APTR(&WeatherConf.humidity.bad),    "humidity is bad if greater"},
+    {"terrible_humidity",NEED_ARG,NULL, 0,      arg_double, APTR(&WeatherConf.humidity.terrible), "humidity is terrible if greater"},
+    {"good_clouds", NEED_ARG,   NULL,   0,      arg_double, APTR(&WeatherConf.clouds.good),     "good weather when \"clouds value\" less than this"},
+    {"bad_clouds",  NEED_ARG,   NULL,   0,      arg_double, APTR(&WeatherConf.clouds.bad),      "if greater than this, clouds are bad"},
+    {"terrible_clouds",NEED_ARG, NULL,  0,      arg_double, APTR(&WeatherConf.clouds.terrible), "if greater, clouds are terrible"},
+    {"clouds_negflag",NEED_ARG, NULL,   0,      arg_int,    APTR(&WeatherConf.clouds.negflag),  "==1 to invert sign (lesser value is worst)"},
+    {"good_sky",    NEED_ARG,   NULL,   0,      arg_double, APTR(&WeatherConf.sky.good),        "sky-ambient less than this is good"},
+    {"bad_sky",     NEED_ARG,   NULL,   0,      arg_double, APTR(&WeatherConf.sky.bad),         "sky-ambient greater than this is bad"},
+    {"terrible_sky",NEED_ARG,   NULL,   0,      arg_double, APTR(&WeatherConf.sky.terrible),    "sky-ambient greater than this is terrible"},
     COMMON_OPTS
     end_option
 };

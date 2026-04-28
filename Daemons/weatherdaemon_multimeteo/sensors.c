@@ -178,7 +178,8 @@ static const char* const NM[IS_OTHER] = { // names of standard fields
     [IS_PRECIP_LEVEL]="PRECIPLV",
     [IS_MIST]       = "MIST",
     [IS_CLOUDS]     = "CLOUDS",
-    [IS_SKYTEMP]    = "SKYTEMP"
+    [IS_SKYTEMP]    = "SKYTEMP",
+    [IS_LIGTDIST]   = "LIGTDIST",
 };
 
 // format "sense" of sensor, like "[WIND][1]=2"
@@ -192,6 +193,19 @@ int format_senssense(const val_t *v, char *buf, int buflen, int Np){
     return (got < buflen) ? got : buflen; // full or truncated
 }
 
+void get_fieldname(const val_t *v, char buf[KEY_LEN+1]){
+    if(!v || !buf) return;
+    int idx = v->meaning;
+    const char *name = NULL;
+    if(idx < IS_OTHER){
+        name = NM[idx];
+    }else{
+        name = v->name;
+    }
+    if(name) snprintf(buf, KEY_LEN+1, "%s", name);
+    else buf[0] = 0; // empty
+}
+
 /**
  * @brief format_sensval - snprintf sensor's value into buffer
  * @param v - value to get
@@ -202,16 +216,18 @@ int format_senssense(const val_t *v, char *buf, int buflen, int Np){
  */
 int format_sensval(const val_t *v, char *buf, int buflen, int Np){
     if(!v || !buf || buflen < 1) return -1;
-    char strval[VAL_LEN+1];
+    char strval[VAL_LEN];
+    int fieldlen = 20; // minimal distance between '=' and '/' is 22 bytes
     switch(v->type){
         case VALT_UINT:  snprintf(strval, VAL_LEN, "%u", v->value.u); break;
         case VALT_INT:   snprintf(strval, VAL_LEN, "%d", v->value.i); break;
         case VALT_FLOAT: snprintf(strval, VAL_LEN, "%.2f", v->value.f); break;
+        case VALT_STRING: sprintf(strval, "'%s'", v->value.str); fieldlen = -20; break;
         default: sprintf(strval, "'ERROR'");
     }
     const char* const CMT[IS_OTHER] = { // comments for standard fields
         [IS_WIND]       = "Wind, m/s",
-        [IS_WINDDIR]    = "Instant wind direction, degr (CW from north to FROM)",
+        [IS_WINDDIR]    = "Wind direction, degr (CW from north to FROM)",
         [IS_HUMIDITY]   = "Humidity, percent",
         [IS_AMB_TEMP]   = "Ambient temperature, degC",
         [IS_INNER_TEMP] = "In-dome temperature, degC",
@@ -221,7 +237,8 @@ int format_sensval(const val_t *v, char *buf, int buflen, int Np){
         [IS_PRECIP_LEVEL]="Cumulative precipitation level (mm)",
         [IS_MIST]       = "Mist (1 - yes, 0 - no)",
         [IS_CLOUDS]     = "Integral sky quality value (bigger - better)",
-        [IS_SKYTEMP]    = "Mean sky temperatyre"
+        [IS_SKYTEMP]    = "Mean sky temperatyre",
+        [IS_LIGTDIST]   = "Distance to last lightning, km",
     };
     const char *name = NULL, *comment = NULL;
     int idx = v->meaning;
@@ -232,19 +249,23 @@ int format_sensval(const val_t *v, char *buf, int buflen, int Np){
         name = v->name;
         comment = v->comment;
     }
+    if(!name) return 0; // no name pointed - don't show this value
+    if(!comment) comment = "-";
     int got;
-    if(Np > -1) got = snprintf(buf, buflen, "%s[%d]=%s / %s", name, Np, strval, comment);
-    else got = snprintf(buf, buflen, "%s=%s / %s", name, strval, comment);
+    if(Np > -1) got = snprintf(buf, buflen, "%s[%d] = %s / %s", name, Np, strval, comment);
+    else got = snprintf(buf, buflen, "%-*s= %*s / %s", KEY_LEN, name, fieldlen, strval, comment);
     return (got < buflen) ? got : buflen; // full or truncated
 }
 
 // the same for measurement time formatting
-int format_msrmttm(time_t t, char *buf, int buflen){
+int format_msrmttm(time_t t, char *buf, int buflen, int Np){
     if(!buf || buflen < 1) return -1;
     char cmt[COMMENT_LEN+1];
     struct tm *T = localtime(&t);
     strftime(cmt, COMMENT_LEN, "%F %T", T);
-    int got = snprintf(buf, buflen, "TMEAS=%zd / Last measurement time: %s", t, cmt);
+    int got;
+    if(Np > -1) got = snprintf(buf, buflen, "TWEATH[%d] = %zd / Last weather time: %s", Np, t, cmt);
+    else got = snprintf(buf, buflen, "TWEATH  = %20zd / Last weather time: %s", t, cmt);
     return (got < buflen) ? got : buflen;
 }
 

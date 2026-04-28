@@ -26,9 +26,6 @@
 #include "sensors.h"
 #include "server.h"
 
-// if measurement time oldest than now minus `oldest_interval`, we think measurement are too old
-static time_t oldest_interval = 60;
-
 // server's sockets: net and local (UNIX)
 static sl_sock_t *netsocket = NULL, *localsocket;
 //static pthread_t netthread, locthread;
@@ -70,60 +67,42 @@ sensordata_t *get_plugin_w_message(sl_sock_t *client, int N){
 }
 
 /**
- * @brief showdataN - send to user meteodata of Nth station
- * @param client - client data
- * @param N - index of station
- */
-static void showdataN(sl_sock_t *client, int N){
-    char buf[FULL_LEN];
-    val_t v;
-    sensordata_t *s = get_plugin_w_message(client, N);
-    if(!s) return;
-    time_t oldest = time(NULL) - oldest_interval;
-    uint64_t Tsum = 0; int nsum = 0;
-    for(int i = 0; i < s->Nvalues; ++i){
-        if(!s->get_value(s, &v, i)) continue;
-        if(v.time < oldest) continue;
-        if(1 > format_sensval(&v, buf, FULL_LEN, N)) continue;
-        DBG("formatted: '%s'", buf);
-        sl_sock_sendstrmessage(client, buf);
-        sl_sock_sendbyte(client, '\n');
-        ++nsum; Tsum += v.time;
-    }
-    if(nsum > 0){
-        oldest = (time_t)(Tsum / nsum);
-        if(0 < format_msrmttm(oldest, buf, FULL_LEN)){ // send mean measuring time
-            DBG("Formatted time: '%s'", buf);
-            sl_sock_sendstrmessage(client, buf);
-            sl_sock_sendbyte(client, '\n');
-        }
-    }
-}
-
-/**
- * @brief showdata - send to client common gathered data
+ * @brief showdata - send to client sensor's data
  * @param client  - client data
+ * @param N - -1 for common data or station index for specific meteo
  */
-static void showdata(sl_sock_t *client){
+static void showdata(sl_sock_t *client, int N){
     char buf[FULL_LEN];
     val_t v;
-    int Ncoll = collected_amount();
-    time_t oldest = time(NULL) - oldest_interval;
-    uint64_t Tsum = 0; int nsum = 0;
+    int Ncoll = 0;
+    sensordata_t *s = NULL;
+    if(N < 0){
+        Ncoll = collected_amount();
+    }else{
+        s = get_plugin_w_message(client, N);
+        if(!s) return;
+        Ncoll = s->Nvalues;
+    }
+    time_t oldest = time(NULL) - WeatherConf.ahtung_delay, mstm = 0;
+
     for(int i = 0; i < Ncoll; ++i){
-        if(!get_collected(&v, i)){ DBG("Can't get %dth value", i); continue; }
-        if(v.time < oldest){ DBG("%dth value is too old", i); continue; }
-        if(1 > format_sensval(&v, buf, FULL_LEN, -1)){ DBG("Can't format"); continue; }
-        DBG("formatted: '%s'", buf);
+        int ans = 0;
+        if(N < 0) ans = get_collected(&v, i);
+        else ans = s->get_value(s, &v, i);
+        if(!ans){ DBG("Can't get %dth value", i); continue; }
+        // hide old and broken sensors data
+        if(v.time < oldest || v.sense > VAL_UNNECESSARY){ /*DBG("%dth value is too old", i);*/ continue; }
+        if(1 > format_sensval(&v, buf, FULL_LEN, N)){ DBG("Can't format %d", i); continue; }
+        //DBG("formatted: '%s'", buf);
         sl_sock_sendstrmessage(client, buf);
         sl_sock_sendbyte(client, '\n');
-        ++nsum; Tsum += v.time;
+        if(v.time > mstm) mstm = v.time;
     }
-    DBG("nsum=%d", nsum);
-    if(nsum > 0){
-        oldest = (time_t)(Tsum / nsum);
-        if(0 < format_msrmttm(oldest, buf, FULL_LEN)){ // send mean measuring time
-            DBG("Formatted time: '%s'", buf);
+    // also send FORCE flag if have
+    if(N < 0 && is_forbidden()) sl_sock_sendstrmessage(client, "FORBID  =                    1 / Observations are forbidden by operator\n");
+    if(mstm){
+        if(0 < format_msrmttm(mstm, buf, FULL_LEN, N)){ // send mean measuring time
+            //DBG("Formatted time: '%s'", buf);
             sl_sock_sendstrmessage(client, buf);
             sl_sock_sendbyte(client, '\n');
         }
@@ -136,11 +115,11 @@ static sl_sock_hresult_e gethandler(sl_sock_t *client, _U_ sl_sock_hitem_t *item
     if(!client) return RESULT_FAIL;
     int N = get_nplugins();
     if(N < 1) return RESULT_FAIL;
-    if(!req) showdata(client);
+    if(!req) showdata(client, -1);
     else{
         int n;
         if(!sl_str2i(&n, req) || n < 0 || n >= N) return RESULT_BADVAL;
-        showdataN(client, n);
+        showdata(client, n);
     }
     return RESULT_SILENCE;
 }

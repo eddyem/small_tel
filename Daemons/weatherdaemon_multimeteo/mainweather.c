@@ -52,6 +52,11 @@ enum{
     NSKYTEMP,
     NCOMMWEATH,
     NLASTAHTUNG,
+    NAHTUNGRSN,
+    NLIGHTDIST,
+    NBADWEATH,
+    NTERRWEATH,
+    NFORCEDSHTDN,
     NAMOUNT_OF_DATA
 };
 
@@ -73,8 +78,14 @@ static val_t collected_data[NAMOUNT_OF_DATA] = {
     [NCLOUDS] = {.sense = VAL_BROKEN, .type = VALT_FLOAT,   .meaning = IS_CLOUDS},
     [NSKYTEMP] = {.sense = VAL_BROKEN, .type = VALT_FLOAT, .meaning = IS_SKYTEMP},
     // these are calculated values
-    [NCOMMWEATH] = {.value.i = 0, .sense = VAL_OBLIGATORY, .type = VALT_UINT,   .meaning = IS_OTHER, .name = "WEATHER", .comment = "Weather level (0 - good, 3 - obs. prohibited)"},
-    [NLASTAHTUNG] = {.value.i = 0, .sense = VAL_RECOMMENDED, .type = VALT_UINT, .meaning = IS_OTHER, .name = "EVTTIME", .comment = "UNIX-time of last weather level increasing"},
+    [NCOMMWEATH] = {.sense = VAL_OBLIGATORY, .type = VALT_UINT,   .meaning = IS_OTHER, .name = "WEATHER", .comment = "Weather (0..3: good/bad/terrible/prohibited)"},
+    [NLASTAHTUNG] = {.sense = VAL_RECOMMENDED, .type = VALT_UINT, .meaning = IS_OTHER, .name = "EVTTIME", .comment = "UNIX-time of last weather level changing"},
+    [NAHTUNGRSN] = {.sense = VAL_RECOMMENDED, .type = VALT_STRING, .meaning = IS_OTHER, .name = "EVTRSN", .comment = "Last weather level increasing reason"},
+    [NLIGHTDIST] = {.sense = VAL_FORCEDSHTDN, .type = VALT_FLOAT, .meaning = IS_LIGTDIST},
+    // virtual values for weather level / flags changing
+    [NBADWEATH] = {.sense = VAL_BROKEN, .type = VALT_UINT, .meaning = IS_BADWEATH, .name = "BADWEATH", .comment = "Flag changing weather level to 'BAD'"},
+    [NTERRWEATH] = {.sense = VAL_BROKEN, .type = VALT_UINT, .meaning = IS_TERRIBLEWEATH, .name = "TERWEATH", .comment = "Flag changing weather level to 'TERRIBLE'"},
+    [NFORCEDSHTDN] = {.sense = VAL_FORCEDSHTDN, .type = VALT_UINT, .meaning = IS_FORCEDSHTDN, .name = "FORCEOFF", .comment = "Station should be powered off NOW"},
 //    {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT, .meaning = IS_OTHER},
 };
 
@@ -178,7 +189,7 @@ int get_collected(val_t *val, int N){
         return FALSE;
     }
     pthread_mutex_lock(&datamutex);
-    DBG("Copied data of %d", N);
+    //DBG("Copied data of %d", N);
     *val = collected_data[N];
     pthread_mutex_unlock(&datamutex);
     return TRUE;
@@ -189,17 +200,18 @@ static void fix_new_data(val_t *collected, val_t *fresh){
     if(!collected || !fresh) return;
     if(collected->time > fresh->time) return;
     // lower `collected` level if data is too old
-    if(fresh->time - collected->time > 60) collected->sense = VAL_UNNECESSARY;
+    if(fresh->time - collected->time > WeatherConf.ahtung_delay) collected->sense = VAL_UNNECESSARY;
     if(collected->sense < fresh->sense) return;
-    if(collected->sense != fresh->sense) collected->sense = fresh->sense; // take new lower level
+    if(collected->sense != fresh->sense) collected->sense = fresh->sense; // take new level
     //DBG("Refresh collected value");
     collected->time = fresh->time;
     if(collected->type == fresh->type){ // good case
+        memcpy(&collected->value, &fresh->value, sizeof(num_t));
         //DBG("Types are the same");
-        collected->value = fresh->value;
         return;
     }
     // bad case: have different types
+    // DON'T convert between string and number types!
     switch(collected->type){
     case VALT_UINT:
         switch(fresh->type){
@@ -237,43 +249,68 @@ static void fix_new_data(val_t *collected, val_t *fresh){
         default: break;
         }
         break;
+    default: break;
     }
 }
 
-static void chkweatherlevel(int *curlevel, double curvalue, weather_cond_t *curcond, int *ahtungtime){
-    double good = curcond->good, bad = curcond->bad, terrible = curcond->terrible;
+// increase weather level if need, also check force shutdown flags
+// @return 0 if level wasn't changed, or +1 if was increased
+static int chkweatherlevel(int *curlevel, double curvalue, weather_cond_t const *curcond){
+    double good = curcond->good, bad = curcond->bad, terrible = curcond->terrible, prohibited = curcond->prohibited;
+    int haveproh = (prohibited > terrible) ? 1 : 0; // value have `prohibited` field
     if(curcond->negflag){ // negate
         curvalue = -curvalue;
         good = -good;
         bad = -bad;
         terrible = -terrible;
+        prohibited = -prohibited;
     }
     int newlevel = -1;
-    if(curvalue > terrible) newlevel = WEATHER_TERRIBLE;
-    else if(curvalue > bad) newlevel = WEATHER_BAD;
+    if(haveproh && curvalue > prohibited){
+        newlevel = WEATHER_PROHIBITED;
+        DBG("---> new level is PROHIBITED, val=%g", curvalue);
+    }else if(curvalue > terrible){
+        newlevel = WEATHER_TERRIBLE;
+        DBG("---> new level is TERRIBLE, val=%g", curvalue);
+    }else if(curvalue > bad) newlevel = WEATHER_BAD;
     else if(curvalue < good) newlevel = WEATHER_GOOD;
-    if(newlevel == -1) return;
+    if(newlevel == -1) return 0;
     time_t curt = time(NULL);
-    if(newlevel > *curlevel){
-        DBG("newlevel: %d, current: %d  INCREASED", newlevel, *curlevel);
-        *curlevel = newlevel;
-        if(*ahtungtime < curt) *ahtungtime = (int) curt; // refresh event time
-    }else if(newlevel < *curlevel){ // check timeout to make level lower
-        if(curt - *ahtungtime > WeatherConf.ahtung_delay){
-            DBG("newlevel: %d, current: %d  DECREASED", newlevel, *curlevel);
-            *curlevel = newlevel;
-        }
+    if(curcond->shtdnflag && newlevel >= WEATHER_TERRIBLE){
+        DBG("Forced shutdown flag is set, curvalue: %g", curvalue);
+        // set to one collected data flag and its time
+        val_t *f = &collected_data[NFORCEDSHTDN];
+        f->value.i = 1;
+        f->time = (int) curt;
+        // and set current weather level to prohibited
+        *curlevel = WEATHER_PROHIBITED;
     }
+    if(newlevel > *curlevel){
+        // TODO: add logging
+        DBG("local level increased to %d", newlevel);
+        *curlevel = newlevel;
+        return 1;
+    }
+    return 0;
 }
+
+// conditions for "bad weather" flag (if it ==1 set BAD WEATH)
+static weather_cond_t const badweathflag = {.good = 0.1, .bad = 0.5, .terrible = 2.};
+// conditions for "terrible weather" flag
+static weather_cond_t const terrweathflag = {.good = 0.1, .bad = 0.5, .terrible = 0.7};
+// conditions for "prohibited weather" flag
+static weather_cond_t const prohibweathflag = {.good = 0.1, .bad = 0.5, .terrible = 0.6, .prohibited = 0.7};
+// conditions for "force shutdown" flag
+static weather_cond_t const shtdnflag = {.good = 0.1, .bad = 0.5, .terrible = 0.7, .shtdnflag = 1, .prohibited = 0.8};
 
 void refresh_sensval(sensordata_t *s){
     //FNAME();
-    static time_t poll_time = 0;
+    //static time_t poll_time = 0;
+    char reason[KEY_LEN+1] = {0}; // reason of weather level increasing
     val_t value;
     if(!s || !s->get_value) return;
-    if(poll_time == 0) poll_time = get_pollT();
-    int curlevel = collected_data[NCOMMWEATH].value.i;
-    int curahtungtime = collected_data[NLASTAHTUNG].value.i;
+    //if(poll_time == 0) poll_time = get_pollT();
+    int curlevel = 0; // this is worse weather leavel, start from best
     time_t curtime = time(NULL);
     double dir = -100., dir2 = -100.; // mean wind directions
     //DBG("%d meteo values", s->Nvalues);
@@ -283,11 +320,16 @@ void refresh_sensval(sensordata_t *s){
         //DBG("got value");
         int idx = -1;
         double curvalue;
-        weather_cond_t *curcond = NULL;
+        switch(value.type){
+            case VALT_UINT: curvalue = (double) value.value.u; break;
+            case VALT_INT: curvalue = (double) value.value.i; break;
+            case VALT_FLOAT: curvalue = (double) value.value.f; break;
+            default: curvalue = 0.;
+        }
+        const weather_cond_t *curcond = NULL;
         switch(value.meaning){
             case IS_WIND:
                 idx = NWIND;
-                curvalue = (double) value.value.f;
                 curcond = &WeatherConf.wind;
                 add_windspeed(&windspeeds, curvalue, curtime);
                 break;
@@ -297,7 +339,6 @@ void refresh_sensval(sensordata_t *s){
                 break;
             case IS_HUMIDITY:
                 idx = NHUMIDITY;
-                curvalue = (double) value.value.f;
                 curcond = &WeatherConf.humidity;
                 break;
             case IS_AMB_TEMP:
@@ -308,30 +349,40 @@ void refresh_sensval(sensordata_t *s){
                 break;
             case IS_PRECIP:
                 idx = NPRECIP;
-                if(value.value.i && curlevel < WEATHER_TERRIBLE){
-                    curlevel = WEATHER_TERRIBLE;
-                    curahtungtime = curtime;
-                }
+                curcond = &prohibweathflag;
+                if(curvalue > 0.) DBG("IS_PRECIP == 1 !!!");
                 break;
             case IS_PRECIP_LEVEL:
                 idx = NPRECIP_LEVEL;
+                curcond = &terrweathflag;
                 break;
             case IS_MIST:
                 idx = NMIST;
-                if(value.value.i && curlevel < WEATHER_TERRIBLE){
-                    curahtungtime = curtime;
-                    curlevel = WEATHER_TERRIBLE;
-                }
+                curcond = &terrweathflag;
                 break;
             case IS_CLOUDS:
                 idx = NCLOUDS;
-                curvalue = (double) value.value.f;
                 curcond = &WeatherConf.clouds;
                 break;
             case IS_SKYTEMP:
                 idx = NSKYTEMP;
-                curvalue = (double) value.value.f;
                 curcond = &WeatherConf.sky;
+                break;
+            case IS_LIGTDIST:
+                idx = NLIGHTDIST;
+                curcond = &WeatherConf.ligtdist;
+                break;
+            case IS_BADWEATH:
+                idx = NBADWEATH;
+                curcond = &badweathflag;
+                break;
+            case IS_TERRIBLEWEATH:
+                idx = NTERRWEATH;
+                curcond = &terrweathflag;
+                break;
+            case IS_FORCEDSHTDN:
+                idx = NFORCEDSHTDN;
+                curcond = &shtdnflag;
                 break;
             default : break;
         }
@@ -339,8 +390,11 @@ void refresh_sensval(sensordata_t *s){
         //DBG("IDX=%d", idx);
         pthread_mutex_lock(&datamutex);
         fix_new_data(&collected_data[idx], &value);
+        if(curcond){
+            if(1 == chkweatherlevel(&curlevel, curvalue, curcond))
+                get_fieldname(&value, reason); // copy to `reason` reason of last level increasing
+        }
         pthread_mutex_unlock(&datamutex);
-        if(!Forbidden && curcond) chkweatherlevel(&curlevel, curvalue, curcond, &curahtungtime);
     }
     pthread_mutex_lock(&datamutex);
     // refresh max
@@ -358,18 +412,51 @@ void refresh_sensval(sensordata_t *s){
     collected_data[NWINDMAX1].time = curtime;
     //DBG("check ahtung");
     if(Forbidden) collected_data[NCOMMWEATH].value.i = WEATHER_PROHIBITED;
-    else collected_data[NCOMMWEATH].value.i = curlevel;
-    if(collected_data[NLASTAHTUNG].value.i < curahtungtime) collected_data[NLASTAHTUNG].value.i = curahtungtime;
+    else{
+        if(collected_data[NCOMMWEATH].value.i > curlevel){ // check timeout to make level lower
+            // DBG("curtime: %zd, curahtt: %d, diff: %zd, delay: %d", curtime, collected_data[NLASTAHTUNG].value.i, curtime - collected_data[NLASTAHTUNG].value.i, WeatherConf.ahtung_delay);
+            if(curtime - collected_data[NLASTAHTUNG].value.i > WeatherConf.ahtung_delay){
+                DBG("newlevel: %d, current: %d  DECREASED", curlevel, collected_data[NCOMMWEATH].value.i);
+                collected_data[NCOMMWEATH].value.i = curlevel;
+                collected_data[NLASTAHTUNG].value.i = curtime;
+                if(1 < snprintf(collected_data[NAHTUNGRSN].value.str, KEY_LEN+1, "%s", reason))
+                    collected_data[NAHTUNGRSN].time = curtime;
+            }
+        }else{
+            if(collected_data[NCOMMWEATH].value.i < curlevel){ // set to worse
+                DBG("newlevel: %d, current: %d  INCREASED", curlevel, collected_data[NCOMMWEATH].value.i);
+                collected_data[NCOMMWEATH].value.i = curlevel;
+                if(1 < snprintf(collected_data[NAHTUNGRSN].value.str, KEY_LEN+1, "%s", reason))
+                    collected_data[NAHTUNGRSN].time = curtime;
+            }
+            if(curlevel){
+                collected_data[NLASTAHTUNG].value.i = curtime; // refresh last ahtung time only for level > good
+                collected_data[NAHTUNGRSN].time = curtime;
+            }
+        }
+    }
     collected_data[NCOMMWEATH].time = curtime;
     collected_data[NLASTAHTUNG].time = curtime;
     pthread_mutex_unlock(&datamutex);
     //DBG("Refreshed");
 }
 
+// set/clear `forbid` flag
 void forbid_observations(int f){
     if(f) Forbidden = 1;
     else Forbidden = 0;
+    int curt = (int) time(NULL);
+    pthread_mutex_lock(&datamutex);
+    collected_data[NLASTAHTUNG].value.i = curt;
+    collected_data[NLASTAHTUNG].time = curt;
+    sprintf(collected_data[NAHTUNGRSN].value.str, "FORBID");
+    collected_data[NAHTUNGRSN].time = curt;
+    pthread_mutex_unlock(&datamutex);
+    DBG("Change FORBID status to %d", f);
 }
+
+// `forbid` flag getter
+int is_forbidden(){ return Forbidden; }
 
 #if 0
 // main cycle

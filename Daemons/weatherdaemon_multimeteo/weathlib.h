@@ -36,6 +36,7 @@
 
 // importance of values
 typedef enum{
+    VAL_FORCEDSHTDN,     // if this value is `terrible`, `forced sthudtown` flag will be set
     VAL_OBLIGATORY,     // can't be omitted
     VAL_RECOMMENDED,    // recommended to show
     VAL_UNNECESSARY,    // may be shown by user request
@@ -57,13 +58,19 @@ typedef enum{
     IS_MIST,            // mist (1 - yes, 0 - no)
     IS_CLOUDS,          // integral clouds value (bigger - better)
     IS_SKYTEMP,         // mean sky temperatyre
-    IS_OTHER            // something other - read "name" and "comment"
+    IS_LIGTDIST,        // distance to lightning
+    IS_OTHER,           // something other - read "name" and "comment"
+    // values after `IS_OTHER` have no pre-defined names and comments!!!
+    IS_BADWEATH,        // if meet this flag, set weather level to "BAD"
+    IS_TERRIBLEWEATH,   // -//- "TERRIBLE"
+    IS_FORCEDSHTDN,     // like "on battery" flag from UPS
 } valmeaning_t;
 
 typedef union{
     uint32_t u;
     int32_t i;
     float f;
+    char str[KEY_LEN+1];// up to 8 symbols (with terminating zero)
 } num_t;
 
 // type of value
@@ -71,7 +78,7 @@ typedef enum{
     VALT_UINT,
     VALT_INT,
     VALT_FLOAT,
-    //VALT_STRING,
+    VALT_STRING,
 } valtype_t;
 
 // value

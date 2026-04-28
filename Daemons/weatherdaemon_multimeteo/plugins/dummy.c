@@ -22,7 +22,7 @@
 
 #define SENSOR_NAME     "Dummy weatherstation"
 
-#define NS (6)
+#define NS (7)
 
 static const val_t values[NS] = { // fields `name` and `comment` have no sense until value meaning is `IS_OTHER`
     {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT, .meaning = IS_WIND},
@@ -31,6 +31,7 @@ static const val_t values[NS] = { // fields `name` and `comment` have no sense u
     {.sense = VAL_RECOMMENDED, .type = VALT_FLOAT, .meaning = IS_PRESSURE},
     {.sense = VAL_RECOMMENDED, .type = VALT_FLOAT, .meaning = IS_HUMIDITY},
     {.sense = VAL_OBLIGATORY, .type = VALT_UINT, .meaning = IS_PRECIP},
+    {.sense = VAL_FORCEDSHTDN, .type = VALT_FLOAT, .meaning = IS_LIGTDIST},
 };
 
 static void *mainthread(void *s){
@@ -38,7 +39,7 @@ static void *mainthread(void *s){
     double t0 = sl_dtime();
     sensordata_t *sensor = (sensordata_t *)s;
     while(1){
-        DBG("locked");
+        //DBG("locked");
         pthread_mutex_lock(&sensor->valmutex);
         float f = sensor->values[0].value.f + (drand48() - 0.5) / 2.;
         if(f >= 0.) sensor->values[0].value.f = f;
@@ -48,13 +49,19 @@ static void *mainthread(void *s){
         if(f > 13. && f < 21.) sensor->values[2].value.f = f;
         f = sensor->values[3].value.f + (drand48() - 0.5) / 100.;
         if(f > 585. && f < 615.) sensor->values[3].value.f = f;
-        f = sensor->values[4].value.f + (drand48() - 0.5)*10.;
+        f = sensor->values[4].value.f + (drand48() - 0.5) * 10.;
         if(f > 60. && f <= 100.) sensor->values[4].value.f = f;
         sensor->values[5].value.u = (f > 98.) ? 1 : 0;
+        //if(!sensor->values[5].value.u && drand48() > 0.7) sensor->values[5].value.u = 1;
         time_t cur = time(NULL);
-        for(int i = 0; i < NS; ++i) sensor->values[i].time = cur;
+        for(int i = 0; i < NS-1; ++i) sensor->values[i].time = cur;
+        f = sensor->values[6].value.f - (drand48() - 0.2) * 100.;
+        if(f > 0. && f < 60000){
+            sensor->values[6].value.f = f;
+            sensor->values[6].time = cur;
+        }
         pthread_mutex_unlock(&sensor->valmutex);
-        DBG("unlocked");
+        //DBG("unlocked");
         if(sensor->freshdatahandler) sensor->freshdatahandler(sensor);
         while(sl_dtime() - t0 < sensor->tpoll) usleep(500);
         t0 = sl_dtime();
@@ -75,8 +82,9 @@ sensordata_t *sensor_new(int N, time_t pollt, int _U_ fd){
     s->values[1].value.f = 180.;
     s->values[2].value.f = 17.;
     s->values[3].value.f = 600.;
-    s->values[4].value.f = 80.;
+    s->values[4].value.f = 89.;
     s->values[5].value.u = 0;
+    s->values[6].value.f = 54000.;
     s->PluginNo = N;
     if(pthread_create(&s->thread, NULL, mainthread, (void*)s)){
         s->kill(s);
