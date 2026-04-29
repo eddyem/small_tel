@@ -300,3 +300,14 @@ int change_val_sense(sensordata_t *s, int idx, valsense_t sense){
     s->values[idx].sense = sense;
     return TRUE;
 }
+
+double val2d(const val_t *value){
+    double curvalue;
+    switch(value->type){
+        case VALT_UINT: curvalue = (double) value->value.u; break;
+        case VALT_INT: curvalue = (double) value->value.i; break;
+        case VALT_FLOAT: curvalue = (double) value->value.f; break;
+        default: curvalue = 0.;
+    }
+    return curvalue;
+}

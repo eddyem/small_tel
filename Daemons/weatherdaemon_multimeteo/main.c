@@ -40,12 +40,12 @@ void signals(int signo){
             LOGDBG("Child gotta signal %d", signo);
             if(signo == SIGUSR1){
                 forbid_observations(1);
-                LOGMSG("Got signal `observations forbidden`");
+                LOGWARN("Got signal `observations forbidden`, set FORBIDDEN");
                 signal(signo, signals);
                 return;
             }else if(signo == SIGUSR2){
                 forbid_observations(0);
-                LOGMSG("Got signal `observations permitted`");
+                LOGWARN("Got signal `observations permitted`, clear FORBIDDEN");
                 signal(signo, signals);
                 return;
             }
@@ -121,7 +121,7 @@ int main(int argc, char **argv){
     signal(SIGUSR1, signals);
     signal(SIGUSR2, signals);
     if(!start_servers(GP->port, GP->sockname)) ERRX("Can't run server's threads");
-    while(1);
+    while(1) pause();
     //WARNX("TEST ends");
     //signals(0);
     return 0; // never reached

@@ -59,5 +59,10 @@ int get_collected(val_t *val, int N);
 
 void forbid_observations(int f);
 int is_forbidden();
+
 void refresh_sensval(sensordata_t *s);
+
+int force_off(int flag);
+int weather_level(int new);
+
 //void run_mainweather();

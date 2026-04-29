@@ -55,8 +55,8 @@ static void *mainthread(void *s){
         //if(!sensor->values[5].value.u && drand48() > 0.7) sensor->values[5].value.u = 1;
         time_t cur = time(NULL);
         for(int i = 0; i < NS-1; ++i) sensor->values[i].time = cur;
-        f = sensor->values[6].value.f - (drand48() - 0.2) * 100.;
-        if(f > 0. && f < 60000){
+        f = sensor->values[6].value.f - (drand48() - 0.52);
+        if(f > 0. && f < 60){
             sensor->values[6].value.f = f;
             sensor->values[6].time = cur;
         }
@@ -84,7 +84,7 @@ sensordata_t *sensor_new(int N, time_t pollt, int _U_ fd){
     s->values[3].value.f = 600.;
     s->values[4].value.f = 89.;
     s->values[5].value.u = 0;
-    s->values[6].value.f = 54000.;
+    s->values[6].value.f = 4.5;
     s->PluginNo = N;
     if(pthread_create(&s->thread, NULL, mainthread, (void*)s)){
         s->kill(s);

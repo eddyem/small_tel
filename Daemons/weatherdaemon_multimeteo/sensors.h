@@ -33,5 +33,6 @@ int format_sensval(const val_t *v, char *buf, int buflen, int Np);
 int format_msrmttm(time_t t, char *buf, int buflen, int Np);
 int change_val_sense(sensordata_t *s, int idx, valsense_t sense);
 int set_pollT(time_t t);
+double val2d(const val_t *v);
 void get_fieldname(const val_t *v, char buf[KEY_LEN+1]);
 time_t get_pollT();

@@ -126,7 +126,7 @@ static sl_sock_hresult_e gethandler(sl_sock_t *client, _U_ sl_sock_hitem_t *item
 
 // get parameters' level
 static sl_sock_hresult_e getlvlhandler(sl_sock_t *client, _U_ sl_sock_hitem_t *item, const char *req){
-    if(!client) if(!client) return RESULT_FAIL;
+    if(!client)return RESULT_FAIL;
     int N = get_nplugins();
     if(N < 1) return RESULT_FAIL;
     val_t v;
@@ -160,7 +160,7 @@ static sl_sock_hresult_e getlvlhandler(sl_sock_t *client, _U_ sl_sock_hitem_t *i
 // set parameters' level; format: setlevel=N1:par=level,...,N1:par=level...
 // Nx - "station" number, par - parameter name (like "HUMIDITY"), level - new level (0..3)
 static sl_sock_hresult_e setlvlhandler(sl_sock_t *client, _U_ sl_sock_hitem_t *item, const char *req){
-    if(!client) if(!client) return RESULT_FAIL;
+    if(!client) return RESULT_FAIL;
     int N = get_nplugins();
     if(N < 1) return RESULT_FAIL;
     if(!req) return RESULT_BADVAL;
@@ -221,11 +221,15 @@ static sl_sock_hresult_e setlvlhandler(sl_sock_t *client, _U_ sl_sock_hitem_t *i
                 break;
             }
             s = end;
+            val_t oldval;
+            int olds = -1;
+            if(sd->get_value && sd->get_value(sd, &oldval, validx)) olds = oldval.sense;
             DBG("%ld\n", val);
             if(!change_val_sense(sd, validx, (valsense_t)val)){
                 result = RESULT_BADVAL;
                 break;
             }
+            LOGWARN("Change '%s' of '%s' sense from %d to %ld", sd->name, buf, olds, val);
             while(isspace((unsigned char)*s)) s++;
             if(*s == ','){ // omit delimeter
                 ++s;
@@ -237,6 +241,44 @@ static sl_sock_hresult_e setlvlhandler(sl_sock_t *client, _U_ sl_sock_hitem_t *i
         }
     }
     return result;
+}
+
+static sl_sock_hresult_e forbidhandler(sl_sock_t *client, sl_sock_hitem_t *item, const char *req){
+    char buf[256];
+    if(!client) return RESULT_FAIL;
+    if(req){ // setter
+        int l;
+        if(!sl_str2i(&l, req)) return RESULT_BADVAL;
+        forbid_observations(l);
+        LOGWARN("Manual set by socket command FORBID=%d", is_forbidden());
+    }
+    snprintf(buf, 256, "%s = %d\n", item->key, is_forbidden());
+    sl_sock_sendstrmessage(client, buf);
+    return RESULT_SILENCE;
+}
+
+static sl_sock_hresult_e forceoffhandler(sl_sock_t *client, sl_sock_hitem_t *item, const char *req){
+    char buf[256];
+    if(!client) return RESULT_FAIL;
+    int flag = -1;
+    if(req){ // setter
+        if(!sl_str2i(&flag, req) || flag < 0 || flag > 1) return RESULT_BADVAL;
+    }
+    snprintf(buf, 256, "%s = %d\n", item->key, force_off(flag));
+    sl_sock_sendstrmessage(client, buf);
+    return RESULT_SILENCE;
+}
+
+static sl_sock_hresult_e wlevhandler(sl_sock_t *client, sl_sock_hitem_t *item, const char *req){
+    char buf[256];
+    if(!client) return RESULT_FAIL;
+    int newlevel = -1;
+    if(req){ // setter
+        if(!sl_str2i(&newlevel, req) || newlevel < 0 || newlevel > WEATHER_PROHIBITED) return RESULT_BADVAL;
+    }
+    snprintf(buf, 256, "%s = %d\n", item->key, weather_level(newlevel));
+    sl_sock_sendstrmessage(client, buf);
+    return RESULT_SILENCE;
 }
 
 // graceful closing socket: let client know that he's told to fuck off
@@ -288,26 +330,13 @@ static sl_sock_hitem_t nethandlers[] = { // net - only getters and client-only s
     {NULL, NULL, NULL, NULL}
 };
 static sl_sock_hitem_t localhandlers[] = { // local - full amount of setters/getters
+    {forbidhandler, "forbid", "get/set/clear MANUAL FORBID flag", NULL},
+    {forceoffhandler, "forceoff", "get/set/clear FORCE SHUTDOWN flag", NULL},
     {setlvlhandler, "setlevel", "set 'sense level' (0..3) for given plugin parameters, e.g. setlevel=1:WIND=3,HUMIDITY=3 - disable fields for station 1", NULL},
+    {wlevhandler, "weathlevel", "set/get current weather level (0..3): goog/bad/terrible/prohibited", NULL},
     COMMONHANDLERS
     {NULL, NULL, NULL, NULL}
 };
-
-#if 0
-// common parsers for both net and local sockets
-static void *cmdparser(void *U){
-    if(!U) return NULL;
-    sl_sock_t *s = (sl_sock_t*) U;
-    while(s && s->connected){
-        if(!s->rthread){
-            LOGERR("Server's handlers' thread is dead");
-            break;
-        }
-    }
-    LOGDBG("cmdparser(): exit");
-    return NULL;
-}
-#endif
 
 int start_servers(const char *netnode, const char *sockpath){
     if(!netnode || !sockpath){
@@ -334,35 +363,11 @@ int start_servers(const char *netnode, const char *sockpath){
     sl_sock_dischandler(localsocket, disconnected);
     sl_sock_defmsghandler(netsocket, defhandler);
     sl_sock_defmsghandler(localsocket, defhandler);
-#if 0
-    if(pthread_create(&netthread, NULL, cmdparser, (void*)netsocket)){
-        LOGERR("Can't run server's net thread");
-        goto errs;
-    }
-    if(pthread_create(&locthread, NULL, cmdparser, (void*)localsocket)){
-        LOGERR("Can't run server's local thread");
-        goto errs;
-    }
-#endif
     return TRUE;
-#if 0
-errs:
-    sl_sock_delete(&localsocket);
-    sl_sock_delete(&netsocket);
-    return FALSE;
-#endif
 }
 
 void kill_servers(){
-    //pthread_cancel(locthread);
-    //pthread_cancel(netthread);
-    //LOGMSG("Server threads canceled");
-    //usleep(500);
     sl_sock_delete(&localsocket);
     sl_sock_delete(&netsocket);
     LOGMSG("Server sockets destroyed");
-    //usleep(500);
-    //pthread_join(locthread, NULL);
-    //pthread_join(netthread, NULL);
-    //LOGMSG("Server threads are dead");
 }

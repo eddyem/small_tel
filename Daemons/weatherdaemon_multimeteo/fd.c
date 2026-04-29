@@ -96,6 +96,7 @@ static int opensocket(char *path, sl_socktype_e type){
         memcpy(unaddr.sun_path, str, 106);
         FREE(str);
         ai.ai_family = AF_UNIX;
+        // TODO: add `socket` and `connect`
         }
         break;
     case SOCKT_NET:
@@ -121,6 +122,7 @@ static int opensocket(char *path, sl_socktype_e type){
                 close(sock); sock = -1;
             } else break;
         }
+        freeaddrinfo(res);
         break;
     default: // never reached
         WARNX("Unsupported socket type %d", type);
@@ -141,6 +143,7 @@ int getFD(char *path){
     char type = *path;
     if(path[1] != ':') return -1; // after protocol letter should be delimeter
     path += 2;
+    if(!*path) return -1; // empty path
     switch(type){
         case 'D': // serial device
             return openserial(path);

@@ -143,7 +143,9 @@ static void compplugins(glob_pars *cmdline, glob_pars *conf){
     }
     // don't sort: we need leave priority as user pointed
     //qsort(newarray, newsize, sizeof(char*), sortstrings);
+#ifdef EBUG
     DBG("NOW together:"); p = newarray; while(*p) printf("\t%s\n", *p++);
+#endif
     for(int i = 0; i < newsize-1; ++i){
         if(NULL == newarray[i]) continue;
         for(int j = i+1; j < newsize; ++j){
@@ -177,7 +179,9 @@ static void compplugins(glob_pars *cmdline, glob_pars *conf){
         i = j;
     }
 #endif
+#ifdef EBUG
     DBG("Result:"); p = newarray; while(*p) printf("\t%s\n", *p++);
+#endif
     cmdline->plugins = newarray;
     cmdline->nplugins = nondoubleidx;
 }
