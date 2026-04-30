@@ -69,7 +69,7 @@ static void *mainthread(void *s){
     return NULL;
 }
 
-sensordata_t *sensor_new(int N, time_t pollt, int _U_ fd){
+sensordata_t *sensor_new(int N, time_t pollt, _U_ const char *descr){
     FNAME();
     sensordata_t *s = common_new();
     if(!s) return NULL;

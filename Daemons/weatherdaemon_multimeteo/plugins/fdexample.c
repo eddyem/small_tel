@@ -120,15 +120,17 @@ static void *mainthread(void *s){
     return NULL;
 }
 
-sensordata_t *sensor_new(int N, time_t pollt, int fd){
+sensordata_t *sensor_new(int N, time_t pollt, const char *descr){
     FNAME();
+    if(!descr || !*descr) return NULL;
+    int fd = getFD(descr);
     if(fd < 0) return NULL;
     sensordata_t *s = common_new();
     if(!s) return NULL;
     s->fdes = fd;
     s->PluginNo = N;
     if(pollt) s->tpoll = pollt;
-    strncpy(s->name, SENSOR_NAME, NAME_LEN);
+    snprintf(s->name, NAME_LEN, "%s @ %s", SENSOR_NAME, descr);
     s->values = MALLOC(val_t, NS);
     // don't use memcpy, as `values` could be aligned
     for(int i = 0; i < NS; ++i) s->values[i] = values[i];

@@ -64,7 +64,7 @@ static void *mainthread(void *s){
     return NULL;
 }
 
-sensordata_t *sensor_new(int N, time_t pollt, int _U_ fd){
+sensordata_t *sensor_new(int N, time_t pollt, _U_ const char *descr){
     FNAME();
     sensordata_t *s = common_new();
     if(!s) return NULL;
@@ -79,11 +79,6 @@ sensordata_t *sensor_new(int N, time_t pollt, int _U_ fd){
     for(int i = 0; i < NAMOUNT; ++i) s->values[i] = values[i];
     s->Nvalues = NAMOUNT;
     strncpy(s->name, SENSOR_NAME, NAME_LEN);
-    /*if(!(s->ringbuffer = sl_RB_new(BUFSIZ))){
-        WARNX("Can't init ringbuffer!");
-        common_kill(s);
-        return -1;
-    }*/
     if(pthread_create(&s->thread, NULL, mainthread, (void*)s)){
         WARN("Can't create main thread");
         s->kill(s);

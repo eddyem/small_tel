@@ -281,6 +281,40 @@ static sl_sock_hresult_e wlevhandler(sl_sock_t *client, sl_sock_hitem_t *item, c
     return RESULT_SILENCE;
 }
 
+static sensordata_t *get_sd_by_num(const char *req, int *Num){
+    int N;
+    if(!req || !sl_str2i(&N, req) || N < 0) return NULL;
+    if(Num) *Num = N;
+    return get_plugin(N);
+}
+
+static sl_sock_hresult_e mutehandler(sl_sock_t *client, _U_ sl_sock_hitem_t *item, const char *req){
+    if(!client) return RESULT_FAIL;
+    sensordata_t *sd = get_sd_by_num(req, NULL);
+    if(!sd) return RESULT_BADVAL;
+    if(!station_mute(sd)) return RESULT_FAIL;
+    return RESULT_OK;
+}
+
+static sl_sock_hresult_e unmutehandler(sl_sock_t *client, _U_ sl_sock_hitem_t *item, const char *req){
+    if(!client) return RESULT_FAIL;
+    sensordata_t *sd = get_sd_by_num(req, NULL);
+    if(!sd) return RESULT_BADVAL;
+    if(!station_unmute(sd)) return RESULT_FAIL;
+    return RESULT_OK;
+}
+
+static sl_sock_hresult_e ismutedhandler(sl_sock_t *client, sl_sock_hitem_t *item, const char *req){
+    if(!client) return RESULT_FAIL;
+    int N;
+    sensordata_t *sd = get_sd_by_num(req, &N);
+    if(!sd) return RESULT_BADVAL;
+    char buf[256];
+    snprintf(buf, 256, "%s[%d] = %d\n", item->key, N, station_is_muted(sd));
+    sl_sock_sendstrmessage(client, buf);
+    return RESULT_SILENCE;
+}
+
 // graceful closing socket: let client know that he's told to fuck off
 static void toomuch(int fd){
     const char *m = "Try later: too much clients connected\n";
@@ -334,6 +368,9 @@ static sl_sock_hitem_t localhandlers[] = { // local - full amount of setters/get
     {forceoffhandler, "forceoff", "get/set/clear FORCE SHUTDOWN flag", NULL},
     {setlvlhandler, "setlevel", "set 'sense level' (0..3) for given plugin parameters, e.g. setlevel=1:WIND=3,HUMIDITY=3 - disable fields for station 1", NULL},
     {wlevhandler, "weathlevel", "set/get current weather level (0..3): goog/bad/terrible/prohibited", NULL},
+    {ismutedhandler, "ismuted", "==1 if station is muted", NULL},
+    {mutehandler, "mute", "pause station's data capture", NULL},
+    {unmutehandler, "unmute", "continue station's data capture", NULL},
     COMMONHANDLERS
     {NULL, NULL, NULL, NULL}
 };
@@ -348,11 +385,13 @@ int start_servers(const char *netnode, const char *sockpath){
         LOGERR("start_servers(): can't run network socket");
         return FALSE;
     }
+    DBG("Network server started");
     localsocket = sl_sock_run_server(SOCKT_UNIX, sockpath, BUFSIZ, localhandlers);
     if(!localsocket){
         LOGERR("start_servers(): can't run local socket");
         return FALSE;
     }
+    DBG("Local server started");
     sl_sock_changemaxclients(netsocket, MAX_CLIENTS);
     sl_sock_changemaxclients(localsocket, 1);
     sl_sock_maxclhandler(netsocket, toomuch);

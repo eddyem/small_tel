@@ -27,12 +27,21 @@ int openplugins(char **paths, int N);
 void closeplugins();
 sensordata_t *get_plugin(int N);
 int get_nplugins();
+
 int find_val_by_name(sensordata_t *s, const char *name);
+
 int format_senssense(const val_t *v, char *buf, int buflen, int Np);
 int format_sensval(const val_t *v, char *buf, int buflen, int Np);
 int format_msrmttm(time_t t, char *buf, int buflen, int Np);
+
 int change_val_sense(sensordata_t *s, int idx, valsense_t sense);
+
 int set_pollT(time_t t);
+time_t get_pollT();
+
 double val2d(const val_t *v);
 void get_fieldname(const val_t *v, char buf[KEY_LEN+1]);
-time_t get_pollT();
+
+int station_mute(sensordata_t *s);
+int station_unmute(sensordata_t *s);
+int station_is_muted(sensordata_t *s);

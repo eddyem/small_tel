@@ -507,7 +507,7 @@ void refresh_sensval(sensordata_t *s){
                 DBG("newlevel: %d, current: %d  INCREASED", curlevel, collected_data[NCOMMWEATH].value.u);
                 LOGWARN("Station '%s', sensor '%s', increase weather level to %d", s->name, reason, curlevel);
                 collected_data[NCOMMWEATH].value.u = curlevel;
-                if(1 < snprintf(collected_data[NAHTUNGRSN].value.str, KEY_LEN+1, "%s", reason))
+                if(1 < snprintf(collected_data[NAHTUNGRSN].value.str, STRT_LEN+1, "%s", reason))
                     collected_data[NAHTUNGRSN].time = curtime;
             }
             if(curlevel){

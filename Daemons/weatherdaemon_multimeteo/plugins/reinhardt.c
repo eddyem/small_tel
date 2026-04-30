@@ -166,15 +166,17 @@ static void *mainthread(void *s){
 }
 
 
-sensordata_t *sensor_new(int N, time_t pollt, int fd){
+sensordata_t *sensor_new(int N, time_t pollt, const char *descr){
     FNAME();
+    if(!descr || !*descr) return NULL;
+    int fd = getFD(descr);
     if(fd < 0) return NULL;
     sensordata_t *s = common_new();
     if(!s) return NULL;
     s->Nvalues = NAMOUNT;
     s->PluginNo = N;
     s->fdes = fd;
-    strncpy(s->name, SENSOR_NAME, NAME_LEN);
+    snprintf(s->name, NAME_LEN, "%s @ %s", SENSOR_NAME, descr);
     if(pollt) s->tpoll = pollt;
     s->values = MALLOC(val_t, NAMOUNT);
     for(int i = 0; i < NAMOUNT; ++i) s->values[i] = values[i];

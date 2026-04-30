@@ -29,31 +29,33 @@
 #include <sys/un.h>  // unix socket
 #include <usefull_macros.h>
 
-#include "fd.h"
-
 /**
  * @brief openserial - try to open serial device
  * @param path - path to device and speed, colon-separated (without given speed assume 9600)
  * @return -1 if failed or opened FD
  * WARNING!!! Memory leakage danger. Don't call this function too much times!
  */
-static int openserial(char *path){
+static int openserial(const char *path){
     FNAME();
     int speed = 9600; // default speed
-    char *colon = strchr(path, ':');
+    char *str = strdup(path);
+    char *colon = strchr(str, ':');
     if(colon){
         *colon++ = 0;
         if(!sl_str2i(&speed, colon)){
             WARNX("Wrong speed settings: '%s'", colon);
+            FREE(str);
             return -1;
         }
     }
-    sl_tty_t *serial = sl_tty_new(path, speed, BUFSIZ);
+    sl_tty_t *serial = sl_tty_new(str, speed, BUFSIZ);
     if(!serial || !sl_tty_open(serial, TRUE)){
-        WARN("Can't open %s @ speed %d", path, speed);
+        WARN("Can't open %s @ speed %d", str, speed);
+        FREE(str);
         return -1;
     }
-    DBG("Opened %s @ %d", path, speed);
+    DBG("Opened %s @ %d", str, speed);
+    FREE(str);
     return serial->comfd;
 }
 
@@ -77,13 +79,12 @@ static char *convunsname(const char *path){
  * @param type - UNIX or INET
  * @return -1 if failed or opened FD
  */
-static int opensocket(char *path, sl_socktype_e type){
+static int opensocket(const char *path, sl_socktype_e type){
     FNAME();
     DBG("path: '%s'", path);
     int sock = -1;
     struct addrinfo ai = {0}, *res = &ai;
     struct sockaddr_un unaddr = {0};
-    char *node = path, *service = NULL;
     ai.ai_socktype = 0; // try to get socket type from `getaddrinfo`
     switch(type){
     case SOCKT_UNIX:
@@ -102,16 +103,19 @@ static int opensocket(char *path, sl_socktype_e type){
     case SOCKT_NET:
     case SOCKT_NETLOCAL:
         ai.ai_family = AF_INET;
-        char *delim = strchr(path, ':');
+        char *str = strdup(path);
+        char *delim = strchr(str, ':');
+        char *node = str, *service = NULL;
         if(delim){
             *delim = 0;
             service = delim+1;
-            if(delim == path) node = NULL; // only port
+            if(delim == str) node = NULL; // only port
         }
         DBG("node: '%s', service: '%s'", node, service);
         int e = getaddrinfo(node, service, &ai, &res);
         if(e){
             WARNX("getaddrinfo(): %s", gai_strerror(e));
+            FREE(str);
             return -1;
         }
         for(struct addrinfo *p = res; p; p = p->ai_next){
@@ -123,6 +127,7 @@ static int opensocket(char *path, sl_socktype_e type){
             } else break;
         }
         freeaddrinfo(res);
+        FREE(str);
         break;
     default: // never reached
         WARNX("Unsupported socket type %d", type);
@@ -138,7 +143,7 @@ static int opensocket(char *path, sl_socktype_e type){
  *          WARNING!!! Contents of `path` would be modified in this function!
  * @return opened file descriptor or -1 in case of error
  */
-int getFD(char *path){
+int getFD(const char *path){
     if(!path || !*path || strlen(path) < 2) return -1;
     char type = *path;
     if(path[1] != ':') return -1; // after protocol letter should be delimeter

@@ -20,7 +20,6 @@
 #include <string.h>
 #include <usefull_macros.h>
 
-#include "fd.h"
 #include "mainweather.h"
 #include "sensors.h"
 #include "weathlib.h"
@@ -86,7 +85,7 @@ void *open_plugin(const char *name){
  */
 static void dumpsensors(struct sensordata_t* station){
     //FNAME();
-    if(!station || !station->get_value || station->Nvalues < 1) return;
+    if(!station || !station->get_value || station->Nvalues < 1 || station->IsMuted) return;
     refresh_sensval(station);
 #if 0
     DBG("New values...");
@@ -139,9 +138,7 @@ int openplugins(char **paths, int N){
         DBG("OPENED");
         sensor_new_t sensnew = (sensor_new_t) dlsym(dlh, "sensor_new");
         if(sensnew){
-            int fd = -1;
-            if(colon) fd = getFD(colon);
-            sensordata_t *S = sensnew(nplugins, poll_interval, fd); // here nplugins is index in array
+            sensordata_t *S = sensnew(nplugins, poll_interval, colon); // here nplugins is index in array
             if(!S) WARNXL("Can't init plugin %s", paths[i]);
             else{
                 if(!S->onrefresh || !S->onrefresh(S, dumpsensors)) WARNXL("Can't init refresh funtion");
@@ -301,6 +298,7 @@ int change_val_sense(sensordata_t *s, int idx, valsense_t sense){
     return TRUE;
 }
 
+// convert val_t into double
 double val2d(const val_t *value){
     double curvalue;
     switch(value->type){
@@ -310,4 +308,20 @@ double val2d(const val_t *value){
         default: curvalue = 0.;
     }
     return curvalue;
+}
+
+// pause and continue sensors refresh
+int station_mute(sensordata_t *s){
+    if(!s) return FALSE;
+    s->IsMuted = TRUE;
+    return TRUE;
+}
+int station_unmute(sensordata_t *s){
+    if(!s) return FALSE;
+    s->IsMuted = FALSE;
+    return TRUE;
+}
+int station_is_muted(sensordata_t *s){
+    if(s && s->IsMuted) return TRUE;
+    return FALSE;
 }

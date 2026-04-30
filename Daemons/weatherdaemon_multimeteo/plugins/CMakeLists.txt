@@ -27,19 +27,35 @@ if(HYDREON)
 endif()
 
 if(BTAMETEO)
-    add_library(btameteo SHARED btameteo.c bta_shdata.c) 
+    add_library(btameteo SHARED btameteo.c bta_shdata.c)
     target_link_libraries(btameteo -lcrypt)
     list(APPEND LIBS btameteo)
 endif()
 
 if(REINHARDT)
-    add_library(reinhardt SHARED reinhardt.c) 
+    add_library(reinhardt SHARED reinhardt.c)
     list(APPEND LIBS reinhardt)
 endif()
 
 if(WXA100)
-    add_library(wxa100 SHARED wxa100.c) 
+    add_library(wxa100 SHARED wxa100.c)
     list(APPEND LIBS wxa100)
+endif()
+
+if(SNMP)
+    add_library(snmp SHARED snmp.c)
+    find_program(NETSNMP_CONFIG_BIN net-snmp-config)
+    if(NETSNMP_CONFIG_BIN)
+        # Capture linker libraries
+        execute_process(COMMAND ${NETSNMP_CONFIG_BIN} --libs
+                        OUTPUT_VARIABLE NETSNMP_LIBS
+                        OUTPUT_STRIP_TRAILING_WHITESPACE)
+    else()
+        message(FATAL_ERROR "net-snmp-config not found. Please install net-snmp package.")
+    endif()
+    message("SNMP: ${NETSNMP_LIBS}")
+    target_link_libraries(snmp PRIVATE ${NETSNMP_LIBS})
+    list(APPEND LIBS snmp)
 endif()
 
 install(TARGETS ${LIBS} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})

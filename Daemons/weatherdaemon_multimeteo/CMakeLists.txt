@@ -5,7 +5,7 @@ set(MAJOR_VERSION "0")
 set(MID_VERSION "0")
 set(MINOR_VERSION "1")
 
-aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR} SOURCES)
+set(SOURCES cmdlnopts.c main.c mainweather.c sensors.c  server.c)
 
 set(VERSION "${MAJOR_VERSION}.${MID_VERSION}.${MINOR_VERSION}")
 project(${PROJ} VERSION ${VERSION} LANGUAGES C)
@@ -19,6 +19,7 @@ option(HYDREON "Hydreon rain sensor plugin" ON)
 option(BTAMETEO "BTA main meteostation plugin" ON)
 option(REINHARDT "Old Reinhardt meteostation plugin" ON)
 option(WXA100 "WXA100-06 meteostation plugin" ON)
+option(SNMP "SNMP UPS monitoring module" ON)
 
 # default flags
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -W -Wextra -fPIC")
@@ -55,8 +56,8 @@ pkg_check_modules(${PROJ} REQUIRED usefull_macros>=0.3.5)
 #endif()
 
 # static lib for sensors
-set(LIBSRC "weathlib.c")
-set(LIBHEADER "weathlib.h")
+set(LIBSRC fd.c weathlib.c)
+set(LIBHEADER weathlib.h)
 add_library(${PROJLIB} STATIC ${LIBSRC})
 set_target_properties(${PROJLIB} PROPERTIES VERSION ${VERSION})
 

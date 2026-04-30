@@ -27,6 +27,8 @@
 
 // length (in symbols) of key, value and comment
 #define KEY_LEN         (8)
+// length of STR type (without terminal zero)
+#define STRT_LEN        (11)
 #define VAL_LEN         (31)
 #define COMMENT_LEN     (63)
 // maximal full length of "KEY=val / comment" (as for sfitsio)
@@ -70,7 +72,7 @@ typedef union{
     uint32_t u;
     int32_t i;
     float f;
-    char str[KEY_LEN+1];// up to 8 symbols (with terminating zero)
+    char str[STRT_LEN+1];// up to 8 symbols (with terminating zero)
 } num_t;
 
 // type of value
@@ -98,6 +100,7 @@ typedef struct sensordata_t{
     char name[NAME_LEN+1];  // max 31 symbol of sensor's name (e.g. "rain sensor")
     int Nvalues;            // amount of values
     int PluginNo;           // plugin number in array (if several)
+    int IsMuted;            // ==1 for "muted" station (don't refresh sensors' data)
     int (*onrefresh)(struct sensordata_t*, void (*handler)(struct sensordata_t*)); // handler of new data; return TRUE if OK
     int (*get_value)(struct sensordata_t*, val_t*, int); // getter of Nth value
     void (*kill)(struct sensordata_t*); // close everything and remove sensor
@@ -115,11 +118,16 @@ typedef struct sensordata_t{
 } sensordata_t;
 
 // type for function extraction
-typedef sensordata_t* (*sensor_new_t)(int, time_t, int);
+typedef sensordata_t* (*sensor_new_t)(int, time_t, const char*);
 
-// init meteostation with given PluginNo, poll_interval and fd
-sensordata_t *sensor_new(int PluginNo, time_t poll_interval, int fd);  // external initial function for any plugin
+// init meteostation with given PluginNo, poll_interval and descriptor
+sensordata_t *sensor_new(int PluginNo, time_t poll_interval, const char *descr);  // external initial function for any plugin
 int sensor_alive(sensordata_t *s);
 
 // private function (for plugins usage only)
 sensordata_t *common_new();
+void common_kill(sensordata_t *s);
+int common_onrefresh(sensordata_t *s, void (*handler)(sensordata_t *));
+int common_getval(struct sensordata_t *s, val_t *o, int N);
+
+int getFD(const char *path);

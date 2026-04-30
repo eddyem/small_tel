@@ -23,9 +23,9 @@
 #include "weathlib.h"
 
 // private functions (for plugins usage only)
-static int common_onrefresh(sensordata_t*, void (*handler)(sensordata_t*));
-static void common_kill(sensordata_t *);
-static int common_getval(sensordata_t*, val_t*, int);
+//static int common_onrefresh(sensordata_t*, void (*handler)(sensordata_t*));
+//static void common_kill(sensordata_t *);
+//static int common_getval(sensordata_t*, val_t*, int);
 //static int common_init(sensordata_t*, int, time_t, int);
 
 /**
