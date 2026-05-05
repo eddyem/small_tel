@@ -53,7 +53,7 @@ enum{
     NCOMMWEATH,
     NLASTAHTUNG,
     NAHTUNGRSN,
-    NLIGHTDIST,
+//    NLIGHTDIST,
     NBADWEATH,
     NTERRWEATH,
     NFORCEDSHTDN,
@@ -77,7 +77,7 @@ static val_t collected_data[NAMOUNT_OF_DATA] = {
     [NMIST] = {.sense = VAL_BROKEN, .type = VALT_UINT,   .meaning = IS_MIST},
     [NCLOUDS] = {.sense = VAL_BROKEN, .type = VALT_FLOAT,   .meaning = IS_CLOUDS},
     [NSKYTEMP] = {.sense = VAL_BROKEN, .type = VALT_FLOAT, .meaning = IS_SKYTEMP},
-    [NLIGHTDIST] = {.sense = VAL_FORCEDSHTDN, .type = VALT_FLOAT, .meaning = IS_LIGTDIST},
+ //   [NLIGHTDIST] = {.sense = VAL_FORCEDSHTDN, .type = VALT_FLOAT, .meaning = IS_LIGTDIST},
     // these are calculated values
     [NCOMMWEATH] = {.sense = VAL_OBLIGATORY, .type = VALT_UINT,   .meaning = IS_OTHER, .name = "WEATHER", .comment = "Weather (0..3: good/bad/terrible/prohibited)"},
     [NLASTAHTUNG] = {.sense = VAL_RECOMMENDED, .type = VALT_UINT, .meaning = IS_OTHER, .name = "EVTTIME", .comment = "UNIX-time of last weather level changing"},
@@ -120,6 +120,7 @@ int weather_level(int newlvl){
  * @return current value
  */
 int force_off(int flag){
+    DBG("Force OFF to %d", flag);
     if(flag > -1 && flag < 2){
         pthread_mutex_lock(&datamutex);
         uint32_t curt = time(NULL);
@@ -239,7 +240,11 @@ int get_collected(val_t *val, int N){
         return FALSE;
     }
     pthread_mutex_lock(&datamutex);
-    //DBG("Copied data of %d", N);
+#ifdef EBUG
+    char buf[KEY_LEN+1];
+    get_fieldname(&collected_data[N], buf);
+    DBG("Copied data of %d (u=%d, nm=%s)", N, collected_data[N].value.u, buf);
+#endif
     *val = collected_data[N];
     pthread_mutex_unlock(&datamutex);
     return TRUE;
@@ -348,13 +353,14 @@ static int chkweatherlevel(uint32_t *curlevel, double curvalue, weather_cond_t c
         val_t *f = &collected_data[NFORCEDSHTDN];
         f->value.u = 1;
         f->time = (int) curt;
+        DBG("forced = %u", collected_data[NFORCEDSHTDN].value.u);
         // and set current weather level to prohibited
         newlevel = WEATHER_PROHIBITED;
         rtn = 1;
     }
     if((uint32_t)newlevel > *curlevel){
         // TODO: add logging
-        //DBG("local level increased to %d", newlevel);
+        DBG("local level increased to %d", newlevel);
         *curlevel = (uint32_t)newlevel;
         rtn = 1;
     }
@@ -434,10 +440,10 @@ void refresh_sensval(sensordata_t *s){
                 idx = NSKYTEMP;
                 curcond = &WeatherConf.sky;
                 break;
-            case IS_LIGTDIST:
+            /*case IS_LIGTDIST:
                 idx = NLIGHTDIST;
                 curcond = &WeatherConf.ligtdist;
-                break;
+                break;*/
             case IS_BADWEATH:
                 idx = NBADWEATH;
                 curcond = &badweathflag;
@@ -449,6 +455,7 @@ void refresh_sensval(sensordata_t *s){
             case IS_FORCEDSHTDN:
                 idx = NFORCEDSHTDN;
                 curcond = &shtdnflag;
+                //DBG("%s have shtdn flag", value.name);
                 break;
             default : break;
         }
@@ -461,12 +468,15 @@ void refresh_sensval(sensordata_t *s){
             if(1 == chkweatherlevel(&curlevel, curvalue, curcond)){
                 get_fieldname(&value, reason); // copy to `reason` reason of last level increasing
                 force = 1;
+                DBG("reason: %s; forceflag=%u, old=%d", reason, collected_data[NFORCEDSHTDN].value.u, oldshtdn);
                 if(collected_data[NFORCEDSHTDN].value.u - oldshtdn == 1){ // got shutdown
                     LOGWARN("Forced shutdown flag is set by '%s' of '%s'", reason, s->name);
                 }
             }
         }
-        fix_new_data(&collected_data[idx], &value, force);
+        if(idx == NFORCEDSHTDN && value.value.u == 0){
+            //DBG("Don't clear forced flag by other station");
+        }else fix_new_data(&collected_data[idx], &value, force);
         pthread_mutex_unlock(&datamutex);
     }
     pthread_mutex_lock(&datamutex);
@@ -492,13 +502,12 @@ void refresh_sensval(sensordata_t *s){
                 DBG("newlevel: %d, current: %d  DECREASED", curlevel, collected_data[NCOMMWEATH].value.u);
                 if(curlevel < WEATHER_TERRIBLE){ // clear forced shutdown flag
                     if(collected_data[NFORCEDSHTDN].value.u){
-                        LOGMSGADD("Clear forced shutdown flag");
+                        LOGMSG("Clear forced shutdown flag by '%s' and set weather level to %d", s->name, WEATHER_TERRIBLE);
                         DBG("Clear FORCED SHUTDOWN flag");
                         collected_data[NCOMMWEATH].value.u = WEATHER_TERRIBLE;
+                        collected_data[NFORCEDSHTDN].value.u = 0;
                     }else collected_data[NCOMMWEATH].value.u = curlevel;
-                    collected_data[NFORCEDSHTDN].value.u = 0;
                 }else --collected_data[NCOMMWEATH].value.u;
-                collected_data[NCOMMWEATH].time = curtime;
                 collected_data[NLASTAHTUNG].value.u = curtime;
                 LOGMSG("Station '%s', decrease weather level to %d", s->name, collected_data[NCOMMWEATH].value.u);
             }

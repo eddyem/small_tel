@@ -58,4 +58,9 @@ if(SNMP)
     list(APPEND LIBS snmp)
 endif()
 
+if(LIGHTNING)
+    add_library(lightning SHARED lightning.c)
+    list(APPEND LIBS lightning)
+endif()
+
 install(TARGETS ${LIBS} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})

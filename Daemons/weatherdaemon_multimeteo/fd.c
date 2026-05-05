@@ -59,84 +59,6 @@ static int openserial(const char *path){
     return serial->comfd;
 }
 
-static char *convunsname(const char *path){
-    char *apath = MALLOC(char, 106);
-    if(*path == 0 || *path == '@'){
-        DBG("convert name starting from 0 or @");
-        apath[0] = 0;
-        strncpy(apath+1, path+1, 104);
-    }else if(strncmp("\\0", path, 2) == 0){
-        DBG("convert name starting from \\0");
-        apath[0] = 0;
-        strncpy(apath+1, path+2, 104);
-    }else strncpy(apath, path, 105);
-    return apath;
-}
-
-/**
- * @brief opensocket - try to open socket
- * @param sock - UNIX socket path or hostname:port for INET socket
- * @param type - UNIX or INET
- * @return -1 if failed or opened FD
- */
-static int opensocket(const char *path, sl_socktype_e type){
-    FNAME();
-    DBG("path: '%s'", path);
-    int sock = -1;
-    struct addrinfo ai = {0}, *res = &ai;
-    struct sockaddr_un unaddr = {0};
-    ai.ai_socktype = 0; // try to get socket type from `getaddrinfo`
-    switch(type){
-    case SOCKT_UNIX:
-        {
-        char *str = convunsname(path);
-        if(!str) return -1;
-        unaddr.sun_family = AF_UNIX;
-        ai.ai_addr = (struct sockaddr*) &unaddr;
-        ai.ai_addrlen = sizeof(unaddr);
-        memcpy(unaddr.sun_path, str, 106);
-        FREE(str);
-        ai.ai_family = AF_UNIX;
-        // TODO: add `socket` and `connect`
-        }
-        break;
-    case SOCKT_NET:
-    case SOCKT_NETLOCAL:
-        ai.ai_family = AF_INET;
-        char *str = strdup(path);
-        char *delim = strchr(str, ':');
-        char *node = str, *service = NULL;
-        if(delim){
-            *delim = 0;
-            service = delim+1;
-            if(delim == str) node = NULL; // only port
-        }
-        DBG("node: '%s', service: '%s'", node, service);
-        int e = getaddrinfo(node, service, &ai, &res);
-        if(e){
-            WARNX("getaddrinfo(): %s", gai_strerror(e));
-            FREE(str);
-            return -1;
-        }
-        for(struct addrinfo *p = res; p; p = p->ai_next){
-            if((sock = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) < 0) continue;
-            DBG("Try proto %d, type %d", p->ai_protocol, p->ai_socktype);
-            if(connect(sock, p->ai_addr, p->ai_addrlen) == -1){
-                WARN("connect()");
-                close(sock); sock = -1;
-            } else break;
-        }
-        freeaddrinfo(res);
-        FREE(str);
-        break;
-    default: // never reached
-        WARNX("Unsupported socket type %d", type);
-        return -1;
-    }
-    DBG("FD: %d", sock);
-    return sock;
-}
-
 /**
  * @brief getFD - try to open given device/socket
  * @param path - rest of string for --plugin= (e.g. "N:host.com:12345")
@@ -153,9 +75,11 @@ int getFD(const char *path){
         case 'D': // serial device
             return openserial(path);
         case 'N': // INET socket
-            return opensocket(path, SOCKT_NET);
+            //return opensocket(path, SOCKT_NET);
+            return sl_sock_open(SOCKT_NET, path, 0, 0);
         case 'U': // UNIX socket
-            return opensocket(path, SOCKT_UNIX);
+            //return opensocket(path, SOCKT_UNIX);
+            return sl_sock_open(SOCKT_UNIX, path, 0, 0);
     }
     WARNX("Wrong plugin format: '%c', should be 'D', 'N' or 'U'", type);
     return -1;

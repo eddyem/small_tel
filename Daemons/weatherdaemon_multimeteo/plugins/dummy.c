@@ -22,7 +22,7 @@
 
 #define SENSOR_NAME     "Dummy weatherstation"
 
-#define NS (7)
+#define NS (6)
 
 static const val_t values[NS] = { // fields `name` and `comment` have no sense until value meaning is `IS_OTHER`
     {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT, .meaning = IS_WIND},
@@ -31,7 +31,7 @@ static const val_t values[NS] = { // fields `name` and `comment` have no sense u
     {.sense = VAL_RECOMMENDED, .type = VALT_FLOAT, .meaning = IS_PRESSURE},
     {.sense = VAL_RECOMMENDED, .type = VALT_FLOAT, .meaning = IS_HUMIDITY},
     {.sense = VAL_OBLIGATORY, .type = VALT_UINT, .meaning = IS_PRECIP},
-    {.sense = VAL_FORCEDSHTDN, .type = VALT_FLOAT, .meaning = IS_LIGTDIST},
+    //{.sense = VAL_FORCEDSHTDN, .type = VALT_FLOAT, .meaning = IS_LIGTDIST},
 };
 
 static void *mainthread(void *s){

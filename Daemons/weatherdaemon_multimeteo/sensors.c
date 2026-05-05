@@ -176,7 +176,7 @@ static const char* const NM[IS_OTHER] = { // names of standard fields
     [IS_MIST]       = "MIST",
     [IS_CLOUDS]     = "CLOUDS",
     [IS_SKYTEMP]    = "SKYTEMP",
-    [IS_LIGTDIST]   = "LIGTDIST",
+    //[IS_LIGTDIST]   = "LIGTDIST",
 };
 
 // format "sense" of sensor, like "[WIND][1]=2"
@@ -235,7 +235,7 @@ int format_sensval(const val_t *v, char *buf, int buflen, int Np){
         [IS_MIST]       = "Mist (1 - yes, 0 - no)",
         [IS_CLOUDS]     = "Integral sky quality value (bigger - better)",
         [IS_SKYTEMP]    = "Mean sky temperatyre",
-        [IS_LIGTDIST]   = "Distance to last lightning, km",
+        //[IS_LIGTDIST]   = "Distance to last lightning, km",
     };
     const char *name = NULL, *comment = NULL;
     int idx = v->meaning;

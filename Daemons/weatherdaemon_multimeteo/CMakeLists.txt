@@ -20,6 +20,7 @@ option(BTAMETEO "BTA main meteostation plugin" ON)
 option(REINHARDT "Old Reinhardt meteostation plugin" ON)
 option(WXA100 "WXA100-06 meteostation plugin" ON)
 option(SNMP "SNMP UPS monitoring module" ON)
+option(LIGHTNING "AS3935-based lightning sensor" ON)
 
 # default flags
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -W -Wextra -fPIC")

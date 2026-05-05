@@ -60,7 +60,7 @@ typedef enum{
     IS_MIST,            // mist (1 - yes, 0 - no)
     IS_CLOUDS,          // integral clouds value (bigger - better)
     IS_SKYTEMP,         // mean sky temperatyre
-    IS_LIGTDIST,        // distance to lightning
+    //IS_LIGTDIST,        // distance to lightning
     IS_OTHER,           // something other - read "name" and "comment"
     // values after `IS_OTHER` have no pre-defined names and comments!!!
     IS_BADWEATH,        // if meet this flag, set weather level to "BAD"

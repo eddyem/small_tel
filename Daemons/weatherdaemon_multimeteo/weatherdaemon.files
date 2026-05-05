@@ -11,6 +11,7 @@ plugins/btameteo.c
 plugins/dummy.c
 plugins/fdexample.c
 plugins/hydreon.c
+plugins/lightning.c
 plugins/reinhardt.c
 plugins/snmp.c
 plugins/wxa100.c
