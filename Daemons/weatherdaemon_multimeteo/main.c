@@ -74,6 +74,7 @@ int main(int argc, char **argv){
     sl_init();
     GP = parse_args(argc, argv);
     if(!GP) ERRX("Error parsing args");
+    sl_check4running((char*)__progname, GP->pidfile);
     if(!GP->sockname) ERRX("Point command socket name");
     if(GP->logfile){
         sl_loglevel_e lvl = LOGLEVEL_ERR + GP->verb;
@@ -99,7 +100,6 @@ int main(int argc, char **argv){
         ERRX("Can't find any sensor plugin");
     }
     if(GP->nplugins && GP->nplugins != nopened) LOGWARN("Work without some plugins");
-    sl_check4running((char*)__progname, GP->pidfile);
     #ifndef EBUG
     sl_daemonize();
     while(1){ // guard for dead processes
@@ -121,7 +121,7 @@ int main(int argc, char **argv){
     signal(SIGUSR1, signals);
     signal(SIGUSR2, signals);
     if(!start_servers(GP->port, GP->sockname)) ERRX("Can't run server's threads");
-    while(1) pause();
+    //while(1) pause();
     //WARNX("TEST ends");
     //signals(0);
     return 0; // never reached

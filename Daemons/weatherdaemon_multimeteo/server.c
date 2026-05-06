@@ -39,16 +39,18 @@ static sl_sock_hresult_e timehandler(sl_sock_t *client, _U_ sl_sock_hitem_t *ite
     return RESULT_SILENCE;
 }
 
+#define SSZ_    (PATH_MAX + 256)
 // show all connected libraries
 static sl_sock_hresult_e listhandler(sl_sock_t *client, _U_ sl_sock_hitem_t *item, _U_ const char *req){
     if(!client) return RESULT_FAIL;
-    char buf[256];
+    char buf[SSZ_];
     int N = get_nplugins();
     if(N < 1) return RESULT_FAIL;
     sensordata_t *d = NULL;
     for(int i = 0; i < N; ++i){
         if(!(d = get_plugin(i))) continue;
-        snprintf(buf, 255, "PLUGIN[%d]=%s\nNVALUES[%d]=%d\n", i, d->name, i, d->Nvalues);
+        if(d->path[0]) snprintf(buf, SSZ_, "PLUGIN[%d]=%s @ %s\nNVALUES[%d]=%d\n", i, d->name, d->path, i, d->Nvalues);
+        else snprintf(buf, SSZ_, "PLUGIN[%d]=%s\nNVALUES[%d]=%d\n", i, d->name, i, d->Nvalues);
         sl_sock_sendstrmessage(client, buf);
     }
     return RESULT_SILENCE;
@@ -83,7 +85,7 @@ static void showdata(sl_sock_t *client, int N){
         if(!s) return;
         Ncoll = s->Nvalues;
     }
-    time_t oldest = time(NULL) - WeatherConf.ahtung_delay, mstm = 0;
+    time_t oldest = time(NULL) - 2 * WeatherConf.ahtung_delay, mstm = 0;
 
     for(int i = 0; i < Ncoll; ++i){
         int ans = 0;
@@ -402,7 +404,25 @@ int start_servers(const char *netnode, const char *sockpath){
     sl_sock_dischandler(localsocket, disconnected);
     sl_sock_defmsghandler(netsocket, defhandler);
     sl_sock_defmsghandler(localsocket, defhandler);
-    return TRUE;
+    // now run checking cycle
+    int Nplugins = get_nplugins();
+    time_t tstart = time(NULL), tcur;
+    while(1){
+        for(int i = 0; i < Nplugins; ++i){
+            sensordata_t *s = get_plugin(i);
+            if(!s) continue;
+            if(sensor_alive(s)) continue;
+            // sensor isn't inited - try to do it
+            DBG("sensor with path %s isn't inited, try", s->path);
+            if(s->init){
+                if(s->init(s)) LOGMSG("Sensor %s reinited @ %s", s->name, s->path);
+                else DBG("Can't reinit");
+            }
+        }
+        while((tcur = time(NULL)) - tstart < WeatherConf.reinit_delay) sleep(1);
+        tstart = tcur;
+    }
+    return TRUE; // should be never reached
 }
 
 void kill_servers(){

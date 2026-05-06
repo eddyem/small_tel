@@ -39,6 +39,7 @@ typedef struct{
 
 typedef struct{
     int ahtung_delay;       // delay to change "bad weather" to good after last "bad event"
+    int reinit_delay;       // delay to check all sensors and reinit dead
     // wind, m/s
     weather_cond_t wind;
     // humidity, %%

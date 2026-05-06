@@ -78,7 +78,7 @@ static void *mainthread(void *s){
     while(sensor->fdes > -1){
         time_t tnow = time(NULL);
         if(tnow - tpoll > sensor->tpoll){
-            if(sl_tty_write(sensor->fdes, "?U\r\n", 4)){
+            if(4 != write(sensor->fdes, "?U\r\n", 4)){
                 WARN("Can't ask new data");
                 break;
             }
@@ -166,24 +166,20 @@ static void *mainthread(void *s){
 }
 
 
-sensordata_t *sensor_new(int N, time_t pollt, const char *descr){
+int sensor_init(sensordata_t *s){
     FNAME();
-    if(!descr || !*descr) return NULL;
-    int fd = getFD(descr);
-    if(fd < 0) return NULL;
-    sensordata_t *s = common_new();
-    if(!s) return NULL;
+    if(!s) return FALSE;
+    int fd = getFD(s->path);
+    if(fd < 0) return FALSE;
     s->Nvalues = NAMOUNT;
-    s->PluginNo = N;
     s->fdes = fd;
-    snprintf(s->name, NAME_LEN, "%s @ %s", SENSOR_NAME, descr);
-    if(pollt) s->tpoll = pollt;
+    snprintf(s->name, NAME_LEN, "%s", SENSOR_NAME);
     s->values = MALLOC(val_t, NAMOUNT);
     for(int i = 0; i < NAMOUNT; ++i) s->values[i] = values[i];
     if(!(s->ringbuffer = sl_RB_new(BUFSIZ)) ||
         pthread_create(&s->thread, NULL, mainthread, (void*)s)){
         s->kill(s);
-        return NULL;
+        return FALSE;
     }
-    return s;
+    return TRUE;
 }

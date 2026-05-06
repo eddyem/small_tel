@@ -29,15 +29,18 @@
 //static int common_init(sensordata_t*, int, time_t, int);
 
 /**
- * @brief common_new - call this function from your plugin's `sensor_new`
- * @return
+ * @brief sensor_new - call this function before calling `sensor_init`
+ * @param N - plugin number in array
+ * @return pointer to allocated sensor's structure
  */
-sensordata_t *common_new(){
+sensordata_t *sensor_new(int N, const char *descr){
     sensordata_t *s = MALLOC(sensordata_t, 1);
     s->fdes = -1; // not inited
-    s->onrefresh = common_onrefresh;
+    s->onrefresh = common_onrefresh; // `init` function can redefine basic stubs
     s->get_value = common_getval;
     s->kill = common_kill;
+    s->PluginNo = N; // `init` shouldn't change this value
+    snprintf(s->path, PATH_MAX, "%s", descr); // `init` shouldn't change this value
     pthread_mutex_init(&s->valmutex, NULL);
     return s;
 }
@@ -66,19 +69,26 @@ int common_onrefresh(sensordata_t *s, void (*handler)(sensordata_t *)){
 }
 
 /**
- * @brief common_kill - common `die` function
+ * @brief common_kill - common `die` function (close, but don't destroy sensor)
  * @param s - sensor
  */
 void common_kill(sensordata_t *s){
     FNAME();
     if(!s) return;
     if(s->fdes > -1){ // inited and maybe have opened file/socket
-        if(0 == pthread_cancel(s->thread)){
-            DBG("%s main thread canceled, join", s->name);
-            pthread_join(s->thread, NULL);
-            DBG("Done");
+        if(pthread_equal(pthread_self(), s->thread)){
+            DBG("Don't cancel myself");
+        }else{
+            DBG("Cancel sensor's thread");
+            if(0 == pthread_cancel(s->thread)){
+                DBG("%s main thread canceled, join", s->name);
+                pthread_join(s->thread, NULL);
+                DBG("Done");
+            }
         }
         close(s->fdes);
+        s->fdes = -1;
+        DBG("FD closed");
     }
     DBG("Delete RB");
     if(s->ringbuffer) sl_RB_delete(&s->ringbuffer);
@@ -86,9 +96,8 @@ void common_kill(sensordata_t *s){
     if(s->privdatafree) s->privdatafree(s->privdata);
     else FREE(s->privdata);
     DBG("Sensor '%s' killed", s->name);
-    LOGERR("Sensor '%s' killed", s->name);
-    FREE(s);
-    DBG("There's no more this sensor");
+    if(s->path[0]) LOGERR("Sensor '%s' @ '%s' killed", s->name, s->path);
+    else LOGERR("Sensor '%s' killed", s->name);
 }
 
 /**

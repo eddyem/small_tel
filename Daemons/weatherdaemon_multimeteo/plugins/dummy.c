@@ -38,7 +38,7 @@ static void *mainthread(void *s){
     FNAME();
     double t0 = sl_dtime();
     sensordata_t *sensor = (sensordata_t *)s;
-    while(1){
+    while(sensor->fdes > -1){
         //DBG("locked");
         pthread_mutex_lock(&sensor->valmutex);
         float f = sensor->values[0].value.f + (drand48() - 0.5) / 2.;
@@ -69,13 +69,11 @@ static void *mainthread(void *s){
     return NULL;
 }
 
-sensordata_t *sensor_new(int N, time_t pollt, _U_ const char *descr){
+int sensor_init(sensordata_t *s){
     FNAME();
-    sensordata_t *s = common_new();
-    if(!s) return NULL;
+    if(!s) return FALSE;
     s->Nvalues = NS;
     strncpy(s->name, SENSOR_NAME, NAME_LEN);
-    if(pollt) s->tpoll = pollt;
     s->values = MALLOC(val_t, NS);
     for(int i = 0; i < NS; ++i) s->values[i] = values[i];
     s->values[0].value.f = 1.;
@@ -85,11 +83,10 @@ sensordata_t *sensor_new(int N, time_t pollt, _U_ const char *descr){
     s->values[4].value.f = 89.;
     s->values[5].value.u = 0;
     s->values[6].value.f = 4.5;
-    s->PluginNo = N;
     if(pthread_create(&s->thread, NULL, mainthread, (void*)s)){
         s->kill(s);
-        return NULL;
+        return FALSE;
     }
     s->fdes = 0;
-    return s;
+    return TRUE;
 }

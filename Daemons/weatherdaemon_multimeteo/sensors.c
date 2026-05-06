@@ -85,7 +85,7 @@ void *open_plugin(const char *name){
  */
 static void dumpsensors(struct sensordata_t* station){
     //FNAME();
-    if(!station || !station->get_value || station->Nvalues < 1 || station->IsMuted) return;
+    if(!sensor_alive(station) || !station->get_value || station->Nvalues < 1 || station->IsMuted) return;
     refresh_sensval(station);
 #if 0
     DBG("New values...");
@@ -136,14 +136,20 @@ int openplugins(char **paths, int N){
         void* dlh = open_plugin(buf);
         if(!dlh) continue;
         DBG("OPENED");
-        sensor_new_t sensnew = (sensor_new_t) dlsym(dlh, "sensor_new");
-        if(sensnew){
-            sensordata_t *S = sensnew(nplugins, poll_interval, colon); // here nplugins is index in array
-            if(!S) WARNXL("Can't init plugin %s", paths[i]);
+        sensor_init_t sensinit = (sensor_init_t) dlsym(dlh, "sensor_init");
+        if(sensinit){
+            sensordata_t *S = sensor_new(nplugins, colon);
+            if(!S) WARNXL("Can't allocate memory for 'sensor' structure");
             else{
-                if(!S->onrefresh || !S->onrefresh(S, dumpsensors)) WARNXL("Can't init refresh funtion");
-                LOGMSG("Plugin %s nave %d sensors", paths[i], S->Nvalues);
+                S->init = sensinit;
+                S->tpoll = poll_interval;
                 allplugins[nplugins++] = S;
+                int inited = sensinit(S); // here nplugins is index in array
+                if(!inited) WARNXL("Can't init plugin %s", paths[i]);
+                else{
+                    if(!S->onrefresh || !S->onrefresh(S, dumpsensors)) WARNXL("Can't init refresh funtion");
+                    LOGMSG("Plugin %s nave %d sensors", paths[i], S->Nvalues);
+                }
             }
         }else WARNXL("Can't find initing function in plugin %s: %s", paths[i], dlerror());
     }
@@ -158,6 +164,7 @@ void closeplugins(){
     if(!allplugins || nplugins < 1) return;
     for(int i = 0; i < nplugins; ++i){
         if(allplugins[i]->kill) allplugins[i]->kill(allplugins[i]);
+        FREE(allplugins[i]);
     }
     FREE(allplugins);
     nplugins = 0;

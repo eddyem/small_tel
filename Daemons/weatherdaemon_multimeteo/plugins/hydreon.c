@@ -194,25 +194,21 @@ static void *mainthread(void *s){
     return NULL;
 }
 
-sensordata_t *sensor_new(int N, time_t pollt, const char *descr){
+int sensor_init(sensordata_t *s){
     FNAME();
-    if(!descr || !*descr) return NULL;
-    int fd = getFD(descr);
-    if(fd < 0) return NULL;
-    sensordata_t *s = common_new();
-    if(!s) return NULL;
-    snprintf(s->name, NAME_LEN, "%s @ %s", SENSOR_NAME, descr);
+    if(!s) return FALSE;
+    int fd = getFD(s->path);
+    if(fd < 0) return FALSE;
+    snprintf(s->name, NAME_LEN, "%s", SENSOR_NAME);
     s->fdes = fd;
-    s->PluginNo = N;
     s->Nvalues = NAMOUNT;
-    if(pollt) s->tpoll = pollt;
     s->values = MALLOC(val_t, NAMOUNT);
     // don't use memcpy, as `values` could be aligned
     for(int i = 0; i < NAMOUNT; ++i) s->values[i] = values[i];
     if(!(s->ringbuffer = sl_RB_new(BUFSIZ)) ||
         pthread_create(&s->thread, NULL, mainthread,  (void*)s)){
         s->kill(s);
-        return NULL;
+        return FALSE;
     }
-    return s;
+    return TRUE;
 }

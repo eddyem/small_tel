@@ -111,8 +111,8 @@ static void *mainthread(void *s){
         time_t tnow = time(NULL);
         if(tnow - tpoll > sensor->tpoll){
             int dlen = sprintf(buf, "%s0\n%s1\n", commands[CMD_DISTANCE], commands[CMD_DISTANCE]);
-            if(sl_tty_write(sensor->fdes, buf, dlen)){
-                WARN("Can't ask new data");
+            if(dlen != write(sensor->fdes, buf, dlen)){
+                WARN("Can't ask new data from lightning monitor");
                 break;
             }
             DBG("poll @%zd, pollt=%zd", tnow, sensor->tpoll);
@@ -169,22 +169,24 @@ static void *mainthread(void *s){
             sensor->values[NLIGHTNING].time = tnow;
         }
         pthread_mutex_unlock(&sensor->valmutex);
-        if(gotfresh && sensor->freshdatahandler) sensor->freshdatahandler(sensor);
+        if(gotfresh) DBG("got fresh data");
+        if(gotfresh && sensor->freshdatahandler){
+            DBG("Run fresh data handler");
+            sensor->freshdatahandler(sensor);
+        }
         usleep(1000);
     }
+    DBG("suicide");
     sensor->kill(sensor);
     return NULL;
 }
 
-sensordata_t *sensor_new(int N, time_t _U_ pollt, const char *descr){
+int sensor_init(sensordata_t *s){
     FNAME();
-    if(!descr || !*descr) return NULL;
-    int fd = getFD(descr);
-    if(fd < 0) return NULL;
-    sensordata_t *s = common_new();
-    if(!s) return NULL;
-    snprintf(s->name, NAME_LEN, "%s @ %s", SENSOR_NAME, descr);
-    s->PluginNo = N;
+    if(!s) return FALSE;
+    int fd = getFD(s->path);
+    if(fd < 0) return FALSE;
+    snprintf(s->name, NAME_LEN, "%s", SENSOR_NAME);
     s->fdes = fd;
     s->Nvalues = NAMOUNT;
     s->tpoll = TCHECK;
@@ -193,7 +195,7 @@ sensordata_t *sensor_new(int N, time_t _U_ pollt, const char *descr){
     if(!(s->ringbuffer = sl_RB_new(BUFSIZ)) ||
         pthread_create(&s->thread, NULL, mainthread,  (void*)s)){
         s->kill(s);
-        return NULL;
+        return FALSE;
     }
-    return s;
+    return TRUE;
 }

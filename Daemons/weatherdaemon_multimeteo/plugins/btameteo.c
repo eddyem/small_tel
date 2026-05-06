@@ -41,7 +41,7 @@ static const val_t values[NAMOUNT] = {
 static void *mainthread(void *s){
     FNAME();
     sensordata_t *sensor = (sensordata_t *)s;
-    while(1){
+    while(sensor->fdes > -1){
         if(check_shm_block(&sdat)){
             //DBG("Got next");
             time_t tnow = time(NULL);
@@ -64,16 +64,13 @@ static void *mainthread(void *s){
     return NULL;
 }
 
-sensordata_t *sensor_new(int N, time_t pollt, _U_ const char *descr){
+int sensor_init(sensordata_t *s){
     FNAME();
-    sensordata_t *s = common_new();
-    if(!s) return NULL;
-    s->PluginNo = N;
-    if(pollt) s->tpoll = pollt;
+    if(!s) return FALSE;
     if(!get_shm_block(&sdat, ClientSide)){
         WARNX("Can't get BTA shared memory block or create main thread");
         s->kill(s);
-        return NULL;
+        return FALSE;
     }
     s->values = MALLOC(val_t, NAMOUNT);
     for(int i = 0; i < NAMOUNT; ++i) s->values[i] = values[i];
@@ -82,9 +79,9 @@ sensordata_t *sensor_new(int N, time_t pollt, _U_ const char *descr){
     if(pthread_create(&s->thread, NULL, mainthread, (void*)s)){
         WARN("Can't create main thread");
         s->kill(s);
-        return NULL;
+        return FALSE;
     }
     s->fdes = 0;
-    return s;
+    return TRUE;
 }
 

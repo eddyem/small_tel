@@ -89,6 +89,10 @@ static val_t collected_data[NAMOUNT_OF_DATA] = {
 //    {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT, .meaning = IS_OTHER},
 };
 
+// additional fields marked as `IS_OTHER` gathered from different stations
+static int Nadditional = 0;
+static val_t *additional_data = NULL;
+
 /**
  * @brief weather_level - set/clear weather level
  * @param newlvl - -1 for getter or 0..3 for setter
@@ -231,21 +235,22 @@ static double get_max_forT(sliding_max_t *sm, time_t tcutoff){
 }
 
 int collected_amount(){
-    return NAMOUNT_OF_DATA;
+    return NAMOUNT_OF_DATA + Nadditional;
 }
 
 int get_collected(val_t *val, int N){
-    if(!val || N < 0 || N >= NAMOUNT_OF_DATA){
+    if(!val || N < 0 || N >= NAMOUNT_OF_DATA + Nadditional){
         DBG("Wrong number (%d) requested or no place for data", N);
         return FALSE;
     }
     pthread_mutex_lock(&datamutex);
+    val_t *dptr = (N < NAMOUNT_OF_DATA) ? &collected_data[N] : &additional_data[N-NAMOUNT_OF_DATA];
 #ifdef EBUG
     char buf[KEY_LEN+1];
-    get_fieldname(&collected_data[N], buf);
-    DBG("Copied data of %d (u=%d, nm=%s)", N, collected_data[N].value.u, buf);
+    get_fieldname(dptr, buf);
+    DBG("Copied data of %d (u=%d, nm=%s, t=%zd)", N, dptr->value.u, buf, dptr->time);
 #endif
-    *val = collected_data[N];
+    *val = *dptr;
     pthread_mutex_unlock(&datamutex);
     return TRUE;
 }
@@ -318,6 +323,24 @@ static void fix_new_data(val_t *collected, const val_t *fresh, int force){
     }
 }
 
+// find value.name in `additional_data`, if need - allocate new memory and update
+static void update_additional(val_t *value){
+    if(!value) return;
+    int idx = 0;
+    for(; idx < Nadditional; ++idx){
+        if(0 == strcmp(additional_data[idx].name, value->name)) break;
+    }
+    if(idx == Nadditional){ // not found -> allocate
+        additional_data = realloc(additional_data, sizeof(val_t) * (++Nadditional));
+        if(!additional_data){
+            LOGERR("update_additional() can't realloc()");
+            ERR("realloc()");
+        }
+        memcpy(&additional_data[idx], value, sizeof(val_t));
+        DBG("Allocated new field: %s", value->name);
+    }else fix_new_data(&additional_data[idx], value, 0);
+}
+
 /**
  * @brief chkweatherlevel - increase weather level if need, also check force shutdown flags
  * @param curlevel - current max weather level
@@ -379,12 +402,14 @@ static weather_cond_t const shtdnflag = {.good = 0.1, .bad = 0.5, .terrible = 0.
 void refresh_sensval(sensordata_t *s){
     //FNAME();
     //static time_t poll_time = 0;
-    char reason[KEY_LEN+1] = {0}; // reason of weather level increasing
+    static char reason[KEY_LEN+1] = {0}; // reason of weather level increasing
     val_t value;
     if(!s || !s->get_value) return;
     //if(poll_time == 0) poll_time = get_pollT();
-    uint32_t curlevel = 0; // this is worse weather leavel, start from best
+    static uint32_t curlevel = 0; // this is worse weather leavel, start from best (collect by all sensors through 3*tpoll)
+    static time_t lasttupdate = 0; // last update time of weather level
     time_t curtime = time(NULL);
+    time_t tpoll = get_pollT(), _3tpoll = 3*tpoll;
     double dir = -100., dir2 = -100.; // mean wind directions
     //DBG("%d meteo values", s->Nvalues);
     for(int i = 0; i < s->Nvalues; ++i){
@@ -459,6 +484,10 @@ void refresh_sensval(sensordata_t *s){
                 break;
             default : break;
         }
+        if(value.meaning == IS_OTHER){ // check for new or existant field in `additional_data`
+            update_additional(&value);
+            continue;
+        }
         if(idx < 0 || idx >= NAMOUNT_OF_DATA) continue;
         //DBG("IDX=%d", idx);
         pthread_mutex_lock(&datamutex);
@@ -489,13 +518,18 @@ void refresh_sensval(sensordata_t *s){
         collected_data[NWINDDIR2].value.f = (float) dir2;
         collected_data[NWINDDIR2].time = curtime;
     }
-    collected_data[NWINDMAX].value.f = (float) get_current_max(&windspeeds);
-    collected_data[NWINDMAX].time = curtime;
-    collected_data[NWINDMAX1].value.f = (float) get_max_forT(&windspeeds, curtime - T_ONE_HOUR);
-    collected_data[NWINDMAX1].time = curtime;
+    if(curtime - collected_data[NWIND].time < tpoll + 1){
+        collected_data[NWINDMAX].value.f = (float) get_current_max(&windspeeds);
+        collected_data[NWINDMAX].time = curtime;
+        collected_data[NWINDMAX1].value.f = (float) get_max_forT(&windspeeds, curtime - T_ONE_HOUR);
+        collected_data[NWINDMAX1].time = curtime;
+    }
     //DBG("check ahtung");
-    if(Forbidden) collected_data[NCOMMWEATH].value.u = WEATHER_PROHIBITED;
-    else{
+    time_t _2update = lasttupdate + _3tpoll;
+    if(Forbidden){
+        collected_data[NCOMMWEATH].value.u = WEATHER_PROHIBITED;
+        collected_data[NCOMMWEATH].time = curtime;
+    }else if(curtime >= _2update){ // need to update weather level
         if(collected_data[NCOMMWEATH].value.u > curlevel){ // check timeout to make level lower
             // DBG("curtime: %zd, curahtt: %d, diff: %zd, delay: %d", curtime, collected_data[NLASTAHTUNG].value.u, curtime - collected_data[NLASTAHTUNG].value.u, WeatherConf.ahtung_delay);
             if(curtime - collected_data[NLASTAHTUNG].value.u > WeatherConf.ahtung_delay){
@@ -521,12 +555,14 @@ void refresh_sensval(sensordata_t *s){
             }
             if(curlevel){
                 collected_data[NLASTAHTUNG].value.u = curtime; // refresh last ahtung time only for level > good
+                collected_data[NLASTAHTUNG].time = curtime;
                 collected_data[NAHTUNGRSN].time = curtime;
             }
         }
+        lasttupdate = curtime;
+        curlevel = 0; // wait for next collected max level
+        collected_data[NCOMMWEATH].time = curtime; // refresh `common weather` updating time
     }
-    collected_data[NCOMMWEATH].time = curtime;
-    collected_data[NLASTAHTUNG].time = curtime;
     pthread_mutex_unlock(&datamutex);
     //DBG("Refreshed");
 }
@@ -546,25 +582,3 @@ void forbid_observations(int f){
 
 // `forbid` flag getter
 int is_forbidden(){ return Forbidden; }
-
-#if 0
-// main cycle
-void run_mainweather(){
-    int N = get_nplugins();
-    if(N < 1) return;
-    poll_time = get_pollT();
-    while(1){
-        int nactive = 0;
-        pthread_mutex_lock(&datamutex);
-        for(int i = N-1; i > -1; --i){ // the most important is the last
-            sensordata_t *s = get_plugin(i);
-            if(!s || !sensor_alive(s)) continue;
-            ++nactive;
-        }
-        pthread_mutex_unlock(&datamutex);
-        if(nactive == 0) break; // no active sensors
-        usleep(10000);
-    }
-    LOGERR("Main weather collector died: all sensors lost");
-}
-#endif

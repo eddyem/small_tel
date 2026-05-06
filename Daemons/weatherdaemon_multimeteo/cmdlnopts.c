@@ -49,6 +49,7 @@ static glob_pars defconf = {
 // only for config
 weather_conf_t WeatherConf = {
     .ahtung_delay = 30*60,      // 30 minutes
+    .reinit_delay = 60,         // each 1 minute
     .wind.good = 5.,            // < 5m/s - good weather
     .wind.bad = 10.,            // > 10m/s - bad weather
     .wind.terrible = 15.,       // > 15m/s - terrible weather
@@ -92,9 +93,9 @@ sl_option_t cmdlnopts[] = {
 };
 
 sl_option_t confopts[] = {
-    {"verbose",     NEED_ARG,   NULL,   'a',    arg_int,    APTR(&G.verb),                      "logfile verbocity level"},
-    {"ahtung_delay",NEED_ARG,   NULL,   'b',    arg_int,    APTR(&WeatherConf.ahtung_delay),    "delay in seconds after bad weather to change to good"},
-    {"good_wind",   NEED_ARG,   NULL,   'c',    arg_double, APTR(&WeatherConf.wind.good),       "good wind while less this"},
+    {"verbose",     NEED_ARG,   NULL,   0,      arg_int,    APTR(&G.verb),                      "logfile verbocity level"},
+    {"ahtung_delay",NEED_ARG,   NULL,   0,      arg_int,    APTR(&WeatherConf.ahtung_delay),    "delay in seconds after bad weather to change to good"},
+    {"good_wind",   NEED_ARG,   NULL,   0,      arg_double, APTR(&WeatherConf.wind.good),       "good wind while less this"},
     {"bad_wind",    NEED_ARG,   NULL,   0,      arg_double, APTR(&WeatherConf.wind.bad),        "bad wind if more than this"},
     {"terrible_wind",NEED_ARG,  NULL,   0,      arg_double, APTR(&WeatherConf.wind.terrible),   "terrible wind if more than this"},
     {"good_humidity",NEED_ARG,  NULL,   0,      arg_double, APTR(&WeatherConf.humidity.good),   "humidity is good until this"},
@@ -107,6 +108,7 @@ sl_option_t confopts[] = {
     {"good_sky",    NEED_ARG,   NULL,   0,      arg_double, APTR(&WeatherConf.sky.good),        "sky-ambient less than this is good"},
     {"bad_sky",     NEED_ARG,   NULL,   0,      arg_double, APTR(&WeatherConf.sky.bad),         "sky-ambient greater than this is bad"},
     {"terrible_sky",NEED_ARG,   NULL,   0,      arg_double, APTR(&WeatherConf.sky.terrible),    "sky-ambient greater than this is terrible"},
+    {"reinit_delay",NEED_ARG,   NULL,   0,      arg_int,    APTR(&WeatherConf.reinit_delay),    "delay (s) to reinit dead sensors"},
     COMMON_OPTS
     end_option
 };

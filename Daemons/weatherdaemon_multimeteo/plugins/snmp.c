@@ -91,7 +91,6 @@ enum{
 static netsnmp_session *snmp_session;
 static oid anOID[OID_AMOUNT][MAX_OID_LEN];
 static size_t anOID_len[OID_AMOUNT];
-static int running = 1;
 
 const char *oids[OID_AMOUNT] = {
     [OID_BATT_STATUS] = ".1.3.6.1.2.1.33.1.2.1.0",
@@ -114,7 +113,7 @@ static void *mainthread(void *s){
     double t0 = sl_dtime();
     sensordata_t *sensor = (sensordata_t *)s;
     netsnmp_pdu *pdu, *response;
-    while(running){
+    while(sensor->fdes > -1){
         //DBG("run");
         pdu = snmp_pdu_create(SNMP_MSG_GET);
         for(int i = 0; i < OID_AMOUNT; ++i)
@@ -123,19 +122,20 @@ static void *mainthread(void *s){
         //DBG("status = %d", status);
         if(status == STAT_SUCCESS && response->errstat == SNMP_ERR_NOERROR){
             time_t curt = time(NULL);
-            netsnmp_variable_list *vars = response->variables;
+            netsnmp_variable_list *vars = response->variables; // OID_BATT_STATUS
             pthread_mutex_lock(&sensor->valmutex);
             int ival = *vars->val.integer;
-            if(ival > 0 && ival < BATT_STAT_AMOUNT)
+            if(ival > 0 && ival < BATT_STAT_AMOUNT){
                 snprintf(sensor->values[NBATSTAT].value.str, STRT_LEN+1, "%s", batt_stat[ival]);
-            vars = vars->next_variable;
+            }
+            vars = vars->next_variable; // OID_BATT_SECONDS_ONBAT
             uint32_t tonbat = (uint32_t) *vars->val.integer;
             sensor->values[NTONBAT].value.u = tonbat;
-            vars = vars->next_variable;
+            vars = vars->next_variable; // OID_BATT_EST_MINUTES
             sensor->values[NTREMAIN].value.u = 60 * (uint32_t) *vars->val.integer;
-            vars = vars->next_variable;
+            vars = vars->next_variable; // OID_BATT_CAPACITY
             sensor->values[NBATCAP].value.u = (uint32_t) *vars->val.integer;
-            vars = vars->next_variable;
+            vars = vars->next_variable; // OID_OUTPUT_SOURCE
             ival = *vars->val.integer;
             if(ival > 0 && ival < SOURCE_AMOUNT)
                 snprintf(sensor->values[NSOURCE].value.str, STRT_LEN+1, "%s", sources[ival]);
@@ -144,6 +144,7 @@ static void *mainthread(void *s){
             }else sensor->values[NONBAT].value.u = 0;
             for(int i = 0; i < NAMOUNT; ++i)
                 sensor->values[i].time = curt;
+            //DBG("times updated to %zd", curt);
             pthread_mutex_unlock(&sensor->valmutex);
             if(sensor->freshdatahandler) sensor->freshdatahandler(sensor);
         }else DBG("Error in packet");
@@ -156,15 +157,15 @@ static void *mainthread(void *s){
 }
 
 static void snmp_kill(sensordata_t *s){
-    running = 0;
+    s->fdes = -1;
     pthread_join(s->thread, NULL);
     snmp_close(snmp_session);
     common_kill(s);
 }
 
-sensordata_t *sensor_new(int N, time_t pollt, const char *descr){
+int sensor_init(sensordata_t *s){
     FNAME();
-    if(!descr || !*descr) return NULL;
+    if(!s || !s->path[0]) return FALSE;
 
     netsnmp_session session;
     init_snmp("snmpapp");
@@ -174,29 +175,24 @@ sensordata_t *sensor_new(int N, time_t pollt, const char *descr){
     session.community = (u_char *)"public";
     session.community_len = strlen((const char *)session.community);
 
-    const char *colon = strchr(descr, ':');
-    if(colon) descr = colon + 1; // omit "N:" in field "N:host"
-    session.peername = strdup(descr);
+    DBG("PATH: %s", s->path);
+
+    const char *colon = strchr(s->path, ':');
+    if(colon) ++colon; // omit "N:" in field "N:host"
+    session.peername = strdup(colon);
 
     snmp_session = snmp_open(&session);
     if(!snmp_session){
         snmp_sess_perror("snmp_open", &session);
         FREE(session.peername);
-        return NULL;
+        return FALSE;
     }
 
-    sensordata_t *s = common_new();
-    if(!s){
-        snmp_close(snmp_session);
-        return NULL;
-    }
     s->kill = snmp_kill;
 
-    snprintf(s->name, NAME_LEN, "%s @ %s", SENSOR_NAME, descr);
-    s->PluginNo = N;
-    s->fdes = -1;
+    snprintf(s->name, NAME_LEN, "%s", SENSOR_NAME);
+    s->fdes = 0;
     s->Nvalues = NAMOUNT;
-    if(pollt) s->tpoll = pollt;
     s->values = MALLOC(val_t, NAMOUNT);
     for(int i = 0; i < NAMOUNT; ++i) s->values[i] = values[i];
 
@@ -214,7 +210,7 @@ sensordata_t *sensor_new(int N, time_t pollt, const char *descr){
     if(!(s->ringbuffer = sl_RB_new(BUFSIZ)) ||
         pthread_create(&s->thread, NULL, mainthread,  (void*)s)){
         s->kill(s);
-        return NULL;
+        return FALSE;
     }
-    return s;
+    return TRUE;
 }
