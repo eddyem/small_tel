@@ -56,7 +56,12 @@ static int openserial(const char *path){
     }
     DBG("Opened %s @ %d", str, speed);
     FREE(str);
-    return serial->comfd;
+    int comfd = serial->comfd;
+    FREE(serial->portname);
+    FREE(serial->buf);
+    FREE(serial->format);
+    FREE(serial);
+    return comfd;
 }
 
 /**

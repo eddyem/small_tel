@@ -76,6 +76,10 @@ void common_kill(sensordata_t *s){
     FNAME();
     if(!s) return;
     if(s->fdes > -1){ // inited and maybe have opened file/socket
+        close(s->fdes);
+        s->fdes = -1;
+        DBG("FD closed");
+        usleep(5000);
         if(pthread_equal(pthread_self(), s->thread)){
             DBG("Don't cancel myself");
         }else{
@@ -86,9 +90,6 @@ void common_kill(sensordata_t *s){
                 DBG("Done");
             }
         }
-        close(s->fdes);
-        s->fdes = -1;
-        DBG("FD closed");
     }
     DBG("Delete RB");
     if(s->ringbuffer) sl_RB_delete(&s->ringbuffer);

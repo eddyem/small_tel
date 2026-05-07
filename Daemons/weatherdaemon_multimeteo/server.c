@@ -322,17 +322,7 @@ static void toomuch(int fd){
     const char *m = "Try later: too much clients connected\n";
     send(fd, m, sizeof(m)-1, MSG_NOSIGNAL);
     shutdown(fd, SHUT_WR);
-    DBG("shutdown, wait");
-    double t0 = sl_dtime();
-    uint8_t buf[8];
-    while(sl_dtime() - t0 < 90.){ // change this value to smaller for real work
-        if(sl_canread(fd)){
-            ssize_t got = read(fd, buf, 8);
-            DBG("Got=%zd", got);
-            if(got < 1) break;
-        }
-    }
-    DBG("Disc after %gs", sl_dtime() - t0);
+    DBG("shutdown");
     LOGWARN("Client fd=%d tried to connect after MAX reached", fd);
 }
 // new connections handler (return FALSE to reject client)
@@ -414,6 +404,7 @@ int start_servers(const char *netnode, const char *sockpath){
             if(sensor_alive(s)) continue;
             // sensor isn't inited - try to do it
             DBG("sensor with path %s isn't inited, try", s->path);
+            s->kill(s); // clear resources
             if(s->init){
                 if(s->init(s)) LOGMSG("Sensor %s reinited @ %s", s->name, s->path);
                 else DBG("Can't reinit");

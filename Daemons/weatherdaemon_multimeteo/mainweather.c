@@ -569,6 +569,7 @@ void refresh_sensval(sensordata_t *s){
 
 // set/clear `forbid` flag (by signals USR1 and USR2)
 void forbid_observations(int f){
+    pthread_mutex_lock(&datamutex);
     if(f) Forbidden = 1;
     else Forbidden = 0;
     int curt = (int) time(NULL);
@@ -577,6 +578,7 @@ void forbid_observations(int f){
     collected_data[NLASTAHTUNG].time = curt;
     sprintf(collected_data[NAHTUNGRSN].value.str, "FORBID");
     collected_data[NAHTUNGRSN].time = curt;
+    pthread_mutex_unlock(&datamutex);
     DBG("Change FORBID status to %d", f);
 }
 
