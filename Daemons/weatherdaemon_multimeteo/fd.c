@@ -48,19 +48,9 @@ static int openserial(const char *path){
             return -1;
         }
     }
-    sl_tty_t *serial = sl_tty_new(str, speed, BUFSIZ);
-    if(!serial || !sl_tty_open(serial, TRUE)){
-        WARN("Can't open %s @ speed %d", str, speed);
-        FREE(str);
-        return -1;
-    }
-    DBG("Opened %s @ %d", str, speed);
+    int comfd = sl_tty_fdescr(str, "8N1", speed, 1);
+    DBG("%s @ %d, comfd=%d", str, speed, comfd);
     FREE(str);
-    int comfd = serial->comfd;
-    FREE(serial->portname);
-    FREE(serial->buf);
-    FREE(serial->format);
-    FREE(serial);
     return comfd;
 }
 
