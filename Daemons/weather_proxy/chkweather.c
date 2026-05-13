@@ -21,15 +21,20 @@
 
 int main() {
     weather_data_t wd;
+    int errcode = 3;
     if(get_weather_data(&wd) == 0){
         char strt[64];
         struct tm *T = localtime(&wd.last_update);
         strftime(strt, 63, "%F %T", T);
-        printf("ForceOFF: %d\nWeather: %d\nMax wind: %.1f\nWind: %.1f\nTemp: %.1f\nPressure: %.1f\nHumidity: %.1f\nupdated @%zd (%s)\n",
-               wd.forceoff, wd.weather, wd.windmax, wd.wind, wd.exttemp, wd.pressure, wd.humidity,
-               wd.last_update, strt);
+        printf("Windmax=%.1f\nRain=%d\nClouds=%.1f\nWind=%.1f\nExttemp=%.1f\n"
+               "Pres=%.1f\nHumid=%.1f\nMeteo=local\nForceOFF=%d\n",
+               wd.windmax, wd.rain, wd.clouds, wd.wind, wd.exttemp,
+               wd.pressure, wd.humidity, wd.forceoff);
+        if(!wd.forceoff) errcode = wd.weather;
     }else{
         fprintf(stderr, "Failed to get weather data\n");
     }
-    return 0;
+    return errcode;
 }
+
+// echo -e "Rain=$Rain\nClouds=$Clouds\nWind=$Wind\nExttemp=$Exttemp\nPres=$Pres\nHumid=$Humid\nMeteo=$Meteo"

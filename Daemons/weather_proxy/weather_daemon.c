@@ -165,7 +165,7 @@ static void FITS_update(const char *line, int finish){
     static FILE *tmp = NULL;
     static char templ[32]; // temporary file name
     if(!tmp){ // try to create new temporary file
-        sprintf(templ, "/tmp/fitshdrXXXXXX");
+        sprintf(templ, "%sXXXXXX", G.fitsheader);
         int fd = mkstemp(templ);
         if(fd < 0){
             WARN("mkstemp()");
@@ -232,16 +232,15 @@ static void parse_line(const char *line, weather_data_t *data) {
         }else if (strcmp(key, "HUMIDITY") == 0){
             data->humidity = atof(value);
             printf("got humidity: %g\n", data->humidity);
-        }else if (strcmp(key, "PROHIBIT") == 0){
-            data->prohibited = atoi(value);
-        }else if (strcmp(key, "TMEAS") == 0){ // last line in message -> update
+        }else if (strcmp(key, "FORCEOFF") == 0){
+            data->forceoff = atoi(value);
+        }else if (strcmp(key, "TWEATH") == 0){ // last line in message -> update
             data->last_update = atof(value);
-            if(data->weather == WEATHER_PROHIBITED || forbidden) data->prohibited = 1;
-            else if(data->weather < WEATHER_PROHIBITED) data->prohibited = 0;
+            if(forbidden) data->weather = WEATHER_PROHIBITED;
             // update all
             update_shm(data);
             update = 1;
-        }else update = -1;
+        }//else update = -1;
         if(update > -1 && G.fitsheader){
             FITS_update(line, update);
         }

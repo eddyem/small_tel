@@ -2,12 +2,15 @@ CC = gcc
 CFLAGS = -Wall -Wextra -fPIC -DEBUG
 LDFLAGS = -lrt -pthread -lusefull_macros
 
-all: weather_daemon libweather.so weather_clt_example
+all: weather_daemon libweather.so weather_clt_example chkweather
 
 weather_daemon: weather_daemon.o
 	$(CC) -o $@ $^ $(LDFLAGS)
 
 weather_clt_example: weather_clt_example.o
+	$(CC) -o $@ $^ $(LDFLAGS) -l weather -L.
+
+chkweather: chkweather.o
 	$(CC) -o $@ $^ $(LDFLAGS) -l weather -L.
 
 weather_daemon.o: weather_daemon.c weather_data.h
@@ -23,6 +26,9 @@ weather_client.o: weather_client.c weather_data.h
 	$(CC) $(CFLAGS) -c $<
 
 weather_clt_example.o: weather_clt_example.c libweather.so
+	$(CC) $(CFLAGS) -c $<
+
+chkweather.o: chkweather.c libweather.so
 	$(CC) $(CFLAGS) -c $<
 
 clean:
