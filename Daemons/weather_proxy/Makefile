@@ -1,10 +1,11 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -fPIC -DEBUG
+CFLAGS = -Wall -Wextra -fPIC 
+#-DEBUG
 LDFLAGS = -lrt -pthread -lusefull_macros
 
-all: weather_daemon libweather.so weather_clt_example chkweather
+all: weather_proxy libweather.so weather_clt_example chkweather
 
-weather_daemon: weather_daemon.o
+weather_proxy: weather_daemon.o
 	$(CC) -o $@ $^ $(LDFLAGS)
 
 weather_clt_example: weather_clt_example.o
@@ -32,8 +33,10 @@ chkweather.o: chkweather.c libweather.so
 	$(CC) $(CFLAGS) -c $<
 
 clean:
-	rm -f *.o weather_daemon libweather.so libweather.a weather_clt_example
+	rm -f *.o weather_proxy chkweather libweather.so libweather.a weather_clt_example
 
 install:
 	cp libweather.so /usr/local/lib/
 	cp weather_data.h /usr/local/include/
+	cp chkweather weather_proxy /usr/local/bin
+	ldconfig

@@ -84,7 +84,6 @@ int sensor_init(sensordata_t *s){
     s->values[5].value.u = 0;
     //s->values[6].value.f = 4.5;
     if(pthread_create(&s->thread, NULL, mainthread, (void*)s)){
-        s->kill(s);
         return FALSE;
     }
     s->fdes = 0;

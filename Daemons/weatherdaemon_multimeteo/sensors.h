@@ -41,6 +41,7 @@ time_t get_pollT();
 
 double val2d(const val_t *v);
 void get_fieldname(const val_t *v, char buf[KEY_LEN+1]);
+void get_fieldnameval(const val_t *v, char buf[VAL_LEN+1]);
 
 int station_mute(sensordata_t *s);
 int station_unmute(sensordata_t *s);

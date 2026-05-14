@@ -99,11 +99,11 @@ enum{
 static const val_t values[NAMOUNT] = { // fields `name` and `comment` have no sense until value meaning is `IS_OTHER`
     [NPRECIP] = {.sense = VAL_OBLIGATORY,  .type = VALT_UINT, .meaning = IS_PRECIP},
     [NPRECIP_LEVEL] = {.sense = VAL_RECOMMENDED, .type = VALT_FLOAT, .meaning = IS_PRECIP_LEVEL},
-    [NSINCERN] = {.sense = VAL_UNNECESSARY, .type = VALT_UINT, .meaning = IS_OTHER, .name = "TSINCERN", .comment = "Minutes since rain (20 means a lot of)"},
-    [NPOW] = {.sense = VAL_UNNECESSARY, .type = VALT_UINT, .meaning = IS_OTHER, .name = "RAINPOW", .comment = "Rain strength, 0..255"},
-    [NAVG] = {.sense = VAL_UNNECESSARY, .type = VALT_UINT, .meaning = IS_OTHER, .name = "RAINAVG", .comment = "Average rain strength, 0..255"},
-    [NAMBL] = {.sense = VAL_UNNECESSARY, .type = VALT_UINT, .meaning = IS_OTHER, .name = "RSAMBL", .comment = "Ambient light by rain sensor, 0..255"},
-    [NFREEZ] = {.sense = VAL_UNNECESSARY, .type = VALT_UINT, .meaning = IS_OTHER, .name = "RSFREEZ", .comment = "Rain sensor is freezed"},
+    [NSINCERN] = {.sense = VAL_RECOMMENDED, .type = VALT_UINT, .meaning = IS_OTHER, .name = "TSINCERN", .comment = "Minutes since rain (20 means a lot of)"},
+    [NPOW] = {.sense = VAL_RECOMMENDED, .type = VALT_UINT, .meaning = IS_OTHER, .name = "RAINPOW", .comment = "Rain strength, 0..255"},
+    [NAVG] = {.sense = VAL_RECOMMENDED, .type = VALT_UINT, .meaning = IS_OTHER, .name = "RAINAVG", .comment = "Average rain strength, 0..255"},
+    [NAMBL] = {.sense = VAL_RECOMMENDED, .type = VALT_UINT, .meaning = IS_OTHER, .name = "RSAMBL", .comment = "Ambient light by rain sensor, 0..255"},
+    [NFREEZ] = {.sense = VAL_RECOMMENDED, .type = VALT_UINT, .meaning = IS_OTHER, .name = "RSFREEZ", .comment = "Rain sensor is freezed"},
 };
 
 static int getv(char s, uint8_t *v){
@@ -119,7 +119,7 @@ static int getv(char s, uint8_t *v){
 }
 
 static int encodepacket(const char *buf, int len, rg11 *Rregs, slowregs *Sregs){
-    DBG("got buffer: %s[%d]", buf, len);
+//    DBG("got buffer: %s[%d]", buf, len);
     uint8_t databuf[REGLEN/2] = {0};
     static slowregs slow = {0};
     if(len != REGMINLEN && len != REGLEN){
@@ -172,7 +172,7 @@ static void *mainthread(void *s){
         if(got > 0){
             buf[--got] = 0;
             if(encodepacket(buf, got, &Rregs, &Sregs)){
-                DBG("refresh...");
+                //DBG("refresh...");
                 pthread_mutex_lock(&sensor->valmutex);
                 for(int i = 0; i < NAMOUNT; ++i)
                     sensor->values[i].time = tnow;
@@ -189,8 +189,6 @@ static void *mainthread(void *s){
             }
         }
     }
-    DBG("OOOOps!");
-    sensor->kill(sensor);
     return NULL;
 }
 
@@ -207,7 +205,6 @@ int sensor_init(sensordata_t *s){
     for(int i = 0; i < NAMOUNT; ++i) s->values[i] = values[i];
     if(!(s->ringbuffer = sl_RB_new(BUFSIZ)) ||
         pthread_create(&s->thread, NULL, mainthread,  (void*)s)){
-        s->kill(s);
         return FALSE;
     }
     return TRUE;

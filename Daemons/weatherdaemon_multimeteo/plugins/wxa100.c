@@ -43,9 +43,9 @@ static const val_t values[NAMOUNT] = {
     [NHUMIDITY] = {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT, .meaning = IS_HUMIDITY},
     [NAMB_TEMP] = {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT, .meaning = IS_AMB_TEMP},
     [NPRESSURE] = {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT, .meaning = IS_PRESSURE},
-    [NPRECIP]   = {.sense = VAL_OBLIGATORY, .type = VALT_UINT,  .meaning = IS_PRECIP},
-    [NPRECIPLVL]= {.sense = VAL_RECOMMENDED,.type = VALT_FLOAT, .meaning = IS_PRECIP_LEVEL},
-    [NPRECIPINT]= {.sense = VAL_RECOMMENDED,.type = VALT_FLOAT, .meaning = IS_OTHER, .name = "PRECRATE", .comment = "Precipitation rate, mm/h"},
+    [NPRECIP]   = {.sense = VAL_UNNECESSARY, .type = VALT_UINT,  .meaning = IS_PRECIP}, // this sensor lies
+    [NPRECIPLVL]= {.sense = VAL_UNNECESSARY,.type = VALT_FLOAT, .meaning = IS_PRECIP_LEVEL},
+    [NPRECIPINT]= {.sense = VAL_UNNECESSARY,.type = VALT_FLOAT, .meaning = IS_OTHER, .name = "PRECRATE", .comment = "Precipitation rate, mm/h"},
 };
 
 typedef struct{
@@ -106,7 +106,7 @@ static int parseans(char *str){
                 }else{
                     *el->weatherpar = strtod(token, &endptr);
                     if(endptr == token){
-                        DBG("Wrong double value %s", token);
+    //                    DBG("Wrong double value %s", token);
                     }else ++ncollected;
                 }
                 break;
@@ -115,7 +115,7 @@ static int parseans(char *str){
         }
         token = strtok(NULL, ",");
     }
-    DBG("Got %d values", ncollected);
+  //  DBG("Got %d values", ncollected);
     return ncollected;
 }
 
@@ -131,7 +131,7 @@ static void *mainthread(void *s){
                 WARN("Can't ask new data");
                 break;
             }
-            DBG("poll @%zd, pollt=%zd", tnow, sensor->tpoll);
+//            DBG("poll @%zd, pollt=%zd", tnow, sensor->tpoll);
             tpoll = tnow;
         }
         int canread = sl_canread(sensor->fdes);
@@ -190,7 +190,7 @@ static void *mainthread(void *s){
             if(sensor->freshdatahandler) sensor->freshdatahandler(sensor);
         }
     }
-    sensor->kill(sensor);
+    // newer use `kill` here! Master will run it after main thread death
     return NULL;
 }
 
@@ -201,12 +201,11 @@ int sensor_init(sensordata_t *s){
     if(fd < 0) return FALSE;
     snprintf(s->name, NAME_LEN, "%s", SENSOR_NAME);
     s->fdes = fd;
-    s->Nvalues = NAMOUNT;
     s->values = MALLOC(val_t, NAMOUNT);
     for(int i = 0; i < NAMOUNT; ++i) s->values[i] = values[i];
+    s->Nvalues = NAMOUNT;
     if(!(s->ringbuffer = sl_RB_new(BUFSIZ)) ||
         pthread_create(&s->thread, NULL, mainthread,  (void*)s)){
-        s->kill(s);
         return FALSE;
     }
     return TRUE;

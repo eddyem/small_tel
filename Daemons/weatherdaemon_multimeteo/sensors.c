@@ -56,7 +56,9 @@ time_t get_pollT(){ return poll_interval;}
  */
 sensordata_t *get_plugin(int N){
     if(N < 0 || N >= nplugins) return NULL;
-    return allplugins[N];
+    sensordata_t *s = allplugins[N];
+    if(!s || !sensor_alive(s)) s = NULL;
+    return s;
 }
 
 // TODO: fix for usage with several identical meteostations
@@ -85,7 +87,17 @@ void *open_plugin(const char *name){
  */
 static void dumpsensors(struct sensordata_t* station){
     //FNAME();
-    if(!sensor_alive(station) || !station->get_value || station->Nvalues < 1 || station->IsMuted) return;
+    if(!station){
+        LOGERR("(null) in dumpsensors' station");
+        return;
+    }
+    /*
+    LOGMSG("alive: %d[%d]", sensor_alive(station), station->PluginNo);
+    LOGMSGADD("getvalue: %s", station->get_value ? "yes" : "no");
+    LOGMSGADD("nvalues: %d", station->Nvalues);
+    LOGMSGADD("ismuted: %d", station->IsMuted);
+    */
+    if(station->Nvalues < 1 || station->IsMuted) return;
     refresh_sensval(station);
 #if 0
     DBG("New values...");
@@ -124,12 +136,12 @@ int openplugins(char **paths, int N){
     char buf[PATH_MAX+1];
     if(!paths || !*paths || N < 1) return 0;
     if(allplugins || nplugins){
-        WARNXL("Plugins already opened"); return 0;
+        LOGWARN("Plugins already opened"); return 0;
     }
     allplugins = MALLOC(sensordata_t*, N);
-    green("Try to open plugins:\n");
+    LOGMSG("Try to open plugins:");
     for(int i = 0; i < N; ++i){
-        printf("\tplugin[%d]=%s\n", i, paths[i]);
+        LOGMSGADD("plugin[%d]=%s\n", i, paths[i]);
         snprintf(buf, PATH_MAX, "%s", paths[i]);
         char *colon = strchr(buf, ':');
         if(colon) *colon++ = 0;
@@ -145,10 +157,12 @@ int openplugins(char **paths, int N){
                 S->tpoll = poll_interval;
                 allplugins[nplugins++] = S;
                 int inited = sensinit(S); // here nplugins is index in array
-                if(!inited) WARNXL("Can't init plugin %s", paths[i]);
-                else{
+                if(!inited){
+                    WARNXL("Can't init plugin %s", paths[i]);
+                    if(S->kill) S->kill(S);
+                }else{
                     if(!S->onrefresh || !S->onrefresh(S, dumpsensors)) WARNXL("Can't init refresh funtion");
-                    LOGMSG("Plugin %s nave %d sensors", paths[i], S->Nvalues);
+                    LOGMSGADD("Plugin %s nave %d sensors; file descriptor: %d", paths[i], S->Nvalues, S->fdes);
                 }
             }
         }else WARNXL("Can't find initing function in plugin %s: %s", paths[i], dlerror());
@@ -165,6 +179,7 @@ void closeplugins(){
     for(int i = 0; i < nplugins; ++i){
         if(allplugins[i]->kill) allplugins[i]->kill(allplugins[i]);
         FREE(allplugins[i]);
+        LOGWARN("Plugin %d killed", i);
     }
     FREE(allplugins);
     nplugins = 0;
@@ -197,6 +212,7 @@ int format_senssense(const val_t *v, char *buf, int buflen, int Np){
     return (got < buflen) ? got : buflen; // full or truncated
 }
 
+// put to `buf` string with sensor's name
 void get_fieldname(const val_t *v, char buf[KEY_LEN+1]){
     if(!v || !buf) return;
     int idx = v->meaning;
@@ -207,6 +223,20 @@ void get_fieldname(const val_t *v, char buf[KEY_LEN+1]){
         name = v->name;
     }
     if(name) snprintf(buf, KEY_LEN+1, "%s", name);
+    else buf[0] = 0; // empty
+}
+
+// put to `buf` string "name=value"
+void get_fieldnameval(const val_t *v, char buf[VAL_LEN+1]){
+    if(!v || !buf) return;
+    int idx = v->meaning;
+    const char *name = NULL;
+    if(idx < IS_OTHER){
+        name = NM[idx];
+    }else{
+        name = v->name;
+    }
+    if(name) snprintf(buf, VAL_LEN+1, "%s=%g", name, val2d(v));
     else buf[0] = 0; // empty
 }
 

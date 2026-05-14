@@ -64,3 +64,7 @@ if(LIGHTNING)
 endif()
 
 install(TARGETS ${LIBS} LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
+install(CODE [===[
+    message(STATUS "Run ldconfig")
+    execute_process(COMMAND ldconfig)
+    ]===])

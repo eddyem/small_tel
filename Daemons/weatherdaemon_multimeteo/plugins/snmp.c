@@ -192,9 +192,9 @@ int sensor_init(sensordata_t *s){
 
     snprintf(s->name, NAME_LEN, "%s", SENSOR_NAME);
     s->fdes = 0;
-    s->Nvalues = NAMOUNT;
     s->values = MALLOC(val_t, NAMOUNT);
     for(int i = 0; i < NAMOUNT; ++i) s->values[i] = values[i];
+    s->Nvalues = NAMOUNT;
 
     DBG("init OIDs");
     for(int i = 0; i < OID_AMOUNT; ++i){
@@ -209,7 +209,6 @@ int sensor_init(sensordata_t *s){
     DBG("Start main thread");
     if(!(s->ringbuffer = sl_RB_new(BUFSIZ)) ||
         pthread_create(&s->thread, NULL, mainthread,  (void*)s)){
-        s->kill(s);
         return FALSE;
     }
     return TRUE;

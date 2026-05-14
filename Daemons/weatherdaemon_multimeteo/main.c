@@ -94,12 +94,6 @@ int main(int argc, char **argv){
     signal(SIGPIPE, getpipe); // socket disconnected
     signal(SIGUSR1, SIG_IGN);
     signal(SIGUSR2, SIG_IGN);
-    int nopened = openplugins(GP->plugins, GP->nplugins);
-    if(nopened < 1){
-        LOGERR("No plugins found; exit!");
-        ERRX("Can't find any sensor plugin");
-    }
-    if(GP->nplugins && GP->nplugins != nopened) LOGWARN("Work without some plugins");
     #ifndef EBUG
     sl_daemonize();
     while(1){ // guard for dead processes
@@ -117,6 +111,12 @@ int main(int argc, char **argv){
         }
     }
     #endif
+    int nopened = openplugins(GP->plugins, GP->nplugins);
+    if(nopened < 1){
+        LOGERR("No plugins found; exit!");
+        ERRX("Can't find any sensor plugin");
+    }
+    if(GP->nplugins && GP->nplugins != nopened) LOGWARN("Work without some plugins");
     // react for USRx only in child
     signal(SIGUSR1, signals);
     signal(SIGUSR2, signals);

@@ -176,8 +176,6 @@ static void *mainthread(void *s){
         }
         usleep(1000);
     }
-    DBG("suicide");
-    sensor->kill(sensor);
     return NULL;
 }
 
@@ -194,7 +192,6 @@ int sensor_init(sensordata_t *s){
     for(int i = 0; i < NAMOUNT; ++i) s->values[i] = values[i];
     if(!(s->ringbuffer = sl_RB_new(BUFSIZ)) ||
         pthread_create(&s->thread, NULL, mainthread,  (void*)s)){
-        s->kill(s);
         return FALSE;
     }
     return TRUE;

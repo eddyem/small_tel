@@ -280,13 +280,13 @@ static void run_daemon(){
 
     while(running){
         time_t tnow = time(NULL);
-        int req = -1;
+        int req = -1, goterr = 0;
         if(sock) req = request_weather_data(sock);
         if(req == -1){
             int diff = tnow - lastert;
             DBG("diff = %d", diff);
             if(diff > RECONN_TMOUT){ // try to reconnect
-                LOGERR("Failed to request weather data, retry");
+                if(!goterr){ LOGERR("Failed to request weather data, retry"); goterr = 1; }
                 if(sock) sl_sock_delete(&sock);
                 if(!(sock = sl_sock_run_client(stype, G.node, 4096))){
                     new_data.weather = WEATHER_TERRIBLE; // no connection to weather server, don't allow to open
@@ -298,6 +298,7 @@ static void run_daemon(){
                 }
             }
         }else if(req == 0) lastert = tnow;
+        else goterr = 0;
 
         while(sl_sock_readline(sock, line, 255) > 0){
             DBG("Parse '%s'", line);

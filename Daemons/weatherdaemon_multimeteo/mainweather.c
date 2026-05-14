@@ -240,16 +240,17 @@ int collected_amount(){
 
 int get_collected(val_t *val, int N){
     if(!val || N < 0 || N >= NAMOUNT_OF_DATA + Nadditional){
-        DBG("Wrong number (%d) requested or no place for data", N);
+        LOGWARN("get_collected(): wrong number (%d) requested or no place for data", N);
         return FALSE;
     }
     pthread_mutex_lock(&datamutex);
     val_t *dptr = (N < NAMOUNT_OF_DATA) ? &collected_data[N] : &additional_data[N-NAMOUNT_OF_DATA];
-#ifdef EBUG
-    char buf[KEY_LEN+1];
-    get_fieldname(dptr, buf);
-    DBG("Copied data of %d (u=%d, nm=%s, t=%zd)", N, dptr->value.u, buf, dptr->time);
-#endif
+    //LOGDBG("tm: %zd; cl: %zd", dptr->time, collected_data[N].time);
+//#ifdef EBUG
+    //char buf[KEY_LEN+1];
+    //get_fieldname(dptr, buf);
+    //LOGDBG("Copied data of %d (u=%d, nm=%s, t=%zd)", N, dptr->value.u, buf, dptr->time);
+//#endif
     *val = *dptr;
     pthread_mutex_unlock(&datamutex);
     return TRUE;
@@ -263,6 +264,7 @@ int get_collected(val_t *val, int N){
  */
 static void fix_new_data(val_t *collected, const val_t *fresh, int force){
     if(!collected || !fresh) return;
+    //LOGDBG("fix_new_data(): collt: %zd, fresht: %zd", collected->time, fresh->time);
     if(collected->time >= fresh->time){
         if(!force) return;
         //DBG("Forced, collected=%g, fresh=%g", val2d(collected), val2d(fresh));
@@ -270,10 +272,15 @@ static void fix_new_data(val_t *collected, const val_t *fresh, int force){
         //DBG("Not too old");
     }
     // lower `collected` level if data is too old
-    if(fresh->time - collected->time > WeatherConf.ahtung_delay) collected->sense = VAL_UNNECESSARY;
+    if(fresh->time - collected->time > WeatherConf.ahtung_delay){
+        LOGDBG("collected val is too old -> mark as unnecessary");
+        collected->sense = VAL_UNNECESSARY;
+    }
+    //LOGDBGADD("sense coll: %d, fresh: %d", collected->sense, fresh->sense);
     if(collected->sense < fresh->sense) return;
     if(collected->sense != fresh->sense) collected->sense = fresh->sense; // take new level
     //DBG("Refresh collected value");
+    //LOGDBGADD("Refresh time");
     collected->time = fresh->time;
     if(collected->type == fresh->type){ // good case
         memcpy(&collected->value, &fresh->value, sizeof(num_t));
@@ -337,7 +344,7 @@ static void update_additional(val_t *value){
             ERR("realloc()");
         }
         memcpy(&additional_data[idx], value, sizeof(val_t));
-        DBG("Allocated new field: %s", value->name);
+        LOGDBG("Allocated new field: %s", value->name);
     }else fix_new_data(&additional_data[idx], value, 0);
 }
 
@@ -402,9 +409,10 @@ static weather_cond_t const shtdnflag = {.good = 0.1, .bad = 0.5, .terrible = 0.
 void refresh_sensval(sensordata_t *s){
     //FNAME();
     //static time_t poll_time = 0;
-    static char reason[KEY_LEN+1] = {0}; // reason of weather level increasing
+    //LOGMSG("Refresh sensval for %d", s->PluginNo);
+    static char reason[VAL_LEN+1] = {0}; // reason of weather level increasing
     val_t value;
-    if(!s || !s->get_value) return;
+    if(!s || !sensor_alive(s) || !s->get_value) return;
     //if(poll_time == 0) poll_time = get_pollT();
     static uint32_t curlevel = 0; // this is worse weather leavel, start from best (collect by all sensors through 3*tpoll)
     static time_t lasttupdate = 0; // last update time of weather level
@@ -495,7 +503,7 @@ void refresh_sensval(sensordata_t *s){
         if(curcond){
             int oldshtdn = collected_data[NFORCEDSHTDN].value.u;
             if(1 == chkweatherlevel(&curlevel, curvalue, curcond)){
-                get_fieldname(&value, reason); // copy to `reason` reason of last level increasing
+                get_fieldnameval(&value, reason); // copy to `reason` reason of last level increasing
                 force = 1;
                 DBG("reason: %s; forceflag=%u, old=%d", reason, collected_data[NFORCEDSHTDN].value.u, oldshtdn);
                 if(collected_data[NFORCEDSHTDN].value.u - oldshtdn == 1){ // got shutdown
@@ -505,7 +513,10 @@ void refresh_sensval(sensordata_t *s){
         }
         if(idx == NFORCEDSHTDN && value.value.u == 0){
             //DBG("Don't clear forced flag by other station");
-        }else fix_new_data(&collected_data[idx], &value, force);
+        }else{
+            //LOGDBG("Call fix_new_data for idx=%d (tcoll=%zd)", idx, collected_data[idx].time);
+            fix_new_data(&collected_data[idx], &value, force);
+        }
         pthread_mutex_unlock(&datamutex);
     }
     pthread_mutex_lock(&datamutex);
@@ -519,6 +530,7 @@ void refresh_sensval(sensordata_t *s){
         collected_data[NWINDDIR2].time = curtime;
     }
     if(curtime - collected_data[NWIND].time < tpoll + 1){
+        //LOGDBG("Update max wind");
         collected_data[NWINDMAX].value.f = (float) get_current_max(&windspeeds);
         collected_data[NWINDMAX].time = curtime;
         collected_data[NWINDMAX1].value.f = (float) get_max_forT(&windspeeds, curtime - T_ONE_HOUR);
@@ -526,6 +538,7 @@ void refresh_sensval(sensordata_t *s){
     }
     //DBG("check ahtung");
     time_t _2update = lasttupdate + _3tpoll;
+    //LOGDBG("curtime: %ld, _2update: %ld", curtime, lasttupdate);
     if(Forbidden){
         collected_data[NCOMMWEATH].value.u = WEATHER_PROHIBITED;
         collected_data[NCOMMWEATH].time = curtime;

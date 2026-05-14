@@ -40,18 +40,24 @@ static sl_sock_hresult_e timehandler(sl_sock_t *client, _U_ sl_sock_hitem_t *ite
 }
 
 #define SSZ_    (PATH_MAX + 256)
+static void send_plugin_name(int N, sensordata_t *d, sl_sock_t *client){
+    if(!d || !client) return;
+    char buf[SSZ_];
+    if(d->path[0]) snprintf(buf, SSZ_, "PLUGIN[%d]=%s @ %s\nNVALUES[%d]=%d\n", N, d->name, d->path, N, d->Nvalues);
+    else snprintf(buf, SSZ_, "PLUGIN[%d]=%s\nNVALUES[%d]=%d\n", N, d->name, N, d->Nvalues);
+    sl_sock_sendstrmessage(client, buf);
+}
+
 // show all connected libraries
 static sl_sock_hresult_e listhandler(sl_sock_t *client, _U_ sl_sock_hitem_t *item, _U_ const char *req){
     if(!client) return RESULT_FAIL;
-    char buf[SSZ_];
+
     int N = get_nplugins();
     if(N < 1) return RESULT_FAIL;
     sensordata_t *d = NULL;
     for(int i = 0; i < N; ++i){
         if(!(d = get_plugin(i))) continue;
-        if(d->path[0]) snprintf(buf, SSZ_, "PLUGIN[%d]=%s @ %s\nNVALUES[%d]=%d\n", i, d->name, d->path, i, d->Nvalues);
-        else snprintf(buf, SSZ_, "PLUGIN[%d]=%s\nNVALUES[%d]=%d\n", i, d->name, i, d->Nvalues);
-        sl_sock_sendstrmessage(client, buf);
+        send_plugin_name(i, d, client);
     }
     return RESULT_SILENCE;
 }
@@ -65,6 +71,7 @@ sensordata_t *get_plugin_w_message(sl_sock_t *client, int N){
         sl_sock_sendstrmessage(client, buf);
         return NULL;
     }
+    send_plugin_name(N, s, client);
     return s;
 }
 
@@ -403,16 +410,19 @@ int start_servers(const char *netnode, const char *sockpath){
             if(!s) continue;
             if(sensor_alive(s)) continue;
             // sensor isn't inited - try to do it
-            DBG("sensor with path %s isn't inited, try", s->path);
+            LOGWARN("Sensor %s isn't alive, kill and try to reinit", s->path);
             s->kill(s); // clear resources
             if(s->init){
-                if(s->init(s)) LOGMSG("Sensor %s reinited @ %s", s->name, s->path);
-                else DBG("Can't reinit");
+                if(s->init(s)){
+                    if(s->path[0]) LOGMSG("Sensor %s reinited @ %s", s->name, s->path);
+                    else LOGMSG("Sensor %s reinited", s->name);
+                }else LOGWARN("Can't reinit");
             }
         }
         while((tcur = time(NULL)) - tstart < WeatherConf.reinit_delay) sleep(1);
         tstart = tcur;
     }
+    LOGERR("start_servers(): never reacheable point reached");
     return TRUE; // should be never reached
 }
 

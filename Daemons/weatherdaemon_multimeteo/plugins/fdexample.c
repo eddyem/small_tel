@@ -115,8 +115,7 @@ static void *mainthread(void *s){
             }
         }
     }
-    DBG("OOOOps!");
-    sensor->kill(sensor);
+    // newer use `kill` here! Master will run it after main thread death
     return NULL;
 }
 
@@ -132,11 +131,9 @@ int sensor_init(sensordata_t *s){
     for(int i = 0; i < NS; ++i) s->values[i] = values[i];
     if(!(s->ringbuffer = sl_RB_new(BUFSIZ))){
         WARNX("Can't init ringbuffer!");
-        s->kill(s);
         return FALSE;
     }
     if(pthread_create(&s->thread, NULL, mainthread, (void*)s)){
-        s->kill(s);
         return FALSE;
     }
     return TRUE;

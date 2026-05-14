@@ -39,9 +39,9 @@ enum{
 static const val_t values[NAMOUNT] = {
     [NWIND]     = {.sense = VAL_RECOMMENDED, .type = VALT_FLOAT, .meaning = IS_WIND},
     [NWINDDIR]  = {.sense = VAL_RECOMMENDED,.type = VALT_FLOAT, .meaning = IS_WINDDIR},
-    [NHUMIDITY] = {.sense = VAL_BROKEN, .type = VALT_FLOAT, .meaning = IS_HUMIDITY},
+    [NHUMIDITY] = {.sense = VAL_BROKEN, .type = VALT_FLOAT, .meaning = IS_HUMIDITY}, // broken on our meteostation
     [NAMB_TEMP] = {.sense = VAL_RECOMMENDED, .type = VALT_FLOAT, .meaning = IS_AMB_TEMP},
-    [NPRESSURE] = {.sense = VAL_BROKEN, .type = VALT_FLOAT, .meaning = IS_PRESSURE},
+    [NPRESSURE] = {.sense = VAL_BROKEN, .type = VALT_FLOAT, .meaning = IS_PRESSURE}, // broken on our meteostation
     [NCLOUDS]   = {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT, .meaning = IS_CLOUDS},
     [NPRECIP]   = {.sense = VAL_RECOMMENDED, .type = VALT_UINT,  .meaning = IS_PRECIP},
     [NPRECIPLVL]= {.sense = VAL_UNNECESSARY,.type = VALT_FLOAT, .meaning = IS_PRECIP_LEVEL},
@@ -161,7 +161,6 @@ static void *mainthread(void *s){
             if(sensor->freshdatahandler) sensor->freshdatahandler(sensor);
         }
     }
-    sensor->kill(sensor);
     return NULL;
 }
 
@@ -178,7 +177,6 @@ int sensor_init(sensordata_t *s){
     for(int i = 0; i < NAMOUNT; ++i) s->values[i] = values[i];
     if(!(s->ringbuffer = sl_RB_new(BUFSIZ)) ||
         pthread_create(&s->thread, NULL, mainthread, (void*)s)){
-        s->kill(s);
         return FALSE;
     }
     return TRUE;

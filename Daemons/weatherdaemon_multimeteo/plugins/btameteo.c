@@ -59,8 +59,6 @@ static void *mainthread(void *s){
         }else break; // no connection?
         sleep(1);
     }
-    DBG("Lost connection -> suicide");
-    sensor->kill(sensor);
     return NULL;
 }
 
@@ -69,7 +67,6 @@ int sensor_init(sensordata_t *s){
     if(!s) return FALSE;
     if(!get_shm_block(&sdat, ClientSide)){
         WARNX("Can't get BTA shared memory block or create main thread");
-        s->kill(s);
         return FALSE;
     }
     s->values = MALLOC(val_t, NAMOUNT);
@@ -78,7 +75,6 @@ int sensor_init(sensordata_t *s){
     strncpy(s->name, SENSOR_NAME, NAME_LEN);
     if(pthread_create(&s->thread, NULL, mainthread, (void*)s)){
         WARN("Can't create main thread");
-        s->kill(s);
         return FALSE;
     }
     s->fdes = 0;

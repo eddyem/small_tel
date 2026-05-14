@@ -40,7 +40,8 @@ sensordata_t *sensor_new(int N, const char *descr){
     s->get_value = common_getval;
     s->kill = common_kill;
     s->PluginNo = N; // `init` shouldn't change this value
-    snprintf(s->path, PATH_MAX, "%s", descr); // `init` shouldn't change this value
+    if(descr && *descr) snprintf(s->path, PATH_MAX, "%s", descr); // `init` shouldn't change this value
+    else s->path[0] = 0; // no path
     pthread_mutex_init(&s->valmutex, NULL);
     return s;
 }
@@ -51,8 +52,15 @@ sensordata_t *sensor_new(int N, const char *descr){
  * @return FALSE if thread is dead
  */
 int sensor_alive(sensordata_t *s){
-    if(!s || s->fdes < 0) return FALSE;
-    if(pthread_kill(s->thread, 0)) return FALSE;
+    if(!s || s->fdes < 0){
+        LOGMSG("No sensor or fdes < 0");
+        return FALSE;
+    }
+    if(pthread_kill(s->thread, 0)){
+        if(s->path[0]) LOGMSG("Sensor's '%s @ %s' main thread is dead", s->name, s->path);
+        else LOGMSG("Sensor's '%s' main thread is dead", s->name);
+        return FALSE;
+    }
     return TRUE;
 }
 
@@ -94,6 +102,7 @@ void common_kill(sensordata_t *s){
     DBG("Delete RB");
     if(s->ringbuffer) sl_RB_delete(&s->ringbuffer);
     FREE(s->values);
+    s->Nvalues = 0;
     if(s->privdatafree) s->privdatafree(s->privdata);
     else FREE(s->privdata);
     DBG("Sensor '%s' killed", s->name);

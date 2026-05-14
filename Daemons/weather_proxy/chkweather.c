@@ -27,10 +27,11 @@ int main() {
         struct tm *T = localtime(&wd.last_update);
         strftime(strt, 63, "%F %T", T);
         printf("Windmax=%.1f\nRain=%d\nClouds=%.1f\nWind=%.1f\nExttemp=%.1f\n"
-               "Pres=%.1f\nHumid=%.1f\nMeteo=local\nForceOFF=%d\n",
+               "Pres=%.1f\nHumid=%.1f\nMeteo=local\nForceOFF=%d\nWeather=%d\nWeatherTime=%d [%s]\n",
                wd.windmax, wd.rain, wd.clouds, wd.wind, wd.exttemp,
-               wd.pressure, wd.humidity, wd.forceoff);
+               wd.pressure, wd.humidity, wd.forceoff, (int)wd.weather, (int)wd.last_update, strt);
         if(!wd.forceoff) errcode = wd.weather;
+        if(time(NULL) - wd.last_update > 30) errcode = 3;
     }else{
         fprintf(stderr, "Failed to get weather data\n");
     }
