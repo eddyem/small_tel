@@ -68,7 +68,7 @@ rtn:
 /**
  * @brief nonblk_read - internal read
  * @param ans (o) - buffer for data
- * @return NULL if failed or `ans`
+ * @return NULL if failed or return `ans` (could be NULL just to clear incoming buffer)
  */
 static char *nonblk_read(char ans[ANSLEN]){
     static char *bufptr = NULL; // last message, if it was longer than `length`

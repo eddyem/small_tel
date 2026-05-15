@@ -20,11 +20,15 @@
 #include <inttypes.h>
 #include <pthread.h>
 #include <string.h>
+#include <weather_data.h>
 
 #include "commands.h"
 #include "header.h"
 #include "socket.h"
 #include "term.h"
+
+// if there's no signal from weather over `WEATHER_LOST` seconds, close the dome
+#define WEATHER_LOST    (300.)
 
 typedef enum{
     CMD_OPEN,
@@ -45,8 +49,10 @@ typedef struct{
 
 static dome_t Dome = {0};
 
-// external signal "deny/allow"
+// external (manual) signal "deny/allow"
 static atomic_bool ForbidObservations = 0; // ==1 if all is forbidden -> close dome and not allow to open
+// weather don't allow to open
+static atomic_bool BadWeather = 0;
 
 static sl_sock_t *locksock = NULL; // local server socket
 static sl_ringbuffer_t *rb = NULL; // incoming serial data
@@ -78,7 +84,7 @@ static sl_sock_hresult_e dtimeh(sl_sock_t *client, _U_ sl_sock_hitem_t *item, _U
     return RESULT_SILENCE;
 }
 
-#define CHKALLOWED() do{if(ForbidObservations || Dome.errcode){pthread_mutex_unlock(&Dome.mutex); return RESULT_FAIL;}}while(0)
+#define CHKALLOWED() do{if(ForbidObservations || BadWeather || Dome.errcode){pthread_mutex_unlock(&Dome.mutex); return RESULT_FAIL;}}while(0)
 
 static sl_sock_hresult_e openh(_U_ sl_sock_t *client, _U_ sl_sock_hitem_t *item, _U_ const char *req){
     pthread_mutex_lock(&Dome.mutex);
@@ -138,6 +144,7 @@ static sl_sock_hresult_e statush(sl_sock_t *client, _U_ sl_sock_hitem_t *item, _
         sl_sock_sendstrmessage(client, buf);
     }
     if(ForbidObservations) sl_sock_sendstrmessage(client, "FORBIDDEN\n");
+    if(BadWeather) sl_sock_sendstrmessage(client, "BADWEATHER\n");
     if(lastecmd != CMD_NONE){
         const char *tcmd;
         switch(lastecmd){
@@ -257,8 +264,9 @@ static int poll_device(){
 }
 
 void runserver(int isunix, const char *node, int maxclients){
-    int forbidden = 0;
+    int forbidden = 0; // flag of dome closing
     char ans[ANSLEN];
+    weather_data_t weather;
     if(locksock) sl_sock_delete(&locksock);
     if(rb) sl_RB_delete(&rb);
     rb = sl_RB_new(BUFSIZ);
@@ -271,9 +279,9 @@ void runserver(int isunix, const char *node, int maxclients){
     sl_sock_connhandler(locksock, connected);
     sl_sock_dischandler(locksock, disconnected);
     sl_sock_defmsghandler(locksock, defhandler);
-    double tgot = 0.;
+    double tgot = 0., tweather = 0.;
     while(locksock && locksock->connected){
-        if(ForbidObservations){
+        if(ForbidObservations || BadWeather){
             if(!forbidden){
                 if(term_cmdwans(TXT_CLOSEDOME, TXT_ANS_MSGOK, ans)) forbidden = 1;
             }
@@ -292,12 +300,23 @@ void runserver(int isunix, const char *node, int maxclients){
         }
         double tnow = sl_dtime();
         if(tnow - tgot > T_INTERVAL){
+            // check weather
+            if(0 == get_weather_data(&weather)){ // got OK -> check if observations are forbidden
+                tweather = tnow;
+                int bad = 0;
+                if((double)weather.last_update - tnow > WEATHER_LOST) bad = 1;
+                if(weather.forceoff || weather.rain || weather.weather > WEATHER_BAD) bad = 1;
+                if(bad) BadWeather = 1;
+                else BadWeather = 0;
+            }else{
+                if(tweather - tnow > WEATHER_LOST) BadWeather = 1; // lost weather IPC
+            }
             if(poll_device()){
                 tgot = tnow;
                 write_header();
             }
         }
-        if(ForbidObservations) continue;
+        if(ForbidObservations || BadWeather) continue;
         pthread_mutex_lock(&Dome.mutex);
         if(Dome.cmd != CMD_NONE){
             switch(Dome.cmd){
