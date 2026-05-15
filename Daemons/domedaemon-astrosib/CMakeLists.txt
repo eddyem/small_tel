@@ -15,7 +15,7 @@ message("VER: ${VERSION}")
 option(DEBUG "Compile in debug mode" OFF)
 
 # default flags
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -W -Wextra -std=gnu99")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -W -Wextra -std=c23")
 if(DEBUG)
     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Og -g3 -ggdb -fno-builtin-strlen -Werror")
     add_definitions(-DEBUG)
@@ -53,11 +53,12 @@ target_include_directories(${PROJ} PUBLIC ${MODULES_INCLUDE_DIRS})
 # -L
 target_link_directories(${PROJ} PUBLIC ${MODULES_LIBRARY_DIRS})
 # -l
-target_link_libraries(${PROJ} ${MODULES_LIBRARIES})
+target_link_libraries(${PROJ} ${MODULES_LIBRARIES} -lweather)
 # -D
 add_definitions(
 		-DPACKAGE_VERSION=\"${VERSION}\" -DMINOR_VERSION=\"${MINOR_VERSION}\" 
 		-DMID_VERSION=\"${MID_VERSION}\" -DMAJOR_VERSION=\"${MAJOR_VESION}\"
+		-D_GNU_SOURCE
 		)
 
 # Installation of the program

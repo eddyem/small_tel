@@ -21,6 +21,7 @@
 
 #include "astrosib_proto.h"
 #include "dome.h"
+#include "header.h"
 
 // number of relay turning on/off motors power
 #define MOTRELAY_NO     1
@@ -269,5 +270,6 @@ ret:
     if(state == DOME_S_IDLE) status_req_interval = STATUSREQ_IDLE;
     else status_req_interval = STATUSREQ_MOVE;
     pthread_mutex_unlock(&serialmutex);
+    write_header();
     return st;
 }

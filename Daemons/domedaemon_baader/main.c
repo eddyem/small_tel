@@ -136,10 +136,6 @@ int main(int argc, char **argv){
     if(lvl >= LOGLEVEL_AMOUNT) lvl = LOGLEVEL_AMOUNT - 1;
     if(G.logfile) OPENLOG(G.logfile, lvl, 1);
     LOGMSG("Started");
-    if(!term_open(G.termpath, G.serspeed, G.sertmout)){
-        LOGERR("Can't open %s", G.termpath);
-        ERRX("Fatal error");
-    }
     signal(SIGTERM, signals);
     signal(SIGINT, signals);
     signal(SIGQUIT, signals);
@@ -163,6 +159,10 @@ int main(int argc, char **argv){
     // react for USRx only in child
     signal(SIGUSR1, signals);
     signal(SIGUSR2, signals);
+    if(!term_open(G.termpath, G.serspeed, G.sertmout)){
+        LOGERR("Can't open %s", G.termpath);
+        ERRX("Fatal error");
+    }
     runserver(G.isunix, G.node, G.maxclients);
     LOGERR("Server error -> exit");
     return 0;

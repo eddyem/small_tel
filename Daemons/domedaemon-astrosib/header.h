@@ -1,6 +1,6 @@
 /*
  * This file is part of the domedaemon-astrosib project.
- * Copyright 2025 Edward V. Emelianov <edward.emelianoff@gmail.com>.
+ * Copyright 2026 Edward V. Emelianov <edward.emelianoff@gmail.com>.
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -18,15 +18,6 @@
 
 #pragma once
 
-#include <usefull_macros.h>
-
-// size of weather/status buffers
-#define STATBUF_SZ      256
-// dome polling interval (clear watchdog & get status)
-#define T_INTERVAL      (5.0)
-
-void server_run(sl_socktype_e type, const char *node, sl_tty_t *serial);
-const char *textst(int coverstate);
-void stopserver();
-void forbid_observations(int forbid);
-int get_forbidden();
+void write_header();
+int header_create(const char *file);
+void domename(const char *name);

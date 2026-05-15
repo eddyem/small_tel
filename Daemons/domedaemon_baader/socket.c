@@ -309,7 +309,7 @@ void runserver(int isunix, const char *node, int maxclients){
                 if(bad) BadWeather = 1;
                 else BadWeather = 0;
             }else{
-                if(tweather - tnow > WEATHER_LOST) BadWeather = 1; // lost weather IPC
+                if(tnow - tweather > WEATHER_LOST) BadWeather = 1; // lost weather IPC
             }
             if(poll_device()){
                 tgot = tnow;

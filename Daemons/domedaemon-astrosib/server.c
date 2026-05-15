@@ -18,15 +18,22 @@
 
 #include <inttypes.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/socket.h>
 #include <usefull_macros.h>
+#include <weather_data.h>
 
 #include "dome.h"
 
 // max age time of last status - 30s
-#define STATUS_MAX_AGE      (30.)
+#define STATUS_MAX_AGE  (30.)
+
+// if there's no signal from weather over `WEATHER_LOST` seconds, close the dome
+#define WEATHER_LOST    (300.)
+// interval of weather polling
+#define WEATH_POLL      (5.)
 
 // commands
 #define CMD_UNIXT       "unixt"
@@ -40,6 +47,13 @@
 
 // main socket
 static sl_sock_t *s = NULL;
+
+// external (manual) signal "deny/allow"
+static atomic_bool ForbidObservations = 0; // ==1 if all is forbidden -> close dome and not allow to open
+// weather don't allow to open
+static atomic_bool BadWeather = 0;
+
+#define CHKALLOWED() do{if(ForbidObservations || BadWeather){return RESULT_FAIL;}}while(0)
 
 /////// handlers
 // unixt - send to ALL clients
@@ -60,7 +74,7 @@ static sl_sock_hresult_e statush(sl_sock_t *c, _U_ sl_sock_hitem_t *item, _U_ co
     sl_sock_sendstrmessage(c, buf);
     return RESULT_SILENCE;
 }
-static const char *textst(int coverstate){
+const char *textst(int coverstate){
     switch(coverstate){
         case COVER_INTERMEDIATE: return "intermediate";
         case COVER_OPENED: return "opened";
@@ -110,16 +124,19 @@ static sl_sock_hresult_e domecmd(dome_cmd_t cmd){
     return RESULT_OK;
 }
 static sl_sock_hresult_e opendome(_U_ sl_sock_t *c, _U_ sl_sock_hitem_t *item, _U_ const char *req){
+    CHKALLOWED();
     return domecmd(DOME_OPEN);
 }
 static sl_sock_hresult_e closedome(_U_ sl_sock_t *c, _U_ sl_sock_hitem_t *item, _U_ const char *req){
     return domecmd(DOME_CLOSE);
 }
 static sl_sock_hresult_e stopdome(_U_ sl_sock_t *c, _U_ sl_sock_hitem_t *item, _U_ const char *req){
+    CHKALLOWED(); // don't allow to stop closing on forbidden state
     return domecmd(DOME_STOP);
 }
 // half open/close
 static sl_sock_hresult_e halfmove(sl_sock_t *c, sl_sock_hitem_t *item, const char *req){
+    CHKALLOWED();
     char buf[128];
     int N = item->key[sizeof(CMD_HALF) - 1] - '0';
     if(N < 1 || N > 2) return RESULT_BADKEY;
@@ -196,6 +213,7 @@ void server_run(sl_socktype_e type, const char *node, sl_tty_t *serial){
         LOGERR("server_run(): wrong parameters");
         ERRX("server_run(): wrong parameters");
     }
+    weather_data_t weather;
     dome_serialdev(serial);
     s = sl_sock_run_server(type, node, -1, handlers);
     if(!s) ERRX("Can't create socket and/or run threads");
@@ -203,14 +221,59 @@ void server_run(sl_socktype_e type, const char *node, sl_tty_t *serial){
     sl_sock_maxclhandler(s, toomuch);
     sl_sock_connhandler(s, connected);
     sl_sock_dischandler(s, disconnected);
+    double tnow = sl_dtime(), tweather = 0.;
+    int cmdclosed = 0;
     while(s && s->connected){
         if(!s->rthread){
             LOGERR("Server handlers thread is dead");
             break;
         }
+        if(tnow - tweather > WEATH_POLL){
+            if(0 == get_weather_data(&weather)){ // got OK -> check if observations are forbidden
+                tweather = tnow;
+                int bad = 0;
+                if((double)weather.last_update - tnow > WEATHER_LOST) bad = 1;
+                if(weather.forceoff || weather.rain || weather.weather > WEATHER_BAD) bad = 1;
+                if(bad) BadWeather = 1;
+                else BadWeather = 0;
+            }else{
+                if(tnow - tweather > WEATHER_LOST) BadWeather = 1; // lost weather IPC
+            }
+        }
         // finite state machine polling
         dome_poll(DOME_POLL, 0);
+        if(ForbidObservations || BadWeather){
+            if(0 == cmdclosed){
+                if(DOME_S_ERROR != dome_poll(DOME_CLOSE, 0)){
+                    LOGERR("Send command 'close' due to forbidden state");
+                    cmdclosed = 1;
+                }
+            }
+        }
     }
     sl_sock_delete(&s);
     ERRX("Server handlers thread is dead");
+}
+
+void stopserver(){
+    if(s && s->connected){
+        s->connected = 0;
+        usleep(5000);
+        if(s) sl_sock_delete(&s);
+    }
+}
+
+void forbid_observations(int forbid){
+    if(forbid){
+        ForbidObservations = true;
+        LOGWARN("Got forbidden signal");
+    }else{
+        ForbidObservations = false;
+        LOGWARN("Got allowed signal");
+    }
+    DBG("Change ForbidObservations=%d", forbid);
+}
+
+int get_forbidden(){
+    return (ForbidObservations || BadWeather);
 }
