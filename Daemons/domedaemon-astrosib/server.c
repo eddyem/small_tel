@@ -26,6 +26,7 @@
 #include <weather_data.h>
 
 #include "dome.h"
+#include "server.h"
 
 // max age time of last status - 30s
 #define STATUS_MAX_AGE  (30.)
@@ -89,7 +90,8 @@ static sl_sock_hresult_e statusth(sl_sock_t *c, _U_ sl_sock_hitem_t *item, _U_ c
     dome_status_t dome_status;
     double lastt = get_dome_status(&dome_status);
     if(sl_dtime() - lastt > STATUS_MAX_AGE) return RESULT_FAIL;
-    snprintf(buf, 127, "cover1=%s\ncover2=%s\nangle1=%d\nangle2=%d\nrelay1=%d\nrelay2=%d\nrelay3=%d\nreqtime=%.9f\n",
+    snprintf(buf, 127, "operations=%s\ncover1=%s\ncover2=%s\nangle1=%d\nangle2=%d\nrelay1=%d\nrelay2=%d\nrelay3=%d\nreqtime=%.9f\n",
+             get_forbidden() ? "forbidden" : "permitted",
              textst(dome_status.coverstate[0]), textst(dome_status.coverstate[1]),
              dome_status.encoder[0], dome_status.encoder[1],
              dome_status.relay[0], dome_status.relay[1], dome_status.relay[2],
@@ -221,23 +223,30 @@ void server_run(sl_socktype_e type, const char *node, sl_tty_t *serial){
     sl_sock_maxclhandler(s, toomuch);
     sl_sock_connhandler(s, connected);
     sl_sock_dischandler(s, disconnected);
-    double tnow = sl_dtime(), tweather = 0.;
+    double tnow = 0., tweather = 0.;
     int cmdclosed = 0;
     while(s && s->connected){
+        tnow = sl_dtime();
         if(!s->rthread){
             LOGERR("Server handlers thread is dead");
             break;
         }
         if(tnow - tweather > WEATH_POLL){
+            DBG("Poll weather");
             if(0 == get_weather_data(&weather)){ // got OK -> check if observations are forbidden
+                DBG("Got weather data");
                 tweather = tnow;
                 int bad = 0;
-                if((double)weather.last_update - tnow > WEATHER_LOST) bad = 1;
-                if(weather.forceoff || weather.rain || weather.weather > WEATHER_BAD) bad = 1;
+                if(tnow - (double)weather.last_update > WEATHER_LOST){ bad = 1; DBG("weather measurements are too old"); }
+                if(weather.forceoff || weather.rain || weather.weather > WEATHER_BAD){ bad = 1; DBG("Bad weather"); }
                 if(bad) BadWeather = 1;
                 else BadWeather = 0;
             }else{
-                if(tnow - tweather > WEATHER_LOST) BadWeather = 1; // lost weather IPC
+                DBG("Can't get weather");
+                if(tnow - tweather > WEATHER_LOST){
+                    DBG("Lost weather timeout");
+                    BadWeather = 1; // lost weather IPC
+                }
             }
         }
         // finite state machine polling
@@ -249,7 +258,7 @@ void server_run(sl_socktype_e type, const char *node, sl_tty_t *serial){
                     cmdclosed = 1;
                 }
             }
-        }
+        } else cmdclosed = 0;
     }
     sl_sock_delete(&s);
     ERRX("Server handlers thread is dead");

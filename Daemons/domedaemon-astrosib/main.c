@@ -126,7 +126,9 @@ int main(int argc, char **argv){
         ERRX("Cannot write into '%s'", G.headerfile);
     domename(G.dome_name);
     sl_check4running((char*)__progname, G.pidfile);
+#ifndef EBUG
     if(sl_daemonize()) ERR("Can't daemonize!");
+#endif
     sl_loglevel_e lvl = G.verbose + LOGLEVEL_ERR;
     if(lvl >= LOGLEVEL_AMOUNT) lvl = LOGLEVEL_AMOUNT - 1;
     if(G.logfile) OPENLOG(G.logfile, lvl, 1);
