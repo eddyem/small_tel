@@ -62,7 +62,7 @@ int get_dome_data(dome_data_t *d){
     pthread_mutex_lock(&Dome.mutex);
     *d = *((dome_data_t*)&Dome);
     pthread_mutex_unlock(&Dome.mutex);
-    return ForbidObservations;
+    return (ForbidObservations || BadWeather);
 }
 
 void stopserver(){

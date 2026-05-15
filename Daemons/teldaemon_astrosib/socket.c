@@ -20,11 +20,15 @@
 #include <inttypes.h>
 #include <pthread.h>
 #include <string.h>
+#include <weather_data.h>
 
 #include "commands.h"
 #include "header.h"
 #include "socket.h"
 #include "term.h"
+
+// if there's no signal from weather over `WEATHER_LOST` seconds, close the dome
+#define WEATHER_LOST    (900.)
 
 typedef enum{
     CMD_OPEN,
@@ -54,6 +58,8 @@ static tel_t telescope = {0};
 
 // external signal "deny/allow"
 static atomic_bool ForbidObservations = 0; // ==1 if all is forbidden -> close dome and not allow to open
+// weather don't allow to open
+static atomic_bool BadWeather = 0;
 
 static sl_sock_t *locksock = NULL; // local server socket
 
@@ -75,7 +81,7 @@ bool get_telescope_data(telstatus_t *t){
     pthread_mutex_lock(&telescope.mutex);
     *t = *((telstatus_t*)&telescope);
     pthread_mutex_unlock(&telescope.mutex);
-    return ForbidObservations;
+    return (ForbidObservations || BadWeather);
 }
 
 // send "measuret=..."
@@ -92,7 +98,7 @@ static sl_sock_hresult_e dtimeh(sl_sock_t *client, _U_ sl_sock_hitem_t *item, _U
     return RESULT_SILENCE;
 }
 
-#define CHKALLOWED() do{if(ForbidObservations){pthread_mutex_unlock(&telescope.mutex); return RESULT_FAIL;}}while(0)
+#define CHKALLOWED() do{if(ForbidObservations || BadWeather){pthread_mutex_unlock(&telescope.mutex); return RESULT_FAIL;}}while(0)
 
 static sl_sock_hresult_e openh(_U_ sl_sock_t *client, _U_ sl_sock_hitem_t *item, _U_ const char *req){
     pthread_mutex_lock(&telescope.mutex);
@@ -111,7 +117,6 @@ static sl_sock_hresult_e closeh(_U_ sl_sock_t *client, _U_ sl_sock_hitem_t *item
 
 static sl_sock_hresult_e fstoph(_U_ sl_sock_t *client, _U_ sl_sock_hitem_t *item, _U_ const char *req){
     pthread_mutex_lock(&telescope.mutex);
-    CHKALLOWED();
     telescope.cmd = CMD_FOCSTOP;
     pthread_mutex_unlock(&telescope.mutex);
     return RESULT_OK;
@@ -151,6 +156,7 @@ static sl_sock_hresult_e statush(sl_sock_t *client, _U_ sl_sock_hitem_t *item, _
 
     }
     if(ForbidObservations) sl_sock_sendstrmessage(client, "FORBIDDEN\n");
+    if(BadWeather) sl_sock_sendstrmessage(client, "BADWEATHER\n");
     return RESULT_SILENCE;
 }
 
@@ -307,6 +313,7 @@ static int poll_device(){
 void runserver(int isunix, const char *node, int maxclients){
     char ans[ANSLEN];
     int forbidden = 0;
+    weather_data_t weather;
     if(locksock) sl_sock_delete(&locksock);
     telescope.errcmd = telescope.cmd = CMD_NONE;
     pthread_mutex_init(&telescope.mutex, NULL);
@@ -317,9 +324,9 @@ void runserver(int isunix, const char *node, int maxclients){
     sl_sock_connhandler(locksock, connected);
     sl_sock_dischandler(locksock, disconnected);
     sl_sock_defmsghandler(locksock, defhandler);
-    double tgot = 0.;
+    double tgot = 0., tweather = 0.;
     while(locksock && locksock->connected){
-        if(ForbidObservations){
+        if(ForbidObservations || BadWeather){
             if(!forbidden){
                 if(term_cmdwans(TXT_CLOSE, TXT_ANS_OK, ans)) forbidden = 1;
                 pthread_mutex_lock(&telescope.mutex);
@@ -335,12 +342,21 @@ void runserver(int isunix, const char *node, int maxclients){
         }
         double tnow = sl_dtime();
         if(tnow - tgot > T_INTERVAL){
+            if(0 == get_weather_data(&weather)){ // got OK -> check if observations are forbidden
+                tweather = tnow;
+                int bad = 0;
+                if((double)weather.last_update - tnow > WEATHER_LOST) bad = 1;
+                if(weather.forceoff || weather.rain || weather.weather > WEATHER_TERRIBLE) bad = 1;
+                if(bad) BadWeather = 1;
+                else BadWeather = 0;
+            }else{
+                if(tweather - tnow > WEATHER_LOST) BadWeather = 1; // lost weather IPC
+            }
             if(poll_device()){
                 tgot = tnow;
                 write_header();
             }
         }
-        if(ForbidObservations) continue;
         pthread_mutex_lock(&telescope.mutex);
         tel_commands_t tcmd = telescope.cmd;
         pthread_mutex_unlock(&telescope.mutex);
@@ -348,15 +364,16 @@ void runserver(int isunix, const char *node, int maxclients){
             switch(tcmd){
             case CMD_OPEN:
                 DBG("received command: open");
+                if(ForbidObservations || BadWeather) break;
                 if(term_cmdwans(TXT_OPEN, TXT_ANS_OK, ans)){
-                    LOGMSG("Open dome");
+                    LOGMSG("Open shutters");
                     tcmd = CMD_NONE;
                 }
                 break;
             case CMD_CLOSE:
                 DBG("received command: close");
                 if(term_cmdwans(TXT_CLOSE, TXT_ANS_OK, ans)){
-                    LOGMSG("Close dome");
+                    LOGMSG("Close shutters");
                     tcmd = CMD_NONE;
                 }
                 break;

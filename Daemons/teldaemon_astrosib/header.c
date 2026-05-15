@@ -24,6 +24,8 @@
 #include "header.h"
 #include "socket.h"
 
+#define VAL_LEN 22
+
 static char *headername = NULL;
 static char *telescope_name = NULL;
 static header_mask_t header_mask = {0};
@@ -68,7 +70,7 @@ void telname(const char *name){
     if(name){
         int l = strlen(name) + 3;
         telescope_name = MALLOC(char, l);
-        snprintf(telescope_name, l-1, "'%s'", name);
+        snprintf(telescope_name, l, "'%s'", name);
     }
 }
 
@@ -88,7 +90,7 @@ const char *getheadermaskhelp(){
 void write_header(){
     if(!headername || !header_mask.flags) return;
     char aname[PATH_MAX];
-    char val[22];
+    char val[VAL_LEN];
     telstatus_t st;
 #define WRHDR(k, v, c)  do{if(printhdr(fd, k, v, c)){goto returning;}}while(0)
     snprintf(aname, PATH_MAX-1, "%sXXXXXX", headername);
@@ -101,34 +103,35 @@ void write_header(){
 
     if(get_telescope_data(&st)) WRHDR("OPERATIO", "'FORBIDDEN'", "Observations are forbidden");
     if(header_mask.telname && telescope_name) WRHDR("TELESCOP", telescope_name, "Telescope name");
-    WRHDR("TELSTAT", st.status, "Telescope shutters' status");
+    snprintf(val, VAL_LEN, "'%s'", st.status);
+    WRHDR("TELSTAT", val, "Telescope shutters' status");
     if(header_mask.fosuser){
-        snprintf(val, 21, "%d", st.focuserpos);
+        snprintf(val, VAL_LEN, "%d", st.focuserpos);
         WRHDR("FOCUS", val, "Current focuser position");
     }
     if(header_mask.cooler){
-        snprintf(val, 21, "%d", st.cooler);
+        snprintf(val, VAL_LEN, "%d", st.cooler);
         WRHDR("TELCOOLR", val, "Primary mirror cooler status: 0/1 (off/on)");
     }
     if(header_mask.heater){
-        snprintf(val, 21, "%d", st.heater);
+        snprintf(val, VAL_LEN, "%d", st.heater);
         WRHDR("TELHEATR", val, "Secondary mirror heater status: 0/1 (off/on)");
     }
     if(header_mask.exttemp){
-        snprintf(val, 21, "%.1f", st.ambienttemp);
+        snprintf(val, VAL_LEN, "%.1f", st.ambienttemp);
         WRHDR("TDOME", val, "In-dome temperature, degC");
     }
     if(header_mask.mirtemp){
-        snprintf(val, 21, "%.1f", st.mirrortemp);
+        snprintf(val, VAL_LEN, "%.1f", st.mirrortemp);
         WRHDR("TMIRROR", val, "Mirror temperature, degC");
     }
     if(header_mask.meastime){
-        snprintf(val, 21, "%.3f", st.stattime);
+        snprintf(val, VAL_LEN, "%.3f", st.stattime);
         char timebuf[BUFSIZ];
         time_t t = (time_t) st.stattime;
         struct tm *tmp;
         tmp = localtime(&t);
-        if(!tmp || 0 == strftime(timebuf, BUFSIZ, "Measurement time (telescope): %F %T", tmp)){
+        if(!tmp || 0 == strftime(timebuf, BUFSIZ, "Measurement time: %F %T", tmp)){
             LOGERR("localtime() returned NULL");
             goto returning;
         }

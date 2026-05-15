@@ -24,6 +24,8 @@
 #include "header.h"
 #include "socket.h"
 
+#define VAL_LEN 22
+
 static char *headername = NULL;
 static char *dome_name = NULL;
 
@@ -66,14 +68,14 @@ void domename(const char *name){
     if(name){
         int l = strlen(name) + 3;
         dome_name = MALLOC(char, l);
-        snprintf(dome_name, l-1, "'%s'", name);
+        snprintf(dome_name, l, "'%s'", name);
     }
 }
 
 void write_header(){
     if(!headername) return;
     char aname[PATH_MAX];
-    char val[22];
+    char val[VAL_LEN];
 #define WRHDR(k, v, c)  do{if(printhdr(fd, k, v, c)){goto returning;}}while(0)
     snprintf(aname, PATH_MAX-1, "%sXXXXXX", headername);
     int fd = mkstemp(aname);
@@ -86,11 +88,13 @@ void write_header(){
     dome_data_t st;
     if(get_dome_data(&st)) WRHDR("OPERATIO", "'FORBIDDEN'", "Observations are forbidden");
     if(dome_name) WRHDR("DOME", dome_name, "Dome manufacturer/name");
-    WRHDR("DOMESTAT", st.status, "Dome status");
-    WRHDR("DOMEWEAT", st.weather, "Dome weather sensor status");
-    snprintf(val, 21, "%d", st.errcode);
+    snprintf(val, VAL_LEN, "'%s'", st.status);
+    WRHDR("DOMESTAT", val, "Dome status");
+    snprintf(val, VAL_LEN, "'%s'", st.weather);
+    WRHDR("DOMEWEAT", val, "Dome weather sensor status");
+    snprintf(val, VAL_LEN, "%d", st.errcode);
     WRHDR("DOMEECOD", val, "Dome error code: Rain|Watchdog|Power");
-    snprintf(val, 21, "%.3f", st.stattime);
+    snprintf(val, VAL_LEN, "%.3f", st.stattime);
     char timebuf[BUFSIZ];
     time_t t = (time_t) st.stattime;
     struct tm *tmp;
