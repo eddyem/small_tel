@@ -166,6 +166,8 @@ int main(int argc, char **argv){
         LOGERR("Can't open serial device %s", G.device);
         ERRX("Can't open serial device %s", G.device);
     }
+    signal(SIGUSR1, signals);
+    signal(SIGUSR2, signals);
     sl_tty_tmout(DEFAULT_SERTMOUT);
     server_run(type, G.node, serial);
     LOGERR("Unreacheable code reached!");
