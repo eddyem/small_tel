@@ -1,4 +1,5 @@
 Collect weather data from new meteostation in sqlite3 database.
+// This is old version and need to be modificated for working with modern weather daemon)
 
 Parameters:
 
