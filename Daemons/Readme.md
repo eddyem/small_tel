@@ -10,5 +10,5 @@ Different daemons & tools
 - *send_coordinates* - get/send coordinates to 10-micron mount through stellarium daemon (almost deprecated)
 - *teldaemon_astrosib* - work with Astrosib-500 scope equipment by network query
 - *weatherdaemon_multimeteo* - weather daemon for ALL meteo sensors on "Astro-M" complex
-- *weather_database* - make database by data of almost deprecated weather daemons
+- *weather_logger* - make file-based database for all meteo sensors
 - *weather_proxy* - daemon gathering meteo data from `weatherdaemon_multimeteo` and sharing it on localhost over SHM
