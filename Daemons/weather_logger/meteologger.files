@@ -1,4 +1,5 @@
 CMakeLists.txt
+Readme.md
 main.c
 parseargs.c
 parseargs.h

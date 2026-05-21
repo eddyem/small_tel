@@ -79,6 +79,15 @@ int main(int argc, char **argv){
     signal(SIGUSR1, signals); // reload DB
 #ifndef EBUG
     if(sl_daemonize()) ERRX("Can't daemonize");
+#endif
+    if(G->logfile){
+        sl_loglevel_e lvl = LOGLEVEL_ERR + G->verb;
+        if(lvl >= LOGLEVEL_AMOUNT) lvl = LOGLEVEL_AMOUNT - 1;
+        DBG("Loglevel: %d", lvl);
+        OPENLOG(G->logfile, lvl, 1);
+    }
+    LOGMSG("Started");
+#ifndef EBUG
     catchsig = INT_MAX; // now `signals` won't run exit()
     while(catchsig == INT_MAX){ // guard for dead processes
         childpid = fork();
@@ -114,8 +123,10 @@ int main(int argc, char **argv){
     }else{
         pid_t self = getpid();
         prepare_and_run(G);
-        if(catchsig == INT_MAX) LOGERR("Child process %d died", self);
-        else LOGERR("Child process %d exits with status %d", self, catchsig);
+        if(catchsig == INT_MAX){
+            LOGERR("Child process %d died", self);
+            catchsig = 0; // like normal exit
+        }else LOGERR("Child process %d exits with status %d", self, catchsig);
         ; // cleanup child here
 #ifdef EBUG
         if(G->pidfile) unlink(G->pidfile); // unlink PID-file in debug-mode

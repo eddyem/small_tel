@@ -61,7 +61,7 @@ glob_pars *parseargs(int *argc, char ***argv){
     // remove trailing '/'
     int eol = strlen(G.bddir) - 1;
     DBG("eol=%d", eol);
-    while(eol > 0){
+    while(eol > 0){ // don't remove leading slash in case of "/"
         DBG("before: %s", G.bddir);
         if(G.bddir[eol] == '/') G.bddir[eol] = 0;
         else break;
@@ -73,10 +73,7 @@ glob_pars *parseargs(int *argc, char ***argv){
     if(G.net_timeout < MIN_NET_TMOUT || G.net_timeout > MAX_NET_TMOUT)
         ERRX("Wrong network timeout %g, should be in [%g, %g]", G.net_timeout, MIN_NET_TMOUT, MAX_NET_TMOUT);
     if(G.logfile){
-        sl_loglevel_e lvl = LOGLEVEL_ERR + G.verb;
-        if(lvl >= LOGLEVEL_AMOUNT) lvl = LOGLEVEL_AMOUNT - 1;
-        DBG("Loglevel: %d", lvl);
-        if(!OPENLOG(G.logfile, lvl, 1)) ERRX("Can't open log file %s", G.logfile);
+        if(*G.logfile != '/') ERRX("Logging file path should be absolute!");
     }
     return &G;
 }

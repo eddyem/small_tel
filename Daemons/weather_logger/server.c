@@ -128,7 +128,15 @@ void set_nettimeout(double dt){
  */
 static bool write2fd(senslog_t *sensor, const char *str, size_t len){
     if(!sensor || !str || len < 1) return false;
-    if(write(sensor->fd, str, len) != (ssize_t)len){
+    const char *ptr = str;
+    size_t written = 0;
+    while(len){
+        ssize_t l = write(sensor->fd, ptr, len);
+        if(l < 0) break;
+        len -= l;
+        ptr += l;
+    }
+    if(written != len){
         LOGERR("Can't write '%s' to file %s: %s", str, sensor->path, strerror(errno));
         WARNX("Can't write data to file");
         close(sensor->fd);
@@ -405,8 +413,10 @@ static bool analyse_list(sl_sock_t *sock){
         if(Nsensors <= idx){
             int oldN = Nsensors;
             Nsensors = idx + 1;
+            senslog_t *old_sensors = sensors;
             sensors = realloc(sensors, Nsensors * sizeof(senslog_t));
             if(!sensors){
+                sensors = old_sensors; // restore old pointer instead of NULL
                 sensors_delete();
                 LOGERR("analyse_list(): error in realloc()");
                 WARNX("analyse_list(): error in realloc()");
@@ -545,8 +555,11 @@ static bool poll_server_answers(sl_sock_t *sock){
                     // now throw data to disk
                     DBG("throw '%s' with length %d to disk", sensor->buf, sensor->buflen);
                     allOK = write2fd(sensor, sensor->buf, sensor->buflen);
-                    write2fd(sensor, "\n", 1);
-                    sensor->lasttimestamp = ts;
+                    if(allOK){
+                        write2fd(sensor, "\n", 1);
+                        fsync(sensor->fd); // sync last full record
+                        sensor->lasttimestamp = ts;
+                    }
                     DBG("Data for %d is %swritten to disk", sensor->idx, allOK ? "" : "not ");
                 }
             }
@@ -596,8 +609,22 @@ static bool poll_server_answers(sl_sock_t *sock){
             }
         }
     }
-    sensor->buflen += snprintf(sensor->buf + sensor->buflen, BUFSIZ-sensor->buflen, "%s%s",
-                               value, sensor->nvalues-1 != idx ? ", " : "");
+    int avail = BUFSIZ - sensor->buflen;
+    if(avail <= 0){
+        LOGWARN("Sensor %d: writing buffer overfull", sensor->idx);
+        WARNX("Overfull; clear all");
+        sensor->lastvalidx = -1;
+        sensor->buflen = 0;
+        return false;
+    }
+    int n = snprintf(sensor->buf + sensor->buflen, avail, "%s%s",
+                              value, sensor->nvalues-1 != idx ? ", " : "");
+    if(n >= avail){
+        // Data would be truncated  handle error or discard
+        n = avail - 1;
+        LOGWARN("Sensor %d: writing buffer truncated", sensor->idx);
+    }
+    sensor->buflen += n;
     sensor->lastvalidx = idx;
     DBG("Now buf[%d]=%s", sensor->idx, sensor->buf);
     return true;
