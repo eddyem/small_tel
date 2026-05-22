@@ -66,6 +66,19 @@ meteologger -n <node> -o <directory> [options]
 | `-i`   | `--interval`   | `0.5`                       | Request interval in seconds. Allowed range: `[0.2, 900]`. |
 | `-t`   | `--timeout`    | `1.0`                       | Network timeout for server responses (seconds). Allowed range: `[0.1, 30]`. |
 
+### Rotation of database files
+
+The daemon keeps all DB files opened during its work, so for correct log rotation after renaming
+all files (like `rename log log00 *.log`) you should send SIGUSR1 or SIGUSR2 to daemon, like
+
+```bash
+kill -USR1 $(cat /tmp/meteologger.pid)
+```
+
+After receiving of this signal daemon will open new DB files and you will be able to compress old
+files.
+
+
 ### Examples
 
 1. Connect to a local daemon on port 5555 and store data in `/var/log/weather`:

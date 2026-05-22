@@ -77,7 +77,7 @@ static void *mainthread(void *s){
     sensordata_t *sensor = (sensordata_t *)s;
     while(sensor->fdes > -1){
         time_t tnow = time(NULL);
-        if(tnow - tpoll > sensor->tpoll){
+        if(tnow - tpoll >= sensor->tpoll){
             if(4 != write(sensor->fdes, "?U\r\n", 4)){
                 WARN("Can't ask new data");
                 break;

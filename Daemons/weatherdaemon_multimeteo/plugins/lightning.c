@@ -109,7 +109,7 @@ static void *mainthread(void *s){
     sensordata_t *sensor = (sensordata_t *)s;
     while(sensor->fdes > -1){
         time_t tnow = time(NULL);
-        if(tnow - tpoll > sensor->tpoll){
+        if(tnow - tpoll > sensor->tpoll){ // tpoll + 1 second
             int dlen = sprintf(buf, "%s0\n%s1\n", commands[CMD_DISTANCE], commands[CMD_DISTANCE]);
             if(dlen != write(sensor->fdes, buf, dlen)){
                 WARN("Can't ask new data from lightning monitor");
@@ -144,15 +144,19 @@ static void *mainthread(void *s){
                 int idx = parse_string(buf, &val, &nsens);
                 if(idx > -1){
                     DBG("Got index=%d", idx);
-                    gotfresh = TRUE;
                     if(idx == NINTERRUPT && val == ANS_LIGHTNING){
                         DBG("Interrupt: lightning");
                         sensor->values[NSENSNO].value.u = nsens;
                         sensor->values[NSENSNO].time = tnow;
 
                     }
-                    sensor->values[idx].value.u = val;
-                    sensor->values[idx].time = tnow;
+                    if(idx == NDISTANCE && val == 63){
+                        // do nothing: this is just polling signal
+                    }else{
+                        gotfresh = TRUE;
+                        sensor->values[idx].value.u = val;
+                        sensor->values[idx].time = tnow;
+                    }
                 }
             }else break;
         }

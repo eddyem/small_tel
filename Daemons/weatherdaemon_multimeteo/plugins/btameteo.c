@@ -41,6 +41,7 @@ static const val_t values[NAMOUNT] = {
 static void *mainthread(void *s){
     FNAME();
     sensordata_t *sensor = (sensordata_t *)s;
+    double t0 = sl_dtime();
     while(sensor->fdes > -1){
         if(check_shm_block(&sdat)){
             //DBG("Got next");
@@ -57,7 +58,8 @@ static void *mainthread(void *s){
             pthread_mutex_unlock(&sensor->valmutex);
             if(sensor->freshdatahandler) sensor->freshdatahandler(sensor);
         }else break; // no connection?
-        sleep(1);
+        while(sl_dtime() - t0 < sensor->tpoll) usleep(500);
+        t0 = sl_dtime();
     }
     return NULL;
 }

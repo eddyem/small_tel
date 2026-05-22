@@ -38,8 +38,8 @@ static const char *key_timestamp = "TWEATH";
 
 // sensor's db filename mask: DBpath/weatherXX.log
 static const char *dbfilename_mask = "%s/weather%02d.log";
-// and search regex
-static const char *dbfilename_regex = "weather[[:digit:]]{2}\\.log";
+// and search regex inside DB directory
+static const char *dbfilename_regex = "^weather[[:digit:]]{2}\\.log$";
 
 static volatile atomic_bool isrunning = true;
 static volatile atomic_bool logreinit = false;
@@ -189,6 +189,7 @@ static ssize_t get_answer_line(sl_sock_t *sock, char *buf, size_t buflen){
 // @return false if failed
 bool reinit_logs(){
     FNAME();
+    LOGMSG("Got 'reinit' command");
     logreinit = true;
     return true;
 }
@@ -217,8 +218,9 @@ static bool find_old_file(senslog_t *sensor){
     if(sensor->fd > -1){
         DBG("found opened file %s with fd %d -> close", sensor->path, sensor->fd);
         close(sensor->fd);
+        sensor->fd = -1;
     }
-
+    LOGMSG("Try to find old file");
     regex_t regex;
     // Compile regex
     if(regcomp(&regex, dbfilename_regex, REG_EXTENDED | REG_NOSUB) != 0){
@@ -235,16 +237,16 @@ static bool find_old_file(senslog_t *sensor){
             // Check if filename matches regex
             if(regexec(&regex, dir->d_name, 0, NULL, 0) == 0){
                 DBG("Found: %s", dir->d_name);
-                char fname[PATH_MAX], line[BUFSIZ];
-                snprintf(fname, PATH_MAX, "%s/%s", DBpath, dir->d_name);
-                FILE *fp = fopen(fname, "r");
+                char line[BUFSIZ];
+                snprintf(sensor->path, PATH_MAX, "%s/%s", DBpath, dir->d_name);
+                FILE *fp = fopen(sensor->path, "r");
                 if(!fp){
-                    LOGERR("Cannot open %s for reading: %s", fname, strerror(errno));
+                    LOGWARN("Cannot open %s for reading: %s", sensor->path, strerror(errno));
                     DBG("Can't open");
                     continue;
                 }
                 if(fgets(line, sizeof(line), fp) == NULL){
-                    LOGWARN("Found empty BD file %s - WTF???", fname);
+                    LOGWARN("Found empty BD file %s - WTF???", sensor->path);
                     fclose(fp);
                     continue;
                 }
@@ -252,18 +254,19 @@ static bool find_old_file(senslog_t *sensor){
                 int len = strlen(line);
                 if(len > 0 && line[len-1] == '\n') line[len-1] = 0; // remove trailing newline
                 if(line[0] != '#' || line[1] != ' '){ // should starts from comment with station's name
-                    LOGWARN("Found broken database file: %s", fname);
+                    LOGWARN("Found broken database file: %s", sensor->path);
                     continue;
                 }
                 const char *stname = line + 2; // station name from comment
                 DBG("Check name: '%s' and '%s'", stname, sensor->sensname);
                 if(0 == strcmp(stname, sensor->sensname)){ // good, we found this file!
-                    DBG("Found existant file %s -> append to it", fname);
-                    int newfd = open(fname, O_WRONLY | O_APPEND);
+                    DBG("Found existant file %s -> append to it", sensor->path);
+                    int newfd = open(sensor->path, O_WRONLY | O_APPEND);
                     if(newfd < 0){
-                        LOGERR("Can't open existant BD file %s for append, try to create new", fname);
+                        LOGWARN("Can't open existant BD file %s for append, try to create new", sensor->path);
                         continue;
                     }
+                    LOGMSG("Station '%s': opened existant DB file '%s'", sensor->sensname, sensor->path);
                     sensor->fd = newfd;
                     ret = true;
                     break;
@@ -274,6 +277,7 @@ static bool find_old_file(senslog_t *sensor){
     }else{
         LOGERR("Can't open %s: %s", DBpath, strerror(errno));
     }
+    if(sensor->fd < 0) LOGERR("Error opening DB file for '%s'", sensor->sensname);
     regfree(&regex);
     return ret;
 }
@@ -286,12 +290,12 @@ static bool create_db_file(senslog_t *sensor){
         WARNX("create_db_file() should be called only with fully initialized `sensor`");
         return false;
     }
+    LOGMSG("Try to create new DB file for '%s'", sensor);
     int num = sensor->idx; // try to start from sensor's index
-    char path[PATH_MAX];
     for(; num <= 99; ++num){
-        snprintf(path, PATH_MAX, dbfilename_mask, DBpath, num);
+        snprintf(sensor->path, PATH_MAX, dbfilename_mask, DBpath, num);
         DBG("Try to create %s", path);
-        if(access(path, F_OK) != 0) break;   // no such file
+        if(access(sensor->path, F_OK) != 0) break;   // no such file
     }
     if(num > 99){
         LOGERR("Can't find free filename for station '%s', all numbers from 0 to 99 are busy! WTF???",
@@ -300,29 +304,30 @@ static bool create_db_file(senslog_t *sensor){
         return false;
     }
     // create and open write-only
-    int newfd = open(path, O_WRONLY | O_CREAT, 0644);
+    int newfd = open(sensor->path, O_WRONLY | O_CREAT, 0644);
     if(newfd < 0){
-        LOGERR("Can't open file %s for station %s: %s", path, sensor->sensname, strerror(errno));
-        WARNX("Can't open %s", path);
+        LOGERR("Can't open file %s for station %s: %s", sensor->path, sensor->sensname, strerror(errno));
+        WARNX("Can't open %s", sensor->path);
         return false;
     }
     DBG("OK, %s opened, try to write header", path);
     sensor->fd = newfd;
-    ssize_t len = snprintf(path, PATH_MAX, "# %s\n", sensor->sensname);
+    char path[2*PATH_MAX];
+    ssize_t len = snprintf(path, 2*PATH_MAX, "# %s\n", sensor->sensname);
     if(!write2fd(sensor, path, len)) return false;
-    len = snprintf(path, PATH_MAX, "# Station #%d, format: KEYWORD[level],...\n# TIMESTAMP, ", sensor->idx);
+    len = snprintf(path, 2*PATH_MAX, "# Station #%d, format: KEYWORD[level],...\n# TIMESTAMP, ", sensor->idx);
     if(!write2fd(sensor, path, len)) return false;
     char *ptr = path;
     len = 0;
     for(int i = 0; i < sensor->nvalues; ++i){
-        ssize_t L = snprintf(ptr, PATH_MAX-len, "%s%s[%d]", i ? ", " : "", sensor->keys[i], sensor->levels[i]);
+        ssize_t L = snprintf(ptr, 2*PATH_MAX-len, "%s%s[%d]", i ? ", " : "", sensor->keys[i], sensor->levels[i]);
         len += L;
         ptr += L;
     }
-    len += snprintf(ptr, PATH_MAX-len, "\n");
+    len += snprintf(ptr, 2*PATH_MAX-len, "\n");
     if(!write2fd(sensor, path, len)) return false;
-    DBG("%s now have descriptor %d: %s", sensor->sensname, newfd, path);
-
+    DBG("%s now have descriptor %d: %s", sensor->sensname, newfd, sensor->path);
+    LOGMSG("OK, data for '%s' now will be stored @ '%s'", sensor->sensname, sensor->path);
     return true;
 }
 
@@ -335,6 +340,7 @@ static bool create_db_file(senslog_t *sensor){
 static bool get_sensor_keys(senslog_t *sensor, sl_sock_t *sock){
     if(!sensor || !sock) return false;
     char str[BUFSIZ], key[SL_KEY_LEN], value[SL_VAL_LEN];
+    LOGMSG("Send request to receive all keys for sensors");
     snprintf(str, BUFSIZ, "%s=%d\n", commands[CMD_CHKLEVEL], sensor->idx);
     if(!send_request(sock, str)){
         LOGERR("Can't send request '%s'", commands[CMD_CHKLEVEL]);
@@ -376,6 +382,7 @@ static bool get_sensor_keys(senslog_t *sensor, sl_sock_t *sock){
 // this function called at start and on any logs reinit
 static bool prepare_files(sl_sock_t *sock){
     if(!sock || !DBpath || Nsensors < 1) return false;
+    LOGMSG("Prepare files for DB");
     for(int i = 0; i < Nsensors; ++i){
         senslog_t *sensor = &sensors[i];
         if(!sensor->initialized && !get_sensor_keys(sensor, sock)) return false;
@@ -387,6 +394,8 @@ static bool prepare_files(sl_sock_t *sock){
                 return false;
             }
         }
+        sensor->buflen = 0;
+        sensor->lastvalidx = -1;
     }
     DBG("All ready!");
     return true;
@@ -458,7 +467,7 @@ static bool analyse_list(sl_sock_t *sock){
         if(sensor->nvalues < 1){
             LOGWARN("Zero keys for station %s", sensor->sensname);
             ans = false; break;
-        }
+        }else LOGMSG("Found station '%s' with %d keys", sensor->sensname, sensor->nvalues);
     }
     if(ans) ans = prepare_files(sock);
     if(ans == false) sensors_delete();
@@ -477,6 +486,7 @@ static bool prepare_logfiles(sl_sock_t *sock, const char *path){
         return false;
     }
     DBG("Store files in %s; send `list` request", DBpath);
+    LOGMSG("Store files in %s; send `list` request", DBpath);
     snprintf(buf, 255, "%s\n", commands[CMD_LIST]);
     if(!send_request(sock, buf)){
         LOGERR("Can't send inited request");

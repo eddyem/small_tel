@@ -53,6 +53,7 @@ void signals(int signo){
             kill(childpid, signo);
             LOGMSG("Send received signal %d to child", signo);
             if(signo != SIGUSR1) catchsig = signo;
+            else signal(signo, signals);
         }else catchsig = signo;
     }
 }
@@ -76,7 +77,10 @@ int main(int argc, char **argv){
     signal(SIGINT, signals);
     signal(SIGQUIT, signals);
     signal(SIGPIPE, SIG_IGN); // for sockets
+    signal(SIGSTOP, SIG_IGN);
+    signal(SIGTSTP, SIG_IGN);
     signal(SIGUSR1, signals); // reload DB
+    signal(SIGUSR2, signals); // reload DB
 #ifndef EBUG
     if(sl_daemonize()) ERRX("Can't daemonize");
 #endif
