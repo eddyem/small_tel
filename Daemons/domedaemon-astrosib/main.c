@@ -137,7 +137,6 @@ int main(int argc, char **argv){
     signal(SIGINT, signals);
     signal(SIGQUIT, signals);
     signal(SIGTSTP, SIG_IGN);
-    signal(SIGHUP, signals);
     signal(SIGUSR1, SIG_IGN);
     signal(SIGUSR2, SIG_IGN);
 #ifndef EBUG

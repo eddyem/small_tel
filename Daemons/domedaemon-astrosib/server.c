@@ -259,6 +259,7 @@ void server_run(sl_socktype_e type, const char *node, sl_tty_t *serial){
                 }
             }
         } else cmdclosed = 0;
+        sleep(1);
     }
     sl_sock_delete(&s);
     ERRX("Server handlers thread is dead");
