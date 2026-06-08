@@ -64,11 +64,11 @@ enum{
 // they would be changed later in `fix_new_data` to lowest level
 static val_t collected_data[NAMOUNT_OF_DATA] = {
     [NWIND] = {.sense = VAL_BROKEN, .type = VALT_FLOAT, .meaning = IS_WIND},
-    [NWINDMAX] = {.sense = VAL_RECOMMENDED, .type = VALT_FLOAT, .meaning = IS_OTHER, .name = "WINDMAX", .comment = "Maximal wind speed for last 24 hours"},
-    [NWINDMAX1] = {.sense = VAL_RECOMMENDED, .type = VALT_FLOAT, .meaning = IS_OTHER, .name = "WINDMAX1", .comment = "Maximal wind speed for last hour"},
+    [NWINDMAX] = {.sense = VAL_BROKEN, .type = VALT_FLOAT, .meaning = IS_OTHER, .name = "WINDMAX", .comment = "Maximal wind speed for last 24 hours"},
+    [NWINDMAX1] = {.sense = VAL_BROKEN, .type = VALT_FLOAT, .meaning = IS_OTHER, .name = "WINDMAX1", .comment = "Maximal wind speed for last hour"},
     [NWINDDIR] = {.sense = VAL_BROKEN, .type = VALT_FLOAT, .meaning = IS_WINDDIR},
-    [NWINDDIR1] = {.sense = VAL_RECOMMENDED, .type = VALT_FLOAT, .meaning = IS_OTHER, .name = "WINDDIR1", .comment = "Mean wind speed direction for last hour"},
-    [NWINDDIR2] = {.sense = VAL_RECOMMENDED, .type = VALT_FLOAT, .meaning = IS_OTHER, .name = "WINDDIR2", .comment = "Mean wind speed^2 direction for last hour"},
+    [NWINDDIR1] = {.sense = VAL_BROKEN, .type = VALT_FLOAT, .meaning = IS_OTHER, .name = "WINDDIR1", .comment = "Mean wind speed direction for last hour"},
+    [NWINDDIR2] = {.sense = VAL_BROKEN, .type = VALT_FLOAT, .meaning = IS_OTHER, .name = "WINDDIR2", .comment = "Mean wind speed^2 direction for last hour"},
     [NHUMIDITY] = {.sense = VAL_BROKEN, .type = VALT_FLOAT, .meaning = IS_HUMIDITY},
     [NAMB_TEMP] = {.sense = VAL_BROKEN, .type = VALT_FLOAT, .meaning = IS_AMB_TEMP},
     [NPRESSURE] = {.sense = VAL_BROKEN, .type = VALT_FLOAT, .meaning = IS_PRESSURE},
@@ -80,8 +80,8 @@ static val_t collected_data[NAMOUNT_OF_DATA] = {
  //   [NLIGHTDIST] = {.sense = VAL_FORCEDSHTDN, .type = VALT_FLOAT, .meaning = IS_LIGTDIST},
     // these are calculated values
     [NCOMMWEATH] = {.sense = VAL_OBLIGATORY, .type = VALT_UINT,   .meaning = IS_OTHER, .name = "WEATHER", .comment = "Weather (0..3: good/bad/terrible/prohibited)"},
-    [NLASTAHTUNG] = {.sense = VAL_RECOMMENDED, .type = VALT_UINT, .meaning = IS_OTHER, .name = "EVTTIME", .comment = "UNIX-time of last weather level changing"},
-    [NAHTUNGRSN] = {.sense = VAL_RECOMMENDED, .type = VALT_STRING, .meaning = IS_OTHER, .name = "EVTRSN", .comment = "Last weather level increasing reason"},
+    [NLASTAHTUNG] = {.sense = VAL_BROKEN, .type = VALT_UINT, .meaning = IS_OTHER, .name = "EVTTIME", .comment = "UNIX-time of last weather level changing"},
+    [NAHTUNGRSN] = {.sense = VAL_BROKEN, .type = VALT_STRING, .meaning = IS_OTHER, .name = "EVTRSN", .comment = "Last weather level increasing reason"},
     // virtual values for weather level / flags changing
     [NBADWEATH] = {.sense = VAL_BROKEN, .type = VALT_UINT, .meaning = IS_BADWEATH, .name = "BADWEATH", .comment = "Flag changing weather level to 'BAD'"},
     [NTERRWEATH] = {.sense = VAL_BROKEN, .type = VALT_UINT, .meaning = IS_TERRIBLEWEATH, .name = "TERWEATH", .comment = "Flag changing weather level to 'TERRIBLE'"},
@@ -422,7 +422,7 @@ void refresh_sensval(sensordata_t *s){
     //DBG("%d meteo values", s->Nvalues);
     for(int i = 0; i < s->Nvalues; ++i){
         //DBG("\nTry to get %dth value", i);
-        if(!s->get_value(s, &value, i) || value.sense > VAL_RECOMMENDED) continue;
+        if(!s->get_value(s, &value, i) || value.sense > VAL_UNNECESSARY) continue;
         //DBG("got value");
         int idx = -1;
         double curvalue = val2d(&value);
@@ -432,15 +432,24 @@ void refresh_sensval(sensordata_t *s){
                 idx = NWIND;
                 curcond = &WeatherConf.wind;
                 // protect collected wind speeds from destruction in case of simultaneous acces from different plugins
-                pthread_mutex_lock(&datamutex);
-                add_windspeed(&windspeeds, curvalue, curtime);
-                pthread_mutex_unlock(&datamutex);
+                if(value.sense <= collected_data[NWINDMAX].sense){
+                    pthread_mutex_lock(&datamutex);
+                    collected_data[NWINDMAX].sense = value.sense;
+                    collected_data[NWINDMAX1].sense = value.sense;
+                    add_windspeed(&windspeeds, curvalue, curtime);
+                    pthread_mutex_unlock(&datamutex);
+                }
                 break;
             case IS_WINDDIR:
                 idx = NWINDDIR;
-                pthread_mutex_lock(&datamutex);
-                wind_dir_add(collected_data[NWIND].value.f, value.value.f, &dir, &dir2);
-                pthread_mutex_unlock(&datamutex);
+                if(value.sense <= collected_data[NWINDDIR].sense){
+                    pthread_mutex_lock(&datamutex);
+                    collected_data[NWINDDIR].sense = value.sense;
+                    collected_data[NWINDDIR1].sense = value.sense;
+                    collected_data[NWINDDIR2].sense = value.sense;
+                    wind_dir_add(collected_data[NWIND].value.f, value.value.f, &dir, &dir2);
+                    pthread_mutex_unlock(&datamutex);
+                }
                 break;
             case IS_HUMIDITY:
                 idx = NHUMIDITY;
@@ -459,7 +468,6 @@ void refresh_sensval(sensordata_t *s){
                 break;
             case IS_PRECIP_LEVEL:
                 idx = NPRECIP_LEVEL;
-                curcond = &terrweathflag;
                 break;
             case IS_MIST:
                 idx = NMIST;
@@ -496,11 +504,11 @@ void refresh_sensval(sensordata_t *s){
             update_additional(&value);
             continue;
         }
-        if(idx < 0 || idx >= NAMOUNT_OF_DATA) continue;
+        if(idx < 0 || idx >= NAMOUNT_OF_DATA) continue; // wrong index?
         //DBG("IDX=%d", idx);
         pthread_mutex_lock(&datamutex);
         int force = 0;
-        if(curcond){
+        if(curcond && value.sense <= collected_data[idx].sense){
             int oldshtdn = collected_data[NFORCEDSHTDN].value.u;
             if(1 == chkweatherlevel(&curlevel, curvalue, curcond)){
                 get_fieldnameval(&value, reason); // copy to `reason` reason of last level increasing

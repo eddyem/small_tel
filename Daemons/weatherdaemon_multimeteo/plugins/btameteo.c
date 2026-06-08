@@ -31,11 +31,11 @@ enum{
 };
 
 static const val_t values[NAMOUNT] = {
-    [NWIND]     = {.sense = VAL_RECOMMENDED, .type = VALT_FLOAT, .meaning = IS_WIND},
-    [NHUMIDITY] = {.sense = VAL_RECOMMENDED, .type = VALT_FLOAT, .meaning = IS_HUMIDITY},
-    [NAMB_TEMP] = {.sense = VAL_RECOMMENDED, .type = VALT_FLOAT, .meaning = IS_AMB_TEMP},
-    [NPRESSURE] = {.sense = VAL_RECOMMENDED, .type = VALT_FLOAT, .meaning = IS_PRESSURE},
-    [NPRECIP]   = {.sense = VAL_RECOMMENDED, .type = VALT_UINT,  .meaning = IS_PRECIP},
+    [NWIND]     = {.sense = VAL_UNNECESSARY, .type = VALT_FLOAT, .meaning = IS_WIND},
+    [NHUMIDITY] = {.sense = VAL_UNNECESSARY, .type = VALT_FLOAT, .meaning = IS_HUMIDITY},
+    [NAMB_TEMP] = {.sense = VAL_UNNECESSARY, .type = VALT_FLOAT, .meaning = IS_AMB_TEMP},
+    [NPRESSURE] = {.sense = VAL_UNNECESSARY, .type = VALT_FLOAT, .meaning = IS_PRESSURE},
+    [NPRECIP]   = {.sense = VAL_UNNECESSARY, .type = VALT_UINT,  .meaning = IS_PRECIP},
 };
 
 static void *mainthread(void *s){

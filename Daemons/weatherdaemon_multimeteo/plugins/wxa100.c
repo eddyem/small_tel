@@ -39,13 +39,13 @@ enum{
 
 static const val_t values[NAMOUNT] = {
     [NWIND]     = {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT, .meaning = IS_WIND},
-    [NWINDDIR]  = {.sense = VAL_RECOMMENDED,.type = VALT_FLOAT, .meaning = IS_WINDDIR},
+    [NWINDDIR]  = {.sense = VAL_OBLIGATORY,.type = VALT_FLOAT, .meaning = IS_WINDDIR},
     [NHUMIDITY] = {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT, .meaning = IS_HUMIDITY},
     [NAMB_TEMP] = {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT, .meaning = IS_AMB_TEMP},
     [NPRESSURE] = {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT, .meaning = IS_PRESSURE},
-    [NPRECIP]   = {.sense = VAL_UNNECESSARY, .type = VALT_UINT,  .meaning = IS_PRECIP}, // this sensor lies
-    [NPRECIPLVL]= {.sense = VAL_UNNECESSARY,.type = VALT_FLOAT, .meaning = IS_PRECIP_LEVEL},
-    [NPRECIPINT]= {.sense = VAL_UNNECESSARY,.type = VALT_FLOAT, .meaning = IS_OTHER, .name = "PRECRATE", .comment = "Precipitation rate, mm/h"},
+    [NPRECIP]   = {.sense = VAL_BROKEN, .type = VALT_UINT, .meaning = IS_PRECIP}, // this sensor lies
+    [NPRECIPLVL]= {.sense = VAL_BROKEN,.type = VALT_FLOAT, .meaning = IS_PRECIP_LEVEL},
+    [NPRECIPINT]= {.sense = VAL_BROKEN,.type = VALT_FLOAT, .meaning = IS_OTHER, .name = "PRECRATE", .comment = "Precipitation rate, mm/h"},
 };
 
 typedef struct{

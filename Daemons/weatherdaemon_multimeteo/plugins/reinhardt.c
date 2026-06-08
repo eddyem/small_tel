@@ -43,7 +43,7 @@ static const val_t values[NAMOUNT] = {
     [NAMB_TEMP] = {.sense = VAL_RECOMMENDED, .type = VALT_FLOAT, .meaning = IS_AMB_TEMP},
     [NPRESSURE] = {.sense = VAL_BROKEN, .type = VALT_FLOAT, .meaning = IS_PRESSURE}, // broken on our meteostation
     [NCLOUDS]   = {.sense = VAL_OBLIGATORY, .type = VALT_FLOAT, .meaning = IS_CLOUDS},
-    [NPRECIP]   = {.sense = VAL_RECOMMENDED, .type = VALT_UINT,  .meaning = IS_PRECIP},
+    [NPRECIP]   = {.sense = VAL_UNNECESSARY, .type = VALT_UINT,  .meaning = IS_PRECIP},
     [NPRECIPLVL]= {.sense = VAL_UNNECESSARY,.type = VALT_FLOAT, .meaning = IS_PRECIP_LEVEL},
 };
 
