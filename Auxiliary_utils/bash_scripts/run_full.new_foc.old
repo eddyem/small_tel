@@ -2,10 +2,10 @@
 RA="17:17:08.86"
 DEC="+67:57:11.4"
 OBJ="GALEX171708.5"
-# now exptime in seconds!
-EXPTIME=40
-FLATTIME=40
-OBS="Emelianov E.V."
+EXPTIME=31000
+FLATTIME=40000
+OBS="Fatkhullin T.A."
+BADWEATHER=1300
 DATEEND=$(sunrise 14)
 # focus each N seconds
 FOCUST=7200
@@ -35,25 +35,25 @@ function focustel_new(){
 
     let fno=$1
     if [[ $fno -gt 1 ]]; then
-        let curr_foc=`fli_control | grep FOCPOS | cut -d "=" -f 2`
-        lowf=$(echo "$curr_foc - 0.3" | bc -l) 
-        highf=$(echo "$curr_foc + 0.3" | bc -l)
-        focus_seq_FLI.py -v -c focus$(printf "%02d" $1).jpg $lowf $highf 0.1
-        retcode=$?
-        if [[ $retcode -ne 0 ]]; then
-            echo -e "\nFOCUSSING SCRIPT RETURNED: $retcode"
+        let curr_foc=`fli_control | tail -n 5 | head -n 1 | cut -d "=" -f 2`
+        let lowf=$curr_foc-1500
+        let highf=$curr_foc+1500
+        focus_seq_FLI.py -v -c focus$(printf "%02d" $1).jpg $lowf $highf 500
+        
+        if [[ $? -ne 0 ]]; then
+            echo -e "\nFOCUSSING SCRIPT RETURNED: $?"
             echo -e "SOMETHING WAS WRONG IN FOCUSSING SEQUENCE!!! SET FOCUS TO PREVIOUS VALUE!!\n"
             fli_control -g $curr_foc
-            return $retcode
         fi
     else
-        focus_seq_FLI.py --guess -v -N 7 -c focus$(printf "%02d" $1).jpg 4.25 5.75 0.25
-        return $?
+        focus_seq_FLI.py --guess -v -N 7 -c focus$(printf "%02d" $1).jpg 47000 60000 500
     fi 
+
+    FDATE=$(date +%s)
 }
 
 function sendcmd(){
-    echo $1 | nc localhost 10001 -q2
+    echo $1 | nc 192.168.70.33 10001 -q10
 }
 
 function point_tel(){
@@ -73,8 +73,7 @@ if [[ $(pgrep -c run_full) -gt 1 ]]; then
     exit 1
 fi
 
-unset http_proxy
-unset https_proxy
+export http_proxy=""
 
 # set lower limit to 5degr
 send_command2mount ":So5#"
@@ -104,47 +103,36 @@ echo "Start taking object"
 badweather=0
 while true; do
 	now=$(date +%s)
-	ANS=$(curl localhost:55555/status 2>/dev/null | grep status | cut -d "=" -f2)
+	ANS=$(curl localhost:55555/status 2>/dev/null)
 	echo "Dome status: $ANS"
-	if [[ $ANS != "opened" ]]; then
-		echo -e "\n\nBREAK by Closed Dome\n\n"
+	if [ $ANS != "opened" ]; then
+		echo "Closed"
 		curl localhost:55555/weather 2>/dev/null > DomeClosed
-		curl localhost:55555/status 2>/dev/null >> DomeClosed
 		break;
 	fi
-	WLVL=0
-	chkweather | sed 's/\[.*//' > lastweather && badweather=0 || WLVL=$?
-	[[ $x -gt 1 ]] && badweather=$((badweather+1))
-	eval  $(cat lastweather)
-	[[ $badweather -gt 5 ]] && (echo -e "\n\nBREAK by BAD WEATHER\n\n"; break)
-	[[ $ForceOFF == 1 ]] && (echo -e "\n\nBREAK by FORCE OFF\n\n";  break)
-	[[ -f stopobs ]] && (echo -e "\n\nBREAK by STOP OBS\n\n"; break)
-	[[ -f exitjob ]] && (echo -e "\n\nEXIT JOB\n\n"; exit 0)
-	if [[ "$now" -lt "$DATEEND" ]]; then
+	chkweather ${BADWEATHER} > lastweather && badweather=0 || badweather=$((badweather+1))
+	[ $badweather -gt 5 ] && break
+	[ -f stopobs ] && break
+	[ -f exitjob ] && exit 0
+	if [ "$now" -lt "$DATEEND" ]; then
 		est=$(sendcmd ":Gmte#"|sed -e 's/^0*//' -e 's/#//')
-		echo -e "\n\nEstimated time to flip: $est minutes\n"
+		echo -e "\n\n\n\n\nEstimated time to flip: $est minutes"
 		if [[ ("x$est" == "x") || ($est -lt 3) ]]; then
-			echo -e "\n\nRepointing: approaching flip\n\n"
 			point_tel "${RA}" "${DEC}"
 			continue
 		fi
 		ST=$(send_coords | awk '{print $4}')
-		[[ "x$ST" == "x" ]] && (echo -e "\n\nBREAK: have no answer from `send_coords`\n\n"; break)
-		if [[ $ST -ne "0" ]]; then
-			echo -e "\n\nRepoint: Mount status is not 'tracking'\n\n"
+		[ "x$ST" == "x" ] && break
+		if [ $ST -ne "0" ]; then
 			point_tel "${RA}" "${DEC}"
 			continue
 		else
-			if [[ $(($(date +%s) - $FDATE)) -gt $FOCUST ]]; then
-				echo -e "\n\nREFOCUSING by timeout\n\n"
-				focustel_new $((FNO++)) && FDATE=$(date +%s) || FNO=$((--FNO))
-				echo "FDATE: $FDATE, FNO: $FNO"
-			fi
+			[ $(($(date +%s) - $FDATE)) -gt $FOCUST ] && focustel_new $((FNO++))
+#			[ $(($(date +%s) - $FDATE)) -gt $FOCUST ] && focustel $((FNO++))
 			preflash
-			fli_control -x $EXPTIME -N "${OBS}" -O "${OBJ}" "$OBJ"
+			fli_control -r /tmp/10micron.fitsheader -x $EXPTIME -N "${OBS}" -O "${OBJ}" "$OBJ"
 		fi
 	else
-		echo -e "\n\nBREAK: night is over\n\n"
 		break
 	fi
 done
@@ -152,8 +140,8 @@ done
 echo "Dome closed @ $(date)" >> closed
 curl localhost:55555/close
 
+relay_manage -s1
 park_telescope
-Flat on
 
 for x in $(seq 1 10); do
 	preflash
@@ -164,7 +152,7 @@ for x in $(seq 1 10); do
 	fli_control -r /tmp/10micron.fitsheader -n3 -x $FLATTIME -N "${OBS}" -O "flat" flat
 done
 
-Flat off
+relay_manage -r1
 echo "Closed @ $(date)" >> closed
 
 STOPobs || true
