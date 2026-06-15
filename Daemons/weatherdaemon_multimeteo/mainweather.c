@@ -282,6 +282,38 @@ static void fix_new_data(val_t *collected, const val_t *fresh, int force){
     //DBG("Refresh collected value");
     //LOGDBGADD("Refresh time");
     collected->time = fresh->time;
+
+    // check windmax/winddir
+    double curvalue = val2d(fresh), dir1 = -100., dir2 = -100.;
+    switch(fresh->meaning){ // fill winddir/windmax
+        case IS_WIND:
+            collected_data[NWINDMAX].sense = fresh->sense;
+            collected_data[NWINDMAX1].sense = fresh->sense;
+            add_windspeed(&windspeeds, curvalue, fresh->time);
+            collected_data[NWINDMAX].value.f = (float) get_current_max(&windspeeds);
+            collected_data[NWINDMAX].time = fresh->time;
+            collected_data[NWINDMAX1].value.f = (float) get_max_forT(&windspeeds, fresh->time - T_ONE_HOUR);
+            collected_data[NWINDMAX1].time = fresh->time;
+            break;
+        case IS_WINDDIR:
+            collected_data[NWINDDIR].sense = fresh->sense;
+            collected_data[NWINDDIR1].sense = fresh->sense;
+            collected_data[NWINDDIR2].sense = fresh->sense;
+            wind_dir_add(collected_data[NWIND].value.f, fresh->value.f, &dir1, &dir2);
+            // refresh max
+            if(dir1 >= 0.){
+                collected_data[NWINDDIR1].value.f = (float) dir1;
+                collected_data[NWINDDIR1].time = fresh->time;
+            }
+            if(dir2 >= 0.){
+                collected_data[NWINDDIR2].value.f = (float) dir2;
+                collected_data[NWINDDIR2].time = fresh->time;
+            }
+            break;
+        default:
+            break;
+    }
+
     if(collected->type == fresh->type){ // good case
         memcpy(&collected->value, &fresh->value, sizeof(num_t));
         //DBG("Types are the same");
@@ -418,38 +450,20 @@ void refresh_sensval(sensordata_t *s){
     static time_t lasttupdate = 0; // last update time of weather level
     time_t curtime = time(NULL);
     time_t tpoll = get_pollT(), _3tpoll = 3*tpoll;
-    double dir = -100., dir2 = -100.; // mean wind directions
     //DBG("%d meteo values", s->Nvalues);
     for(int i = 0; i < s->Nvalues; ++i){
         //DBG("\nTry to get %dth value", i);
         if(!s->get_value(s, &value, i) || value.sense > VAL_UNNECESSARY) continue;
         //DBG("got value");
         int idx = -1;
-        double curvalue = val2d(&value);
         const weather_cond_t *curcond = NULL;
         switch(value.meaning){
             case IS_WIND:
                 idx = NWIND;
                 curcond = &WeatherConf.wind;
-                // protect collected wind speeds from destruction in case of simultaneous acces from different plugins
-                if(value.sense <= collected_data[NWINDMAX].sense){
-                    pthread_mutex_lock(&datamutex);
-                    collected_data[NWINDMAX].sense = value.sense;
-                    collected_data[NWINDMAX1].sense = value.sense;
-                    add_windspeed(&windspeeds, curvalue, curtime);
-                    pthread_mutex_unlock(&datamutex);
-                }
                 break;
             case IS_WINDDIR:
                 idx = NWINDDIR;
-                if(value.sense <= collected_data[NWINDDIR].sense){
-                    pthread_mutex_lock(&datamutex);
-                    collected_data[NWINDDIR].sense = value.sense;
-                    collected_data[NWINDDIR1].sense = value.sense;
-                    collected_data[NWINDDIR2].sense = value.sense;
-                    wind_dir_add(collected_data[NWIND].value.f, value.value.f, &dir, &dir2);
-                    pthread_mutex_unlock(&datamutex);
-                }
                 break;
             case IS_HUMIDITY:
                 idx = NHUMIDITY;
@@ -464,7 +478,6 @@ void refresh_sensval(sensordata_t *s){
             case IS_PRECIP:
                 idx = NPRECIP;
                 curcond = &prohibweathflag;
-                if(curvalue > 0.) DBG("IS_PRECIP == 1 !!!");
                 break;
             case IS_PRECIP_LEVEL:
                 idx = NPRECIP_LEVEL;
@@ -505,12 +518,14 @@ void refresh_sensval(sensordata_t *s){
             continue;
         }
         if(idx < 0 || idx >= NAMOUNT_OF_DATA) continue; // wrong index?
+        if(value.sense > collected_data[idx].sense &&
+            curtime - collected_data[idx].time < WeatherConf.ahtung_delay) continue; // bad level
         //DBG("IDX=%d", idx);
         pthread_mutex_lock(&datamutex);
         int force = 0;
         if(curcond && value.sense <= collected_data[idx].sense){
             int oldshtdn = collected_data[NFORCEDSHTDN].value.u;
-            if(1 == chkweatherlevel(&curlevel, curvalue, curcond)){
+            if(1 == chkweatherlevel(&curlevel, val2d(&value), curcond)){
                 get_fieldnameval(&value, reason); // copy to `reason` reason of last level increasing
                 force = 1;
                 DBG("reason: %s; forceflag=%u, old=%d", reason, collected_data[NFORCEDSHTDN].value.u, oldshtdn);
@@ -528,22 +543,6 @@ void refresh_sensval(sensordata_t *s){
         pthread_mutex_unlock(&datamutex);
     }
     pthread_mutex_lock(&datamutex);
-    // refresh max
-    if(dir >= 0.){
-        collected_data[NWINDDIR1].value.f = (float) dir;
-        collected_data[NWINDDIR1].time = curtime;
-    }
-    if(dir2 >= 0.){
-        collected_data[NWINDDIR2].value.f = (float) dir2;
-        collected_data[NWINDDIR2].time = curtime;
-    }
-    if(curtime - collected_data[NWIND].time < tpoll + 1){
-        //LOGDBG("Update max wind");
-        collected_data[NWINDMAX].value.f = (float) get_current_max(&windspeeds);
-        collected_data[NWINDMAX].time = curtime;
-        collected_data[NWINDMAX1].value.f = (float) get_max_forT(&windspeeds, curtime - T_ONE_HOUR);
-        collected_data[NWINDMAX1].time = curtime;
-    }
     //DBG("check ahtung");
     time_t _2update = lasttupdate + _3tpoll;
     //LOGDBG("curtime: %ld, _2update: %ld", curtime, lasttupdate);
