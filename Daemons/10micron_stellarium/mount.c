@@ -20,8 +20,8 @@
 #include <stdatomic.h>
 #include <stdint.h>
 #include <string.h>
+#include <usefull_macros.h>
 
-#include "angles.h"
 #include "emulation.h"
 #include "mount.h"
 
@@ -40,8 +40,31 @@ static sl_ringbuffer_t *RBin = NULL;
 static atomic_int mountstatus = MNT_S_ERROR;
 
 // input and current target coordinates
-polarCrds_t InpCoords = {0}, TagCoords = {0};
-horizCrds_t InpHoriz = {0};
+static polarCrds_t InpCoords = {0}, // input as user give (for epoch InpMJD)
+    TagCoords = {0}; // target for Jnow after command "point to input"
+static horizCrds_t InpHoriz = {0};
+// input MJD (Modified Julian Date: started from ERFA_DJM0==2400000.5
+static double InpMJD = ERFA_DJM00; // J2000
+// times of coords/mjd change
+static double InpCTime = 0., TagTime = 0., InpHTime = 0., InpMTime = 0.;
+
+// return time of modification
+double mount_getInpCoords(polarCrds_t *c){
+    if(c) *c = InpCoords;
+    return InpCTime;
+}
+double mount_getTagCoords(polarCrds_t *c){
+    if(c) *c = TagCoords;
+    return TagTime;
+}
+double mount_getInpMJD(double *MJD){
+    if(MJD) *MJD = InpMJD;
+    return InpMTime;
+}
+double mount_getInpHor(horizCrds_t *c){
+    if(c) *c = InpHoriz;
+    return InpHTime;
+}
 
 // change input coordinates
 /**
@@ -52,6 +75,7 @@ horizCrds_t InpHoriz = {0};
 bool mount_setInpHA(double ha){
     if(ha < 0. || ha >= 24.) return false;
     InpCoords.ha = HRS2RAD(ha);
+    InpCTime = sl_dtime();
     return true;
 }
 /**
@@ -62,6 +86,7 @@ bool mount_setInpHA(double ha){
 bool mount_setInpRA(double ra){
     if(ra < 0. || ra >= 360.) return false;
     InpCoords.ra = DEG2RAD(ra);
+    InpCTime = sl_dtime();
     return true;
 }
 /**
@@ -72,6 +97,7 @@ bool mount_setInpRA(double ra){
 bool mount_setInpDec(double dec){
     if(dec < -90. || dec > 90.) return false;
     InpCoords.dec = DEG2RAD(dec);
+    InpCTime = sl_dtime();
     return true;
 }
 /**
@@ -82,6 +108,7 @@ bool mount_setInpDec(double dec){
 bool mount_setInpA(double A){
     if(A < 0. || A >= 360.) return false;
     InpHoriz.az = DEG2RAD(A);
+    InpHTime = sl_dtime();
     return true;
 }
 /**
@@ -92,6 +119,13 @@ bool mount_setInpA(double A){
 bool mount_setInpZ(double Z){
     if(Z < 0 || Z > 90) return false;
     InpHoriz.zd = DEG2RAD(Z);
+    InpHTime = sl_dtime();
+    return true;
+}
+// without checking
+bool mount_setInpMJD(double m){
+    InpMJD = m;
+    InpMTime = sl_dtime();
     return true;
 }
 

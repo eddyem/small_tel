@@ -138,6 +138,11 @@ bool server_check(server_sock_t *sockt){
         close(stellarium_sockfd);
         return false;
     }
+    int enable = 0;
+    if(ioctl(stellarium_sockfd, FIONBIO, (void *)&enable) < 0){ // make socket blocking again
+        WARN("ioctl()");
+        LOGERR("Can't make stellarium socket blocking");
+    }
     DBG("stellarium_sockfd=%d", stellarium_sockfd);
     LOGMSG("Prepared stellarium socket: %s", sockt->stellport);
     DBG("Prepared stellarium socket: %s", sockt->stellport);

@@ -18,7 +18,7 @@
 
 #pragma once
 
-#include <usefull_macros.h>
+#include "angles.h"
 
 // mount statuses
 typedef enum{
@@ -45,6 +45,13 @@ bool mount_setInpRA(double ra);
 bool mount_setInpDec(double dec);
 bool mount_setInpA(double A);
 bool mount_setInpZ(double Z);
+bool mount_setInpMJD(double m);
+
+double mount_getInpCoords(polarCrds_t *c);
+double mount_getTagCoords(polarCrds_t *c);
+double mount_getInpMJD(double *MJD);
+double mount_getInpHor(horizCrds_t *c);
+
 
 bool mount_set_name(const char *name);
 bool mount_set_dev(char *dev, int speed, int timeout);

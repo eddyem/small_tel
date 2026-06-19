@@ -129,6 +129,7 @@ static bool proc_data(uint8_t *data, ssize_t len){
     double tagRA = RA2DEG(ra), tagDec = DEC2DEG(dec);
     DBG("RA: %u (%g degr), DEC: %d (%g degr)", ra, tagRA, dec, tagDec);
     LOGMSG("(stellarium) RA: %u (%g degr), DEC: %d (%g degr)", ra, tagRA, dec, tagDec);
+#if 0
     // check RA/DEC
     horizCrds_t hnow; // without refraction
     polarCrds_t p2000, pnow;
@@ -141,7 +142,8 @@ static bool proc_data(uint8_t *data, ssize_t len){
     }
     tagRA = RAD2DEG(pnow.ra - pnow.eo);
     tagDec = RAD2DEG(pnow.dec);
-    return (mount_setInpRA(tagRA) && mount_setInpDec(tagDec));
+#endif
+    return (mount_setInpRA(tagRA) && mount_setInpDec(tagDec) && mount_setInpMJD(ERFA_DJM00));
 }
 
 /**
@@ -186,7 +188,10 @@ static void *handle_socket(void *sockd){
         dout.dec = (int32_t)htole32(DEG2DEC(Decl));
         if(!send_data((uint8_t*)&dout, sizeof(outdata), sock)) break;
         //DBG("sent ra = %g, dec = %g", RA2HRS(dout.ra), DEC2DEG(dout.dec));
-        if(!sl_canread(sock)) continue;
+        if(!sl_canread(sock)){
+            sleep(1);
+            continue;
+        }
         // fill incoming buffer
         uint8_t buff[BUFLEN];
         ssize_t rd = read(sock, buff, BUFLEN-1);
@@ -198,7 +203,10 @@ static void *handle_socket(void *sockd){
         buff[rd] = 0;
         DBG("read %zd (%s)", rd, buff);
         if(!proc_data(buff, rd)) dout.status = -1;
-        else dout.status = 0;
+        else{
+            DBG("sent OK");
+            dout.status = 0;
+        }
     }
     close(sock);
     return NULL;
@@ -226,9 +234,13 @@ static void* start(void *F){
         socklen_t size = sizeof(struct sockaddr_in);
         struct sockaddr_in myaddr;
         int newsock;
+        DBG("ACCEPT");
         newsock = accept(sockfd, (struct sockaddr*)&myaddr, &size);
         if(newsock <= 0){
-            if(errno == EAGAIN) continue; // nothing available
+            if(errno == EAGAIN){
+                usleep(1000);
+                continue; // nothing available
+            }
             WARN("accept()");
             LOGWARN("Stellarium socket error in accept()");
             sleep(1);

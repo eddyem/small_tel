@@ -212,7 +212,10 @@ void r2sDMS(double radians, char *dms, int len){
 bool get_MJDt(struct timeval *tval, sMJD_t *MJD){
     struct tm tms;
     double tSeconds;
-    if(!MJD) return false;
+    if(!MJD){
+        WARNX("get_MJDt(): no input data");
+        return false;
+    }
     if(!tval){
         struct timespec ts;
         if(clock_gettime(CLOCK_REALTIME, &ts)){
@@ -231,15 +234,23 @@ bool get_MJDt(struct timeval *tval, sMJD_t *MJD){
     d = tms.tm_mday;
     double utc1, utc2;
     /* UTC date. */
-    if(eraDtf2d("UTC", y, m, d, tms.tm_hour, tms.tm_min, tSeconds, &utc1, &utc2) < 0) return false;
-    if(!MJD) return false;
+    if(eraDtf2d("UTC", y, m, d, tms.tm_hour, tms.tm_min, tSeconds, &utc1, &utc2) < 0){
+        WARNX("get_MJDt(): eraDtf2d() error");
+        return false;
+    }
     MJD->MJD = utc1 - ERFA_DJM0 + utc2;
     MJD->utc1 = utc1;
     MJD->utc2 = utc2;
     //DBG("UTC(m): %g, %.8f\n", utc1 - 2400000.5, utc2);
-    if(eraUtctai(utc1, utc2, &MJD->tai1, &MJD->tai2)) return false;
+    if(eraUtctai(utc1, utc2, &MJD->tai1, &MJD->tai2)){
+        WARNX("get_MJDt(): eraUtctai() error");
+        return false;
+    }
     //DBG("TAI");
-    if(eraTaitt(MJD->tai1, MJD->tai2, &MJD->tt1, &MJD->tt2)) return false;
+    if(eraTaitt(MJD->tai1, MJD->tai2, &MJD->tt1, &MJD->tt2)){
+        WARNX("get_MJDt(): eraTaitt() error");
+        return false;
+    }
     //DBG("TT");
     return true;
 }
@@ -282,8 +293,11 @@ bool get_ObsPlace(struct timeval *tval, polarCrds_t *p2000, polarCrds_t *pnow, h
     double px = 0.0;     // parallax (arcsec)
     double rv = 0.0;     // radial velocity (km/s, positive if receding)
     sMJD_t MJD;
-    if(!tval || !p2000) return false;
-    if(get_MJDt(tval, &MJD)) return false;
+    if(!p2000){
+        WARNX("get_ObsPlace(): no input coordinates");
+        return false;
+    }
+    if(!get_MJDt(tval, &MJD)) return false;
     /* Effective wavelength (microns) */
     double wl = 0.55;
     /* ICRS to observed. */
@@ -291,9 +305,12 @@ bool get_ObsPlace(struct timeval *tval, polarCrds_t *p2000, polarCrds_t *pnow, h
     double p = 1000., t = 0., h = place.salt;
     weather_data_t weath;
     if(get_weather_data(&weath)){
+        WARNX("Can't get weather - use default values");
+    }else{
         p = 1.3332239 * weath.pressure;
         t = weath.exttemp;
-    }else WARNX("Can't get weather - use default values");
+        DBG("pressure=%.1fhPa, temperature=%.1fdegC", p, t);
+    }
     if(eraAtco13(p2000->ra, p2000->dec,
                   pr, pd, px, rv,
                   MJD.utc1, MJD.utc2,
@@ -316,6 +333,56 @@ bool get_ObsPlace(struct timeval *tval, polarCrds_t *p2000, polarCrds_t *pnow, h
     }
     return true;
 }
+
+/**
+ * convert geocentric coordinates (nowadays, CIRS) to mean (JD2000, ICRS)
+ * in, out - input and output coordinates
+ * @return false if failed
+ */
+bool JnowtoJ2000(const polarCrds_t *in, polarCrds_t *out){
+    bool ret = false;
+    DBG("appRa: %gdegr, appDecl: %gdegr", RAD2DEG(in->ra), RAD2DEG(in->dec));
+#define ERFA(f, ...) do{if(f(__VA_ARGS__)){WARNX("Error in " #f); goto rtn;}}while(0)
+    sMJD_t MJD;
+    if(!get_MJDt(NULL, &MJD)) return false;
+    double ri = 0., di = 0., eo = 0.;
+    eraAtic13(in->ra, in->dec, MJD.tt1, MJD.tt2, &ri, &di, &eo);
+    if(out){
+        out->ha = 0.; out->eo = 0.;
+        out->ra = eraAnp(ri + eo);
+        out->dec = di;
+        DBG("JnowtoJ2000: ra=%gdeg, dec=%gdeg", RAD2DEG(out->ra), RAD2DEG(out->dec));
+    }
+    ret = true;
+#undef ERFA
+    return ret;
+}
+
+/**
+ * @brief J2000toJnow - convert ra/dec between epochs
+ * @param in  - J2000 (degrees)
+ * @param out - Jnow  (degrees)
+ * @return false if failed
+ */
+bool J2000toJnow(const polarCrds_t *in, polarCrds_t *out){
+    DBG("J200RA: %gdegr, J200Dec: %gdegr", RAD2DEG(in->ra), RAD2DEG(in->dec));
+    sMJD_t MJD;
+    if(!in) return false;
+    if(!get_MJDt(NULL, &MJD)) return false;
+    // these values could be changed (e.g. by user's input)
+    double pr = 0.0;     // RA proper motion (radians/year)
+    double pd = 0.0;     // Dec proper motion (radians/year)
+    double px = 0.0;     // parallax (arcsec)
+    double rv = 0.0;     // radial velocity (km/s, positive if receding)
+    double ri, di, eo;
+    eraAtci13(in->ra, in->dec, pr, pd, px, rv, MJD.tt1, MJD.tt2, &ri, &di, &eo);
+    if(out){
+        out->ra  = eraAnp(ri - eo);
+        out->dec = di;
+    }
+    return true;
+}
+
 
 
 #if 0
