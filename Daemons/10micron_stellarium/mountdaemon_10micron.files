@@ -1,0 +1,16 @@
+angles.c
+angles.h
+args.c
+args.h
+astrosib_proto.h
+dome.c
+dome.h
+emulation.c
+emulation.h
+main.c
+server.c
+server.h
+mount.c
+mount.h
+stellarium.c
+stellarium.h

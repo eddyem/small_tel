@@ -16,9 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-
 #pragma once
 
-bool point_emulation(double ra, double decl);
-void get_emul_coords(double *ra, double *decl);
-
+bool stellarium_start(int sockfd);
+void stellarium_stop();

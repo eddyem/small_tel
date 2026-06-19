@@ -1,10 +1,12 @@
 /*
- * This file is part of the mountdaemon_10micron project.
- * Copyright 2026 Edward V. Emelianov <edward.emelianoff@gmail.com>.
+ *                                                                                                  geany_encoding=koi8-r
+ * emulation.c
  *
- * This program is free software: you can redistribute it and/or modify
+ * Copyright 2018 Edward V. Emelianov <eddy@sao.ru, edward.emelianoff@gmail.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
+ * the Free Software Foundation; either version 2 of the License, or
  * (at your option) any later version.
  *
  * This program is distributed in the hope that it will be useful,
@@ -13,18 +15,18 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston,
+ * MA 02110-1301, USA.
+ *
  */
-
-#include <math.h>
-#include <usefull_macros.h>
-
-#include "angles.h"
+#include "math.h"
 #include "emulation.h"
+#include "usefull_macro.h"
 
-// emulation speed over RA & DEC (degr per sec)
-#define RA_SPEED        (5.)
-#define DECL_SPEED      (11.)
+// emulation speed over RA & DEC (0.5 degr per sec)
+#define RA_SPEED    (0.033)
+#define DECL_SPEED    (0.5)
 
 // current coordinates
 static double RA = 0., DECL = 0.;
@@ -33,6 +35,8 @@ static double RAtarg = 0., DECLtarg = 0.;
 // coordinates @ guiding start
 static double RA0 = 0., DECL0 = 0.;
 static double raspeed = 0.;
+// ==1 if pointing
+static int pointing = 0;
 // pointing start time
 static double tstart = -1.;
 
@@ -40,20 +44,20 @@ static double tstart = -1.;
  * send coordinates to telescope emulation
  * @param ra - right ascention (hours)
  * @param decl - declination (degrees)
+ * @return 1 if all OK
  */
-bool point_emulation(double ra, double decl){
-    norm_RADEC(&ra, &decl);
+int point_emulation(double ra, double decl){
     DBG("(emul) Send ra=%g, decl=%g", ra, decl);
-    LOGMSG("(emul) Send ra=%g, decl=%g", ra, decl);
-    // TODO: check that Z<90!
+    putlog("(emul) Send ra=%g, decl=%g", ra, decl);
     RAtarg = ra; DECLtarg = decl;
     RA0 = RA; DECL0 = DECL;
     raspeed = (RAtarg > RA) ? RA_SPEED : -RA_SPEED;
     if(fabs(RAtarg - RA) > 12.){ // go to opposite direction
         raspeed = -raspeed;
     }
-    tstart = sl_dtime();
-    return true;
+    tstart = dtime();
+    pointing = 1;
+    return 0;
 }
 
 static double getradiff(){
@@ -66,19 +70,20 @@ static double getradiff(){
 
 /**
  * get coordinates (emulation)
+ * @return 1 if all OK
  */
-void get_emul_coords(double *ra, double *decl){
-    if(tstart > 0.){
+int get_emul_coords(double *ra, double *decl){
+    if(pointing){
         DBG("RA/DEC: targ: %g/%g, cur: %g/%g, start: %g/%g", RAtarg, DECLtarg, RA, DECL, RA0, DECL0);
         // diff < speed? stop
         if((fabs(RAtarg - RA) < RA_SPEED && fabs(DECLtarg - DECL) < DECL_SPEED)){
             RA = RAtarg;
             DECL = DECLtarg;
-            tstart = -1.; // "guiding"
+            pointing = 0; // guiding
             DBG("@ target");
         }else{ // calculate new coordinates
             double radiff = getradiff(), decldiff = fabs(DECLtarg - DECL);
-            double tdiff = sl_dtime() - tstart;
+            double tdiff = dtime() - tstart;
             RA = RA0 + raspeed * tdiff;
             DBG("RA=%g", RA);
             if(getradiff() > radiff) RA = RAtarg;
@@ -94,5 +99,5 @@ void get_emul_coords(double *ra, double *decl){
     }
     if(ra) *ra = RA;
     if(decl) *decl = DECL;
+    return 1;
 }
-
