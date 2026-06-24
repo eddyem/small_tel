@@ -16,9 +16,14 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-
 #pragma once
 
-bool point_emulation(double ra, double decl);
-void get_emul_coords(double *ra, double *decl);
+#include "mount.h" // mount status
 
+bool point_emulation(double ra, double decl);
+bool pointAZ_emulation(double a, double z);
+mount_status_t emulation_status();
+
+void get_emul_coords(double *ra, double *decl);
+void emulation_stop();
+void emul_start_tracking();

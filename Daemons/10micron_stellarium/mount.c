@@ -39,6 +39,8 @@ static sl_ringbuffer_t *RBin = NULL;
 // status
 static atomic_int mountstatus = MNT_S_ERROR;
 
+// parking coordinates
+static horizCrds_t ParkCoords = {.az = 0., .zd = DEG2RAD(80.)};
 // input and current target coordinates
 static polarCrds_t InpCoords = {0}, // input as user give (for epoch InpMJD)
     TagCoords = {0}; // target for Jnow after command "point to input"
@@ -80,18 +82,18 @@ bool mount_setInpHA(double ha){
 }
 /**
  * @brief mount_setInpRA - set right ascension
- * @param ra (DEGREES!)
- * @return fale if `ra` isn't in [0, 360)
+ * @param ra (HOURS!!)
+ * @return fale if `ra` isn't in [0, 24)
  */
 bool mount_setInpRA(double ra){
-    if(ra < 0. || ra >= 360.) return false;
-    InpCoords.ra = DEG2RAD(ra);
+    if(ra < 0. || ra >= 24.) return false;
+    InpCoords.ra = HRS2RAD(ra);
     InpCTime = sl_dtime();
     return true;
 }
 /**
  * @brief mount_setInpDec - set declination
- * @param dec (DEGREES!)
+ * @param dec (DEGREES!!)
  * @return false if `dec` isn't in [-90, 90]
  */
 bool mount_setInpDec(double dec){
@@ -186,7 +188,7 @@ static const char *statuses[MNT_S_STATAMOUNT] = {
  * @return statically allocated string with explanation
  */
 const char* mount_status_str(){
-    int curst = atomic_load(&mountstatus);
+    int curst = (isemulated) ? emulation_status() : atomic_load(&mountstatus);
     if(curst > -1 && curst < MNT_S_STATAMOUNT) return statuses[curst];
     return "'Unknown status'";
 }
@@ -256,10 +258,7 @@ static bool guess_speed(){
 
 // connect to mount
 bool mount_connect(){
-    if(isemulated){
-        atomic_store(&mountstatus, MNT_S_STOPPED);
-        return true;
-    }
+    if(isemulated) return true;
     if(!mount_dev) return false;
     pthread_mutex_lock(&mntdev_mutex);
     if(!chkconn() && !guess_speed()) return false;
@@ -277,20 +276,17 @@ bool mount_connect(){
 }
 
 void mount_disconnect(){
-    if(isemulated) return;
+    if(isemulated){
+        emulation_stop();
+        return;
+    }
     pthread_mutex_trylock(&mntdev_mutex); // at least, try
     if(mount_dev) close(mount_dev->comfd);
     pthread_mutex_unlock(&mntdev_mutex);
 }
 
-// point to ra/dec over serial
-static bool mount_pointto(double ra, double dec){
-    (void) ra; (void) dec;
-    ;
-    return true;
-}
-
 /**
+ * TODO: change angles to RAD!
  * send input RA/Decl (j2000!) coordinates to tel
  * ra in hours (0..24), decl in degrees (-90..90)
  * @return true if all OK
@@ -301,9 +297,18 @@ bool mount_point(double ra, double dec){
     DBG("Set RA/Decl to %s", buf);
     LOGMSG("Try to set RA/Decl to %s", buf);
     norm_RADEC(&ra, &dec);
-    bool (*pointfunction)(double, double) = mount_pointto;
-    if(isemulated) pointfunction = point_emulation;
-    return pointfunction(ra, dec);
+    if(isemulated) return point_emulation(ra, dec);
+    // run real pointing to ra(hrs) & dec (deg)
+    return false;
+}
+
+bool mount_pointAZ(double A, double Z){
+    DBG("Point to stationary object, A=%g, Z=%g", A, Z);
+    if(isemulated){
+        return pointAZ_emulation(A, Z);
+    }
+    ; // run real pointing
+    return false;
 }
 
 void set_emulation_mode(){
@@ -314,9 +319,75 @@ mount_status_t mount_getcoords(double *ra, double *dec){
     if(!ra || !dec) return MNT_S_ERROR;
     if(isemulated){
         get_emul_coords(ra, dec);
-        DBG("Emulated coordinates: %g, %g", *ra, *dec);
-    }else{
-        ; // get real coordinates
+        DBG("Emulated coordinates: %gh, %gdeg", RAD2HRS(*ra), RAD2DEG(*dec));
+        return emulation_status();
     }
+    ; // get real coordinates
     return mount_status();
+}
+
+/**
+ * @brief mount_stop - stop any moving
+ * @return false if failed
+ */
+bool mount_stop(){
+    if(isemulated){
+        emulation_stop();
+    }else{
+        return mount_stop();
+    }
+    return true;
+}
+
+/**
+ * @brief mount_tracking_start - start tracking from current position
+ * @return false if failed
+ */
+bool mount_tracking_start(){
+    if(isemulated){
+        emul_start_tracking();
+    }else{
+        return false;
+    }
+    return true;
+}
+
+/**
+ * @brief mount_park - start parking
+ * @return false if failed to run command
+ */
+bool mount_park(){
+    if(isemulated) return pointAZ_emulation(ParkCoords.az, ParkCoords.zd);
+    return mount_pointAZ(ParkCoords.az, ParkCoords.zd);
+}
+
+/**
+ * @brief mount_setParkAz - set parking azimuth
+ * @param az - [-180, 360) degrees
+ * @return false if az out of range
+ */
+bool mount_setParkAz(double az){
+    if(az < 0.) az += 360.;
+    if(az < 0. || az >= 360.) return false;
+    ParkCoords.az = DEG2RAD(az);
+    return true;
+}
+
+/**
+ * @brief mount_setParkZD - set parking zenith distance
+ * @param zd - [0, 90]
+ * @return false if zd out of range
+ */
+bool mount_setParkZD(double zd){
+    if(zd < 0. || zd > 90.) return false;
+    ParkCoords.zd = DEG2RAD(zd);
+    return true;
+}
+
+/**
+ * @brief mount_getPark - get parking coordinates
+ * @param c (o) - az/zd
+ */
+void mount_getPark(horizCrds_t *c){
+    if(c) *c = ParkCoords;
 }

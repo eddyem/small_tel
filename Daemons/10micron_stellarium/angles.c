@@ -72,8 +72,9 @@ bool setPlaceData(double longitude, double latitude, double altitude){
         return false;
     }
     place.salt = altitude;
-    place.slat = latitude;
-    place.slong = longitude;
+    place.slat = DEG2RAD(latitude);
+    place.slong = DEG2RAD(longitude);
+    DBG("Change place data: alt=%gm, lat=%gdeg, long=%gdeg", place.salt, RAD2DEG(place.slat), RAD2DEG(place.slong));
     return true;
 }
 
@@ -106,6 +107,25 @@ char *radec2str(double ra, double dec, char buf[RADEC_STR_MAXLEN]){
     return buf;
 }
 
+// normalize azimuth to [0, 360.) and z.d. to [0, 90]
+// if z>90 || z<-90 return false; if z < 0 rotate azimuth to 180
+bool normAZ(double *a, double *z){
+    if(a){
+        norm_angle180(a);
+        if(*a < 0.) *a += 360.;
+    }
+    if(z){
+        norm_angle180(z);
+        if(*z > 90. || *z < -90.) return false;
+        if(*z < 0.){
+            *z += 90.;
+            *a += 180.;
+            if(*a >= 360.) *a -= 360.;
+        }
+    }
+    return true;
+}
+
 // normalize RA/DEC to [0..24) for RA and [-90, 90] for DEC
 void norm_RA(double *ra){
     if(!ra) return;
@@ -123,11 +143,35 @@ void norm_RADEC(double *ra, double *dec){
     // 1: convert to (-180..+180)
     norm_angle180(dec);
     // 2: fix dec & ra together
-    if(*dec > 90.) *dec = 180. - *dec;
-    else *dec = -180. - *dec;
-    *ra += 12.;
-    norm_RA(ra);
+    if(*dec > 90.){
+        *dec = 180. - *dec;
+        *ra += 12.;
+        norm_RA(ra);
+    }else if(*dec < -90.){
+        *dec = -180. - *dec;
+        *ra += 12.;
+        norm_RA(ra);
+    }
 }
+
+void norm_RADECr(double *ra, double *dec){
+    if(!ra || !dec) return;
+    if(*dec >= -ERFA_DPI/2. && *dec <= ERFA_DPI/2.){ // need only check RA
+        *ra = eraAnp(*ra);
+        return;
+    }
+    // 1: convert to (-pi..+pi)
+    *dec = eraAnpm(*dec);
+    // 2: fix dec & ra together
+    if(*dec > ERFA_DPI/2.){
+        *dec = ERFA_DPI - *dec;
+        *ra = eraAnp(*ra + ERFA_DPI);
+    }else if(*dec < -ERFA_DPI/2.){
+        *dec = -ERFA_DPI - *dec;
+        *ra = eraAnp(*ra + ERFA_DPI);
+    }
+}
+
 // normalize angle to (-180, 180]
 void norm_angle180(double *a){
     if(!a) return;
@@ -145,8 +189,11 @@ void norm_angle180(double *a){
  */
 void hor2eq(horizCrds_t *h, polarCrds_t *pc, double sidTime){
     if(!h || !pc) return;
+    DBG("got az=%gdeg, zd=%gdeg; sidtm=%ghrs", RAD2DEG(h->az), RAD2DEG(h->zd), RAD2HRS(sidTime));
     eraAe2hd(h->az, ERFA_DPI/2. - h->zd, place.slat, &pc->ha, &pc->dec); // A,H -> HA,DEC; phi - site latitude
-    pc->ra = sidTime - pc->ha;
+    pc->ha = eraAnp(pc->ha); // normalize to [0,2pi)
+    pc->ra = eraAnp(sidTime - pc->ha);
+    DBG("dec=%gdeg, ha=%gh, ra=%gh", RAD2DEG(pc->dec), RAD2HRS(pc->ha), RAD2HRS(pc->ra));
     pc->eo = 0.;
 }
 
@@ -213,7 +260,7 @@ bool get_MJDt(struct timeval *tval, sMJD_t *MJD){
     struct tm tms;
     double tSeconds;
     if(!MJD){
-        WARNX("get_MJDt(): no input data");
+        WARNX("get_MJDt(): no output data");
         return false;
     }
     if(!tval){
@@ -223,9 +270,11 @@ bool get_MJDt(struct timeval *tval, sMJD_t *MJD){
             return false;
         }
         gmtime_r(&ts.tv_sec, &tms);
+        //localtime_r(&ts.tv_sec, &tms);
         tSeconds = tms.tm_sec + ((double)ts.tv_nsec)/1e9;
     }else{
         gmtime_r(&tval->tv_sec, &tms);
+        //localtime_r(&tval->tv_sec, &tms);
         tSeconds = tms.tm_sec + ((double)tval->tv_usec)/1e6;
     }
     int y, m, d;
@@ -238,10 +287,11 @@ bool get_MJDt(struct timeval *tval, sMJD_t *MJD){
         WARNX("get_MJDt(): eraDtf2d() error");
         return false;
     }
-    MJD->MJD = utc1 - ERFA_DJM0 + utc2;
+    DBG("y=%d, m=%d, d=%d, H=%d, M=%d, seconds=%g, UTC=%g", y, m, d, tms.tm_hour, tms.tm_min, tSeconds, utc1+utc2);
+    MJD->MJD = (utc1 - ERFA_DJM0) + utc2;
     MJD->utc1 = utc1;
     MJD->utc2 = utc2;
-    //DBG("UTC(m): %g, %.8f\n", utc1 - 2400000.5, utc2);
+    DBG("MJD: %g, %.8f", utc1 - ERFA_DJM0, utc2);
     if(eraUtctai(utc1, utc2, &MJD->tai1, &MJD->tai2)){
         WARNX("get_MJDt(): eraUtctai() error");
         return false;
@@ -263,20 +313,22 @@ bool get_MJDt(struct timeval *tval, sMJD_t *MJD){
  * @param LST (o) - local sidereal time (radians)
  * @return true if all OK
  */
-bool get_LST(sMJD_t *mjd, double dUT1, double slong, double *LST){
+bool get_LST(sMJD_t *mjd, double *LST){
     double ut11, ut12;
     sMJD_t Mjd;
     if(!LST) return false;
     if(!mjd){
         if(!get_MJDt(NULL, &Mjd)) return false;
     }else Mjd = *mjd;
-    if(eraUtcut1(Mjd.utc1, Mjd.utc2, dUT1, &ut11, &ut12)) return false;
+    if(eraUtcut1(Mjd.utc1, Mjd.utc2, AlmDut.DUT1, &ut11, &ut12)) return false;
     double ST = eraGst06a(ut11, ut12, Mjd.tt1, Mjd.tt2);
-    ST += slong;
+    DBG("ST0=%gh; longitude=%gh (%gdeg) STl=%gh", RAD2HRS(ST),
+        RAD2HRS(place.slong), RAD2DEG(place.slong), RAD2HRS(ST+place.slong));
+    ST += place.slong;
     if(ST > ERFA_D2PI) ST -= ERFA_D2PI;
     else if(ST < 0.) ST += ERFA_D2PI;
     *LST = ST;
-    return 0;
+    return true;
 }
 
 /**
@@ -302,14 +354,15 @@ bool get_ObsPlace(struct timeval *tval, polarCrds_t *p2000, polarCrds_t *pnow, h
     double wl = 0.55;
     /* ICRS to observed. */
     double aob, zob, hob, dob, rob, eo;
-    double p = 1000., t = 0., h = place.salt;
+    double p = 1000., t = 0., h = 0.5;
     weather_data_t weath;
     if(get_weather_data(&weath)){
         WARNX("Can't get weather - use default values");
     }else{
         p = 1.3332239 * weath.pressure;
         t = weath.exttemp;
-        DBG("pressure=%.1fhPa, temperature=%.1fdegC", p, t);
+        h = weath.humidity / 100.;
+        DBG("pressure=%.1fhPa, temperature=%.1fdegC, humidity=%.1f%%", p, t, h);
     }
     if(eraAtco13(p2000->ra, p2000->dec,
                   pr, pd, px, rv,

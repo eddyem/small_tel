@@ -62,3 +62,11 @@ void mount_disconnect();
 
 mount_status_t mount_getcoords(double *ra, double *dec);
 bool mount_point(double ra, double dec);
+bool mount_pointAZ(double A, double Z);
+bool mount_stop();
+bool mount_tracking_start();
+bool mount_park();
+
+bool mount_setParkAz(double az);
+bool mount_setParkZD(double zd);
+void mount_getPark(horizCrds_t *c);

@@ -21,6 +21,7 @@
 #include <stdint.h>
 #include <usefull_macros.h>
 #include <sys/socket.h>
+#include <erfam.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
@@ -68,12 +69,10 @@ STATUS (4 bytes, signed integer): status of the telescope, currently unused.
 */
 
 
-#define DEG2DEC(degr)  ((int32_t)(degr / 90. * ((double)0x40000000)))
-#define DEG2RA(degr)   ((uint32_t)(degr / 180. * ((double)0x80000000)))
-#define HRS2RA(degr)   ((uint32_t)(degr / 12. * ((double)0x80000000)))
-#define DEC2DEG(i32)   (((double)i32)*90./((double)0x40000000))
-#define RA2DEG(u32)    (((double)u32)*180. /((double)0x80000000))
-#define RA2HRS(u32)    (((double)u32)*12. /((double)0x80000000))
+#define RAD2DEC(rad)  ((int32_t)((rad) / ERFA_DPI * ((double)0x80000000)))
+#define RAD2RA(rad)   ((uint32_t)((rad) / ERFA_DPI * ((double)0x80000000)))
+#define DEC2DEG(i32)   (((double)(i32))*90./((double)0x40000000))
+#define RA2HRS(u32)    (((double)(u32))*12. /((double)0x80000000))
 
 typedef struct __attribute__((__packed__)){
     uint16_t len;
@@ -126,23 +125,9 @@ static bool proc_data(uint8_t *data, ssize_t len){
         return false;
     }
     // convert RA/DEC to degrees
-    double tagRA = RA2DEG(ra), tagDec = DEC2DEG(dec);
-    DBG("RA: %u (%g degr), DEC: %d (%g degr)", ra, tagRA, dec, tagDec);
-    LOGMSG("(stellarium) RA: %u (%g degr), DEC: %d (%g degr)", ra, tagRA, dec, tagDec);
-#if 0
-    // check RA/DEC
-    horizCrds_t hnow; // without refraction
-    polarCrds_t p2000, pnow;
-    p2000.ra = DEG2RAD(tagRA);
-    p2000.dec = DEG2RAD(tagDec);
-    //             now     J2000  obs    Jnow
-    if(!get_ObsPlace(NULL, &p2000, &pnow, &hnow)){
-        WARNX("Can't convert coordinates to Jnow");
-        return false;
-    }
-    tagRA = RAD2DEG(pnow.ra - pnow.eo);
-    tagDec = RAD2DEG(pnow.dec);
-#endif
+    double tagRA = RA2HRS(ra), tagDec = DEC2DEG(dec);
+    DBG("RA: %u (%g hrs), DEC: %d (%g degr)", ra, tagRA, dec, tagDec);
+    LOGMSG("(stellarium) RA: %u (%g hrs), DEC: %d (%g degr)", ra, tagRA, dec, tagDec);
     return (mount_setInpRA(tagRA) && mount_setInpDec(tagDec) && mount_setInpMJD(ERFA_DJM00));
 }
 
@@ -184,10 +169,9 @@ static void *handle_socket(void *sockd){
             continue;
         }
         //DBG("got : %g/%g", RA, Decl);
-        dout.ra = htole32(HRS2RA(RA));
-        dout.dec = (int32_t)htole32(DEG2DEC(Decl));
+        dout.ra = htole32(RAD2RA(RA));
+        dout.dec = (int32_t)htole32(RAD2DEC(Decl));
         if(!send_data((uint8_t*)&dout, sizeof(outdata), sock)) break;
-        //DBG("sent ra = %g, dec = %g", RA2HRS(dout.ra), DEC2DEG(dout.dec));
         if(!sl_canread(sock)){
             sleep(1);
             continue;

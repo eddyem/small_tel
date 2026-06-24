@@ -16,6 +16,8 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <erfa.h>
+#include <erfam.h>
 #include <inttypes.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -35,11 +37,23 @@
 // commands
 #define CMD_UNIXT       "unixt"
 #define CMD_STATUS      "status"
-#define CMD_RELAY       "relay"
-#define CMD_OPEN        "open"
-#define CMD_CLOSE       "close"
 #define CMD_STOP        "stop"
-#define CMD_HALF        "half"
+#define CMD_TAGRA       "tagra"
+#define CMD_TAGDEC      "tagdec"
+#define CMD_TAGHA       "tagha"
+#define CMD_TAGAZ       "tagaz"
+#define CMD_TAGZD       "tagzd"
+#define CMD_TELRA       "telra"
+#define CMD_TELDEC      "teldec"
+#define CMD_GOTORD      "gotord"
+#define CMD_GOTORH      "gotorh"
+#define CMD_GOTOAZ      "gotoaz"
+#define CMD_STOP        "stop"
+#define CMD_TRACK       "track"
+#define CMD_PARK        "park"
+#define CMD_PARKAZ      "parkaz"
+#define CMD_PARKZD      "parkzd"
+
 
 // main command socket
 static sl_sock_t *cmd_socket = NULL;
@@ -76,10 +90,227 @@ static sl_sock_hresult_e status(sl_sock_t *c, sl_sock_hitem_t *item, _U_ const c
     return RESULT_SILENCE;
 }
 
+static int parse_key_value(const char *req, double *val){
+    if(!req) return 0; // is getter
+    DBG("parsing of %s", req);
+    double d;
+    if(sscanf(req, "%lf", &d) != 1) return -1; // error
+    if(val) *val = d;
+    return 1; // is setter
+}
+
+// setters of RA/DEC/HA/Az/ZD (TODO: fix `parse_key_value` for HH:MM:SS/DD:MM:SS/DDD.DD/HHH.HH formats!)
+static sl_sock_hresult_e cmd_tagra(sl_sock_t *c, sl_sock_hitem_t *item, const char *req){
+    double val;
+    int res = parse_key_value(req, &val);
+    if(res < 0) return RESULT_BADVAL;
+    if(res > 0){ // setter
+        if(mount_setInpRA(val))  return RESULT_OK;
+        return RESULT_BADVAL;
+    }else{ // getter
+        polarCrds_t p;
+        mount_getInpCoords(&p);
+        double ra_h = RAD2HRS(p.ra);
+        char buf[64];
+        snprintf(buf, sizeof(buf), "%s=%.6f\n", item->key, ra_h);
+        sl_sock_sendstrmessage(c, buf);
+    }
+    return RESULT_SILENCE;
+}
+
+static sl_sock_hresult_e cmd_tagdec(sl_sock_t *c, sl_sock_hitem_t *item, const char *req) {
+    double val;
+    int res = parse_key_value(req, &val);
+    if(res < 0) return RESULT_BADVAL;
+    if(res > 0){
+        if(mount_setInpDec(val)) return RESULT_OK;
+        return RESULT_BADVAL;
+    }else{
+        polarCrds_t p;
+        mount_getInpCoords(&p);
+        double dec_d = RAD2DEG(p.dec);
+        char buf[64];
+        snprintf(buf, sizeof(buf), "%s=%.6f\n", item->key, dec_d);
+        sl_sock_sendstrmessage(c, buf);
+    }
+    return RESULT_SILENCE;
+}
+
+static sl_sock_hresult_e cmd_tagha(sl_sock_t *c, sl_sock_hitem_t *item, const char *req) {
+    double val;
+    int res = parse_key_value(req, &val);
+    if(res < 0) return RESULT_BADVAL;
+    if(res > 0){
+        if(mount_setInpHA(val)) return RESULT_OK;
+        return RESULT_BADVAL;
+    }else{
+        polarCrds_t p;
+        mount_getInpCoords(&p);
+        double ha_h = RAD2HRS(p.ha);
+        char buf[64];
+        snprintf(buf, sizeof(buf), "%s=%.6f\n", item->key, ha_h);
+        sl_sock_sendstrmessage(c, buf);
+    }
+    return RESULT_SILENCE;
+}
+
+static sl_sock_hresult_e cmd_tagaz(sl_sock_t *c, sl_sock_hitem_t *item, const char *req) {
+    double val;
+    int res = parse_key_value(req, &val);
+    if(res < 0) return RESULT_BADVAL;
+    if(res > 0){
+        if(mount_setInpA(val)) return RESULT_OK;
+        return RESULT_BADVAL;
+    }else{
+        horizCrds_t h;
+        mount_getInpHor(&h);
+        double az_d = RAD2DEG(h.az);
+        char buf[64];
+        snprintf(buf, sizeof(buf), "%s=%.6f\n", item->key, az_d);
+        sl_sock_sendstrmessage(c, buf);
+    }
+    return RESULT_SILENCE;
+}
+
+static sl_sock_hresult_e cmd_tagzd(sl_sock_t *c, sl_sock_hitem_t *item, const char *req) {
+    double val;
+    int res = parse_key_value(req, &val);
+    if(res < 0) return RESULT_BADVAL;
+    if(res > 0){
+        if(mount_setInpZ(val)) return RESULT_OK;
+        return RESULT_BADVAL;
+    }else{
+        horizCrds_t h;
+        mount_getInpHor(&h);
+        double zd_d = RAD2DEG(h.zd);
+        char buf[64];
+        snprintf(buf, sizeof(buf), "%s=%.6f\n", item->key, zd_d);
+        sl_sock_sendstrmessage(c, buf);
+    }
+    return RESULT_SILENCE;
+}
+
+static sl_sock_hresult_e cmd_telra(sl_sock_t *c, sl_sock_hitem_t *item, _U_ const char *req) {
+    double ra, dec;
+    if(mount_getcoords(&ra, &dec) == MNT_S_ERROR) return RESULT_FAIL;
+    char buf[64];
+    double ra_h = RAD2HRS(ra);
+    snprintf(buf, sizeof(buf), "%s=%.6f\n", item->key, ra_h);
+    sl_sock_sendstrmessage(c, buf);
+    return RESULT_SILENCE;
+}
+
+static sl_sock_hresult_e cmd_teldec(sl_sock_t *c, sl_sock_hitem_t *item, _U_ const char *req) {
+    double ra, dec;
+    if(mount_getcoords(&ra, &dec) == MNT_S_ERROR) return RESULT_FAIL;
+    char buf[64];
+    double dec_d = RAD2DEG(dec);
+    snprintf(buf, sizeof(buf), "%s=%.6f\n", item->key, dec_d);
+    sl_sock_sendstrmessage(c, buf);
+    return RESULT_SILENCE;
+}
+
+static sl_sock_hresult_e cmd_gotord(_U_ sl_sock_t *c, _U_ sl_sock_hitem_t *item, _U_ const char *req) {
+    polarCrds_t p;
+    mount_getInpCoords(&p);
+    double ra_h = RAD2HRS(p.ra);
+    double dec_d = RAD2DEG(p.dec);
+    if(!mount_point(ra_h, dec_d)) return RESULT_FAIL;
+    return RESULT_OK;
+}
+
+static sl_sock_hresult_e cmd_gotorh(_U_ sl_sock_t *c, _U_ sl_sock_hitem_t *item, _U_ const char *req) {
+    polarCrds_t p;
+    mount_getInpCoords(&p);
+    sMJD_t mjd;
+    if(!get_MJDt(NULL, &mjd)) return RESULT_FAIL;
+    double LST;
+    if(!get_LST(&mjd, &LST)) return RESULT_FAIL;
+    double RA_rad = eraAnp(LST - p.ha);
+    double ra_h = RAD2HRS(RA_rad);
+    double dec_d = RAD2DEG(p.dec);
+    if(!mount_point(ra_h, dec_d)) return RESULT_FAIL;
+    return RESULT_OK;
+}
+
+static sl_sock_hresult_e cmd_gotoaz(_U_ sl_sock_t *c, _U_ sl_sock_hitem_t *item, _U_ const char *req) {
+    horizCrds_t h;
+    mount_getInpHor(&h);
+    if(mount_pointAZ(RAD2DEG(h.az), RAD2DEG(h.zd))) return RESULT_OK;
+    return RESULT_FAIL;
+}
+
+static sl_sock_hresult_e cmd_stop(_U_ sl_sock_t *c, _U_ sl_sock_hitem_t *item, _U_ const char *req) {
+    mount_stop();
+    return RESULT_OK;
+}
+
+// run tracking from current position
+static sl_sock_hresult_e cmd_track(_U_ sl_sock_t *c, _U_ sl_sock_hitem_t *item, _U_ const char *req) {
+    if(mount_tracking_start()) return RESULT_OK;
+    return RESULT_FAIL;
+}
+
+static sl_sock_hresult_e cmd_park(_U_ sl_sock_t *c, _U_ sl_sock_hitem_t *item, _U_ const char *req){
+    if(mount_park()) return RESULT_OK;
+    return RESULT_FAIL;
+}
+
+// set/get parking coordinates
+static sl_sock_hresult_e cmd_parkaz(sl_sock_t *c, sl_sock_hitem_t *item, const char *req){
+    double val;
+    int res = parse_key_value(req, &val);
+    if(res < 0) return RESULT_BADVAL;
+    if(res > 0){
+        if(mount_setParkAz(val)) return RESULT_OK;
+        return RESULT_BADVAL;
+    }else{
+        horizCrds_t h;
+        mount_getPark(&h);
+        char buf[64];
+        snprintf(buf, sizeof(buf), "%s=%.6f\n", item->key, RAD2DEG(h.az));
+        sl_sock_sendstrmessage(c, buf);
+    }
+    return RESULT_SILENCE;
+}
+static sl_sock_hresult_e cmd_parkzd(sl_sock_t *c, sl_sock_hitem_t *item, const char *req){
+    double val;
+    int res = parse_key_value(req, &val);
+    if(res < 0) return RESULT_BADVAL;
+    if(res > 0){
+        if(mount_setParkZD(val)) return RESULT_OK;
+        return RESULT_BADVAL;
+    }else{
+        horizCrds_t h;
+        mount_getPark(&h);
+        char buf[64];
+        snprintf(buf, sizeof(buf), "%s=%.6f\n", item->key, RAD2DEG(h.zd));
+        sl_sock_sendstrmessage(c, buf);
+    }
+    return RESULT_SILENCE;
+}
+
+
+
 //  and all handlers collection
 static sl_sock_hitem_t handlers[] = {
-    {dtimeh, CMD_UNIXT, "get server's UNIX time", NULL},
+    {cmd_gotoaz, CMD_GOTOAZ, "point telescope by input Az/ZD and stop", NULL},
+    {cmd_gotord, CMD_GOTORD, "point telescope by input RA/Dec and start tracking", NULL},
+    {cmd_gotorh, CMD_GOTORH, "point telescope by input RA/HA and start tracking", NULL},
+    {cmd_park, CMD_PARK, "park telescope", NULL},
+    {cmd_parkaz, CMD_PARKAZ, "set parking azimuth (Deg: 0 - north, 90 - east)", NULL},
+    {cmd_parkzd, CMD_PARKZD, "set parking zenith distance (Deg)", NULL},
     {status, CMD_STATUS, "get mount status", NULL},
+    {cmd_stop, CMD_STOP, "stop telescope", NULL},
+    {cmd_tagaz, CMD_TAGAZ, "get/set target azimuth (Deg)", NULL},
+    {cmd_tagdec, CMD_TAGDEC, "get/set target declination (Deg)", NULL},
+    {cmd_tagha, CMD_TAGHA, "get/set target hour angle (Hrs)", NULL},
+    {cmd_tagra, CMD_TAGRA, "get/set target right acsention (Hrs)", NULL},
+    {cmd_tagzd, CMD_TAGZD, "get/set target zenith distance (Deg)", NULL},
+    {cmd_teldec, CMD_TELDEC, "get current telescope declination (Deg)", NULL},
+    {cmd_telra, CMD_TELRA, "get current telescope right acsention (Hrs)", NULL},
+    {cmd_track, CMD_TRACK, "start tracking from current position", NULL},
+    {dtimeh, CMD_UNIXT, "get server's UNIX time", NULL},
     {NULL, NULL, NULL, NULL}
 };
 

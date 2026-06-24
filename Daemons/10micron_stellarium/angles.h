@@ -23,10 +23,10 @@
 
 #define RADEC_STR_MAXLEN    72
 
-#define RAD2DEG(angle)  (angle * ERFA_DR2D)
-#define DEG2RAD(angle)  (angle * ERFA_DD2R)
-#define RAD2HRS(angle)  (angle * 24. / ERFA_DPI)
-#define HRS2RAD(hour)   (hour * ERFA_DPI / 24.)
+#define RAD2DEG(angle)  ((angle) * ERFA_DR2D)
+#define DEG2RAD(angle)  ((angle) * ERFA_DD2R)
+#define RAD2HRS(angle)  ((angle) * 12. / ERFA_DPI)
+#define HRS2RAD(hour)   ((hour) * ERFA_DPI / 12.)
 
 typedef struct{
     double utc1; double utc2; // UTC JD, commonly used MJD = utc1+utc2-2400000.5
@@ -65,8 +65,10 @@ typedef struct{
 } almDut_t;
 
 char *radec2str(double ra, double dec, char buf[RADEC_STR_MAXLEN]);
+bool normAZ(double *a, double *z);
 void norm_RA(double *ra);
 void norm_RADEC(double *ra, double *dec);
+void norm_RADECr(double *ra, double *dec);
 void norm_angle180(double *a);
 
 void hor2eq(horizCrds_t *h, polarCrds_t *pc, double sidTime);
@@ -79,7 +81,7 @@ void hor2eq(horizCrds_t *h, polarCrds_t *pc, double sidTime);
 void eq2horH(polarCrds_t *pc, horizCrds_t *h);
 void eq2hor(polarCrds_t *pc, horizCrds_t *h, double sidTime);
 bool get_MJDt(struct timeval *tval, sMJD_t *MJD);
-bool get_LST(sMJD_t *mjd, double dUT1, double slong, double *LST);
+bool get_LST(sMJD_t *mjd, double *LST);
 bool get_ObsPlace(struct timeval *tval, polarCrds_t *p2000, polarCrds_t *pnow, horizCrds_t *hnow);
 
 bool setDUT(almDut_t *D);
