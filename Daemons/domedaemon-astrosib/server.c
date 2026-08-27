@@ -226,6 +226,7 @@ void server_run(sl_socktype_e type, const char *node, sl_tty_t *serial){
     double tnow = 0., tweather = 0.;
     int cmdclosed = 0;
     while(s && s->connected){
+        usleep(100000);
         tnow = sl_dtime();
         if(!s->rthread){
             LOGERR("Server handlers thread is dead");

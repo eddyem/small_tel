@@ -292,7 +292,7 @@ void runserver(int isunix, const char *node, int maxclients){
             }
             pthread_mutex_unlock(&Dome.mutex);
         }else forbidden = 0;
-        usleep(1000);
+        usleep(10000);
         if(!locksock->rthread){
             WARNX("Server handlers thread is dead");
             LOGERR("Server handlers thread is dead");
