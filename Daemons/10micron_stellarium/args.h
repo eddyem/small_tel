@@ -30,9 +30,9 @@ typedef struct{
     int verbose;            // verbose level
     int sleept;             // server's sleeping in main cycle time
     int isunix;             // use UNIX-socket for command port
-    int sertmout;           // serial timeout, us
     int serspeed;           // serial speed, baud
     int maxclients;         // max amount of clients connected to one socket
+    double sertmout;        // serial timeout, s
 } parameters_t;
 
 parameters_t *parse_cmdline(int *argc, char ***argv);

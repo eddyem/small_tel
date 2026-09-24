@@ -1,3 +1,4 @@
+10micron_commands.h
 angles.c
 angles.h
 args.c

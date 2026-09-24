@@ -29,11 +29,14 @@
 #include "mount.h"
 
 static pid_t childpid = -1; // PID of child process
-static const char *pidfile = NULL;
+static parameters_t *G = NULL;
+#ifndef EBUG
+static bool isrunning = false;
+#endif
 
 void signals(int sig){
     if(childpid){ // single or parent process
-        if(pidfile) unlink(pidfile);  // remove pidfile
+        if(G->pidfile) unlink(G->pidfile);  // remove pidfile
         if(childpid > 0) kill(childpid, SIGTERM);
     }
     if(sig){
@@ -46,27 +49,42 @@ void signals(int sig){
         LOGWARN("Child %d died with %d", getpid(), sig);
         server_stop();
     }
+#ifndef EBUG
+    isrunning = true;
+#endif
     DBG("EXIT");
 }
 
 int main(int argc, char **argv){
     sl_init();
-    parameters_t *G = parse_cmdline(&argc, &argv);
+    G = parse_cmdline(&argc, &argv);
     if(!G) return 1;
     sl_loglevel_e lvl = G->verbose + LOGLEVEL_ERR;
     if(lvl >= LOGLEVEL_AMOUNT) lvl = LOGLEVEL_AMOUNT - 1;
     DBG("verb: %d, level: %d", G->verbose, lvl);
     int fd;
-    if((fd = open(G->crdsfile, O_WRONLY | O_TRUNC | O_CREAT, 0644)) < 0) // test FITS-header file for writing
-        ERR(_("Can't open %s for writing"), G->crdsfile);
+    if((fd = open(G->crdsfile, O_WRONLY | O_TRUNC | O_CREAT, 0644)) < 0){ // test FITS-header file for writing
+        WARN(_("Can't open %s for writing"), G->crdsfile);
+        return 1;
+    }
     close(fd);
-    if(G->sleept < 1) ERRX("Sleeping time sould be positive value");
-    if(!server_setsleept(G->sleept)) ERRX("Can't set sleep time to %d", G->sleept);
+    if(G->sleept < 1){
+        WARNX("Sleeping time sould be positive value (%d)", G->sleept);
+        return 2;
+    }
+    if(!server_setsleept(G->sleept)){
+        WARNX("Can't set sleep time to %d", G->sleept);
+        return 3;
+    }
     if(G->emulation) set_emulation_mode();
-    else if(!mount_set_dev(G->device, G->serspeed, G->sertmout))
-        ERRX("Can't open device %s @ %d", G->device, G->serspeed);
-    if(!mount_set_name(G->mountname))
-        ERRX("Can't set mount name to %s", G->mountname);
+    else if(!mount_set_dev(G->device, G->serspeed, G->sertmout)){
+        WARNX("Can't open device %s @ %d", G->device, G->serspeed);
+        return 4;
+    }
+    if(!mount_set_name(G->mountname)){
+        WARNX("Can't set mount name to %s", G->mountname);
+        return 5;
+    }
     signal(SIGTERM, signals);
     signal(SIGINT, signals);
     signal(SIGQUIT, signals);
@@ -78,7 +96,7 @@ int main(int argc, char **argv){
     LOGMSG("Started, master PID=%d", getpid());
 #ifndef EBUG
     time_t lastd = 0;
-    while(1){ // guard for dead processes
+    while(isrunning){ // guard for dead processes
         childpid = fork();
         if(childpid < 0){
             LOGERR("fork() returns error");
@@ -114,5 +132,5 @@ int main(int argc, char **argv){
     DBG("Run server");
     server_run();
     DBG("Server died");
-    return 1;
+    return 0;
 }

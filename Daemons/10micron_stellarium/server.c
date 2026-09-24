@@ -45,10 +45,12 @@
 #define CMD_TAGZD       "tagzd"
 #define CMD_TELRA       "telra"
 #define CMD_TELDEC      "teldec"
+#define CMD_TELAZ       "telaz"
+#define CMD_TELZD       "telzd"
 #define CMD_GOTORD      "gotord"
 #define CMD_GOTORH      "gotorh"
 #define CMD_GOTOAZ      "gotoaz"
-#define CMD_STOP        "stop"
+#define CMD_STOPTRK     "stoptrk"
 #define CMD_TRACK       "track"
 #define CMD_PARK        "park"
 #define CMD_PARKAZ      "parkaz"
@@ -84,7 +86,8 @@ static sl_sock_hresult_e dtimeh(sl_sock_t *c, _U_ sl_sock_hitem_t *item, _U_ con
 // statust - text format status
 static sl_sock_hresult_e status(sl_sock_t *c, sl_sock_hitem_t *item, _U_ const char *req){
     char buf[BUFSIZ];
-    snprintf(buf, BUFSIZ-1, "%s=%s\n", item->key, mount_status_str());
+    mount_status_t st = mount_status();
+    snprintf(buf, BUFSIZ-1, "%s=%s\n", item->key, mount_status_str(st));
     LOGDBG("Client %d asks status: %s", c->fd, buf);
     sl_sock_sendstrmessage(c, buf);
     return RESULT_SILENCE;
@@ -94,7 +97,9 @@ static int parse_key_value(const char *req, double *val){
     if(!req) return 0; // is getter
     DBG("parsing of %s", req);
     double d;
-    if(sscanf(req, "%lf", &d) != 1) return -1; // error
+    if(strchr(req, ':')){ // DD:MM:SS or HH:MM:SS
+        if(!str2coord(req, &d)) return -1;
+    }else if(sscanf(req, "%lf", &d) != 1) return -1; // error
     if(val) *val = d;
     return 1; // is setter
 }
@@ -112,7 +117,7 @@ static sl_sock_hresult_e cmd_tagra(sl_sock_t *c, sl_sock_hitem_t *item, const ch
         mount_getInpCoords(&p);
         double ra_h = RAD2HRS(p.ra);
         char buf[64];
-        snprintf(buf, sizeof(buf), "%s=%.6f\n", item->key, ra_h);
+        snprintf(buf, 63, "%s=%.6f\n", item->key, ra_h);
         sl_sock_sendstrmessage(c, buf);
     }
     return RESULT_SILENCE;
@@ -130,7 +135,7 @@ static sl_sock_hresult_e cmd_tagdec(sl_sock_t *c, sl_sock_hitem_t *item, const c
         mount_getInpCoords(&p);
         double dec_d = RAD2DEG(p.dec);
         char buf[64];
-        snprintf(buf, sizeof(buf), "%s=%.6f\n", item->key, dec_d);
+        snprintf(buf, 63, "%s=%.6f\n", item->key, dec_d);
         sl_sock_sendstrmessage(c, buf);
     }
     return RESULT_SILENCE;
@@ -148,7 +153,7 @@ static sl_sock_hresult_e cmd_tagha(sl_sock_t *c, sl_sock_hitem_t *item, const ch
         mount_getInpCoords(&p);
         double ha_h = RAD2HRS(p.ha);
         char buf[64];
-        snprintf(buf, sizeof(buf), "%s=%.6f\n", item->key, ha_h);
+        snprintf(buf, 63, "%s=%.6f\n", item->key, ha_h);
         sl_sock_sendstrmessage(c, buf);
     }
     return RESULT_SILENCE;
@@ -166,7 +171,7 @@ static sl_sock_hresult_e cmd_tagaz(sl_sock_t *c, sl_sock_hitem_t *item, const ch
         mount_getInpHor(&h);
         double az_d = RAD2DEG(h.az);
         char buf[64];
-        snprintf(buf, sizeof(buf), "%s=%.6f\n", item->key, az_d);
+        snprintf(buf, 63, "%s=%.6f\n", item->key, az_d);
         sl_sock_sendstrmessage(c, buf);
     }
     return RESULT_SILENCE;
@@ -184,7 +189,7 @@ static sl_sock_hresult_e cmd_tagzd(sl_sock_t *c, sl_sock_hitem_t *item, const ch
         mount_getInpHor(&h);
         double zd_d = RAD2DEG(h.zd);
         char buf[64];
-        snprintf(buf, sizeof(buf), "%s=%.6f\n", item->key, zd_d);
+        snprintf(buf, 63, "%s=%.6f\n", item->key, zd_d);
         sl_sock_sendstrmessage(c, buf);
     }
     return RESULT_SILENCE;
@@ -194,8 +199,7 @@ static sl_sock_hresult_e cmd_telra(sl_sock_t *c, sl_sock_hitem_t *item, _U_ cons
     double ra, dec;
     if(mount_getcoords(&ra, &dec) == MNT_S_ERROR) return RESULT_FAIL;
     char buf[64];
-    double ra_h = RAD2HRS(ra);
-    snprintf(buf, sizeof(buf), "%s=%.6f\n", item->key, ra_h);
+    snprintf(buf, 63, "%s=%.6f\n", item->key, ra);
     sl_sock_sendstrmessage(c, buf);
     return RESULT_SILENCE;
 }
@@ -204,8 +208,25 @@ static sl_sock_hresult_e cmd_teldec(sl_sock_t *c, sl_sock_hitem_t *item, _U_ con
     double ra, dec;
     if(mount_getcoords(&ra, &dec) == MNT_S_ERROR) return RESULT_FAIL;
     char buf[64];
-    double dec_d = RAD2DEG(dec);
-    snprintf(buf, sizeof(buf), "%s=%.6f\n", item->key, dec_d);
+    snprintf(buf, 63, "%s=%.6f\n", item->key, dec);
+    sl_sock_sendstrmessage(c, buf);
+    return RESULT_SILENCE;
+}
+
+static sl_sock_hresult_e cmd_telaz(sl_sock_t *c, sl_sock_hitem_t *item, _U_ const char *req) {
+    double a, z;
+    if(mount_getaz(&a, &z) == MNT_S_ERROR) return RESULT_FAIL;
+    char buf[64];
+    snprintf(buf, 63, "%s=%.6f\n", item->key, a);
+    sl_sock_sendstrmessage(c, buf);
+    return RESULT_SILENCE;
+}
+
+static sl_sock_hresult_e cmd_telzd(sl_sock_t *c, sl_sock_hitem_t *item, _U_ const char *req) {
+    double a, z;
+    if(mount_getaz(&a, &z) == MNT_S_ERROR) return RESULT_FAIL;
+    char buf[64];
+    snprintf(buf, 63, "%s=%.6f\n", item->key, z);
     sl_sock_sendstrmessage(c, buf);
     return RESULT_SILENCE;
 }
@@ -241,8 +262,13 @@ static sl_sock_hresult_e cmd_gotoaz(_U_ sl_sock_t *c, _U_ sl_sock_hitem_t *item,
 }
 
 static sl_sock_hresult_e cmd_stop(_U_ sl_sock_t *c, _U_ sl_sock_hitem_t *item, _U_ const char *req) {
-    mount_stop();
-    return RESULT_OK;
+    if(mount_stop()) return RESULT_OK;
+    return RESULT_FAIL;
+}
+
+static sl_sock_hresult_e cmd_stoptrk(_U_ sl_sock_t *c, _U_ sl_sock_hitem_t *item, _U_ const char *req) {
+    if(mount_tracking_stop()) return RESULT_OK;
+    return RESULT_FAIL;
 }
 
 // run tracking from current position
@@ -268,7 +294,7 @@ static sl_sock_hresult_e cmd_parkaz(sl_sock_t *c, sl_sock_hitem_t *item, const c
         horizCrds_t h;
         mount_getPark(&h);
         char buf[64];
-        snprintf(buf, sizeof(buf), "%s=%.6f\n", item->key, RAD2DEG(h.az));
+        snprintf(buf, 63, "%s=%.6f\n", item->key, RAD2DEG(h.az));
         sl_sock_sendstrmessage(c, buf);
     }
     return RESULT_SILENCE;
@@ -284,7 +310,7 @@ static sl_sock_hresult_e cmd_parkzd(sl_sock_t *c, sl_sock_hitem_t *item, const c
         horizCrds_t h;
         mount_getPark(&h);
         char buf[64];
-        snprintf(buf, sizeof(buf), "%s=%.6f\n", item->key, RAD2DEG(h.zd));
+        snprintf(buf, 63, "%s=%.6f\n", item->key, RAD2DEG(h.zd));
         sl_sock_sendstrmessage(c, buf);
     }
     return RESULT_SILENCE;
@@ -309,6 +335,9 @@ static sl_sock_hitem_t handlers[] = {
     {cmd_tagzd, CMD_TAGZD, "get/set target zenith distance (Deg)", NULL},
     {cmd_teldec, CMD_TELDEC, "get current telescope declination (Deg)", NULL},
     {cmd_telra, CMD_TELRA, "get current telescope right acsention (Hrs)", NULL},
+    {cmd_telaz, CMD_TELAZ, "get current telescope azimuth (Deg)", NULL},
+    {cmd_telzd, CMD_TELZD, "get current telescope zenith distance (Deg)", NULL},
+    {cmd_stoptrk, CMD_STOPTRK, "stop tracking", NULL},
     {cmd_track, CMD_TRACK, "start tracking from current position", NULL},
     {dtimeh, CMD_UNIXT, "get server's UNIX time", NULL},
     {NULL, NULL, NULL, NULL}
@@ -395,20 +424,37 @@ void server_run(){
         return;
     }
     if(!mount_connect()){
-        LOGERR("Can't connect to mount");
-        sl_sock_delete(&cmd_socket);
-        return;
+        LOGWARN("Can't connect to mount, will try to reconnect later");
     }
     isrunning = true;
     DBG("While");
+    double tcheck = 0.;
+    bool notlogged = true;
     while(isrunning && cmd_socket && cmd_socket->connected){
         usleep(sleept);
         if(!cmd_socket->rthread){
             LOGERR("Server handlers thread is dead");
             break;
         }
-        // finite state machine polling
-        //dome_poll(DOME_POLL, 0);
+        // check mount state
+        double tnow = sl_dtime();
+        if(tnow - tcheck >= MOUNT_CHECK_T){
+            tcheck = tnow;
+            mount_status_t curst = mount_status();
+            if(curst == MNT_S_OFF){ // mount is off -> try to reconnect
+                if(notlogged){
+                    WARNX("Mount is OFF");
+                    LOGWARN("Mount is OFF");
+                    notlogged = false;
+                }
+                DBG("Try to [re]connect");
+                if(mount_connect()){
+                    notlogged = true;
+                    WARNX("Mount is ON");
+                }
+            }
+            DBG("Current status: %s", mount_status_str(curst));
+        }
     }
     DBG("Stop command socket");
     sl_sock_delete(&cmd_socket);

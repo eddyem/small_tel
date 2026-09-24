@@ -23,7 +23,12 @@
 // default and max available time for "usleep"
 #define DEFAULT_SLEEP_T     100
 #define MAX_SLEEP_T         10000
+
+// maximal amount of connected clients
 #define DEFAULT_MAXCLIENTS  5
+
+// status checking interval, seconds
+#define MOUNT_CHECK_T       10.
 
 typedef struct{
     int cmd_isunix;         // UNIX-socket instead of INET for `cmdnode`

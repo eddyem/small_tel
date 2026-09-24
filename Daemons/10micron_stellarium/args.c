@@ -32,8 +32,8 @@
 #define DEFAULT_FITSHDR     "/tmp/10micron.fitsheader"
 // baudrate - 115200
 #define DEFAULT_SERSPEED    115200
-// serial polling timeout - 100ms
-#define DEFAULT_SERTMOUT    100000
+// serial answer polling timeout - 1s
+#define DEFAULT_SERTMOUT    1.0
 // mount name
 #define DEFAULT_MOUNT_NAME  "10Micron GM4000HPS"
 
@@ -59,10 +59,10 @@ static parameters_t Conf = {0};
     {"cmdport", NEED_ARG,   NULL,   'P',    arg_string, APTR(&Stor.cmdnode),   "port or UNIX-socket path to connect for command console (default: " DEFAULT_CMDNODE ")"}, \
     {"sleept",  NEED_ARG,   NULL,   't',    arg_int,    APTR(&Stor.sleept),    "time of servers' sleeping in main cycle, us (default: " STR(DEFAULT_SLEEP_T) " us)"}, \
     {"isunix",  NO_ARGS,    NULL,   'U',    arg_int,    APTR(&Stor.isunix),    "use UNIX-socket for cmdport"}, \
-    {"sertmout",NEED_ARG,   NULL,   'T',    arg_int,    APTR(&Stor.sertmout),  "serial timeout, us (default: " STR(DEFAULT_SERTMOUT) " us)"}, \
+    {"sertmout",NEED_ARG,   NULL,   'T',    arg_double, APTR(&Stor.sertmout),  "serial timeout, seconds (default: " STR(DEFAULT_SERTMOUT) " s)"}, \
     {"serspeed",NEED_ARG,   NULL,   'S',    arg_int,    APTR(&Stor.serspeed),  "serial speed (default: " STR(DEFAULT_SERSPEED) ")"}, \
-    {"maxclients",NEED_ARG, NULL,   0,      arg_int,    APTR(&Stor.maxclients),"max amount of clients connected to one socket (default: " STR(DEFAULT_MAXCLIENTS) ")"}, \
-    {"mountname",NEED_ARG,  NULL,   0,      arg_string, APTR(&Stor.mountname), "mount name (default: " DEFAULT_MOUNT_NAME ")"},  \
+    {"maxclients",NEED_ARG, NULL,     0,    arg_int,    APTR(&Stor.maxclients),"max amount of clients connected to one socket (default: " STR(DEFAULT_MAXCLIENTS) ")"}, \
+    {"mountname",NEED_ARG,  NULL,     0,    arg_string, APTR(&Stor.mountname), "mount name (default: " DEFAULT_MOUNT_NAME ")"},  \
     {"verbose", NO_ARGS,    NULL,   'v',    arg_none,   APTR(&Stor.verbose),   "verbose level (each -v increases it)"}, \
 
 
@@ -105,20 +105,34 @@ static void chkint(int *conf, int *cmd, int dflt){
     }
 }
 
+static void chkdbl(double *conf, double *cmd, double dflt){
+    if(!*conf){
+        if(!*cmd) *cmd = dflt;
+        return;
+    }
+    if(!*cmd){
+        DBG("Conf-only parameter %g", *conf);
+        *cmd = *conf;
+    }
+}
 
-#define STRCHK(field)  chkstr(&Conf.field, &G.field, NULL)
+#define STRCHK(field)       chkstr(&Conf.field, &G.field, NULL)
 #define STRCHKD(field, def) chkstr(&Conf.field, &G.field, def)
-#define INTCHK(field)  chkint(&Conf.field, &G.field, 0)
-#define INTCHKD(field, def)  chkint(&Conf.field, &G.field, def)
+#define INTCHK(field)       chkint(&Conf.field, &G.field, 0)
+#define INTCHKD(field, def) chkint(&Conf.field, &G.field, def)
+#define DBLCHK(field)       chkdbl(&Conf.field, &G.field, 0.)
+#define DBLCHKD(field, def) chkdbl(&Conf.field, &G.field, def)
 
 parameters_t *parse_cmdline(int *argc, char ***argv){
     sl_parseargs(argc, argv, cmdlnopts);
     if(help) sl_showhelp(-1, cmdlnopts);
-    if(!conffile) return &G;
+    //if(!conffile) return &G;
     // fix for conffile
-    if(!sl_conf_readopts(conffile, confopts)){ // show conf help
-        sl_conf_showhelp(-1, confopts);
-        return NULL;
+    if(conffile){
+        if(!sl_conf_readopts(conffile, confopts)){ // show conf help
+            sl_conf_showhelp(-1, confopts);
+            return NULL;
+        }
     }
     // now fix for command line and check all:
     DBG("Check all args");
@@ -133,7 +147,7 @@ parameters_t *parse_cmdline(int *argc, char ***argv){
     INTCHK(verbose);
     INTCHKD(sleept, DEFAULT_SLEEP_T);
     INTCHK(isunix);
-    INTCHKD(sertmout, DEFAULT_SERTMOUT);
+    DBLCHKD(sertmout, DEFAULT_SERTMOUT);
     INTCHKD(serspeed, DEFAULT_SERSPEED);
     INTCHKD(maxclients, DEFAULT_MAXCLIENTS);
     return &G;

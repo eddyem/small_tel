@@ -34,8 +34,9 @@ typedef enum{
     MNT_S_OUTLIMIT = 9,
     MNT_S_FOLSAT = 10,
     MNT_S_DATINCOSIST = 11,
-    MNT_S_ERROR = 12, // my status
-    MNT_S_STATAMOUNT = 13 // number of statuses
+    MNT_S_ERROR = 12,   // status 98/99 (>11)
+    MNT_S_OFF,          // not responding -> off
+    MNT_S_STATAMOUNT    // number of statuses
 } mount_status_t;
 
 void set_emulation_mode();
@@ -54,16 +55,18 @@ double mount_getInpHor(horizCrds_t *c);
 
 
 bool mount_set_name(const char *name);
-bool mount_set_dev(char *dev, int speed, int timeout);
-const char* mount_status_str();
+bool mount_set_dev(char *dev, int speed, double timeout);
+const char* mount_status_str(mount_status_t st);
 mount_status_t mount_status();
 bool mount_connect();
 void mount_disconnect();
 
 mount_status_t mount_getcoords(double *ra, double *dec);
+mount_status_t mount_getaz(double *a, double *z);
 bool mount_point(double ra, double dec);
 bool mount_pointAZ(double A, double Z);
 bool mount_stop();
+bool mount_tracking_stop();
 bool mount_tracking_start();
 bool mount_park();
 

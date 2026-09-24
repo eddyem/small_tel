@@ -21,7 +21,7 @@
 #include <erfam.h>
 #include <weather_data.h>
 
-#define RADEC_STR_MAXLEN    72
+#define RADEC_STR_MAXLEN    64
 
 #define RAD2DEG(angle)  ((angle) * ERFA_DR2D)
 #define DEG2RAD(angle)  ((angle) * ERFA_DD2R)
@@ -64,7 +64,9 @@ typedef struct{
     double py;
 } almDut_t;
 
-char *radec2str(double ra, double dec, char buf[RADEC_STR_MAXLEN]);
+char *ra2str(double ra, char buf[RADEC_STR_MAXLEN]);
+char *dec2str(double dec, char buf[RADEC_STR_MAXLEN]);
+bool str2coord(const char *str, double *val);
 bool normAZ(double *a, double *z);
 void norm_RA(double *ra);
 void norm_RADEC(double *ra, double *dec);
@@ -77,6 +79,7 @@ void eq2hor(polarCrds_t *pc, horizCrds_t *h, double sidTime);
 
 void r2sHMS(double radians, char *hms, int len);
 void r2sDMS(double radians, char *hms, int len);
+void d2sDMS(double degrees, char *dms, int len);
 void hor2eq(horizCrds_t *h, polarCrds_t *pc, double sidTime);
 void eq2horH(polarCrds_t *pc, horizCrds_t *h);
 void eq2hor(polarCrds_t *pc, horizCrds_t *h, double sidTime);

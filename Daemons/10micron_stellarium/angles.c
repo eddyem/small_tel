@@ -84,25 +84,37 @@ void getPlaceData(placeData_t *pd){
 }
 
 /**
- * convert RA/DEC to string in forman RA: HH:MM:SS.SS, DEC: DD:MM:SS.S
+ * @brief ra2str - convert RA to string form "HH:MM:SS.SS"
+ * @param ra - RA (hours)
+ * @param buf - output buffer
+ * @return pointer to buffer
  */
-char *radec2str(double ra, double dec, char buf[RADEC_STR_MAXLEN]){
+char *ra2str(double ra, char buf[RADEC_STR_MAXLEN]){
+    int h = (int)ra;
+    ra -= h; ra *= 60.;
+    int m = (int)ra;
+    ra -= m; ra *= 60.;
+    snprintf(buf, RADEC_STR_MAXLEN, "%d:%d:%.2f", h,m,ra);
+    buf[RADEC_STR_MAXLEN-1] = 0;
+    return buf;
+}
+/**
+ * @brief dec2str - convert Dec to string form "DD:MM:SS.S"
+ * @param dec - Dec (degrees)
+ * @param buf - output buffer
+ * @return pointer to buffer
+ */
+char *dec2str(double dec, char buf[RADEC_STR_MAXLEN]){
     char sign = '+';
     if(dec < 0){
         sign = '-';
         dec = -dec;
     }
-
-    int h = (int)ra;
-    ra -= h; ra *= 60.;
-    int m = (int)ra;
-    ra -= m; ra *= 60.;
-
     int d = (int) dec;
     dec -= d; dec *= 60.;
     int dm = (int)dec;
     dec -= dm; dec *= 60.;
-    snprintf(buf, RADEC_STR_MAXLEN, "%d:%d:%.2f %c%d:%d:%.1f", h,m,ra, sign,d,dm,dec);
+    snprintf(buf, RADEC_STR_MAXLEN, "%c%d:%d:%.1f",sign,d,dm,dec);
     buf[RADEC_STR_MAXLEN-1] = 0;
     return buf;
 }
@@ -156,8 +168,10 @@ void norm_RADEC(double *ra, double *dec){
 
 void norm_RADECr(double *ra, double *dec){
     if(!ra || !dec) return;
+    DBG("Ra: %g, Dec: %g", RAD2DEG(*ra), RAD2DEG(*dec));
     if(*dec >= -ERFA_DPI/2. && *dec <= ERFA_DPI/2.){ // need only check RA
         *ra = eraAnp(*ra);
+        DBG("Ra become %g", RAD2DEG(*ra));
         return;
     }
     // 1: convert to (-pi..+pi)
@@ -170,6 +184,7 @@ void norm_RADECr(double *ra, double *dec){
         *dec = -ERFA_DPI - *dec;
         *ra = eraAnp(*ra + ERFA_DPI);
     }
+    DBG("Ra become %g, dec become %g", RAD2DEG(*ra), RAD2DEG(*dec));
 }
 
 // normalize angle to (-180, 180]
@@ -249,6 +264,39 @@ void r2sDMS(double radians, char *dms, int len){
     eraA2af(1, radians, &pm, i);
     snprintf(dms, len, "'%c%02d:%02d:%02d.%d'", pm, i[0],i[1],i[2],i[3]);
 }
+// the same, but argument in degrees
+void d2sDMS(double degrees, char *dms, int len){
+    double radians = DEG2RAD(degrees);
+    return r2sDMS(radians, dms, len);
+}
+
+/**
+ * convert str into coordinate (degrees/hours)
+ * @param str (i) - string with angle
+ * @param val (o) - output angle value
+ * @return true if all OK
+ */
+bool str2coord(const char *str, double *val){
+    if(!str || !val) return false;
+    int d, m;
+    float s;
+    int sign = 1;
+    if(*str == '+') ++str;
+    else if(*str == '-'){
+        sign = -1;
+        ++str;
+    }
+    int n = sscanf(str, "%d:%d:%f#", &d, &m, &s);
+    if(n != 3){
+        DBG("sscanf('%s')=%d", str, 3);
+        return false;
+    }
+    double ang = d + ((double)m)/60. + s/3600.;
+    if(sign == -1) *val = -ang;
+    else *val = ang;
+    return true;
+}
+
 
 /**
  * @brief get_MJDt - calculate MJD of date from argument
@@ -287,11 +335,11 @@ bool get_MJDt(struct timeval *tval, sMJD_t *MJD){
         WARNX("get_MJDt(): eraDtf2d() error");
         return false;
     }
-    DBG("y=%d, m=%d, d=%d, H=%d, M=%d, seconds=%g, UTC=%g", y, m, d, tms.tm_hour, tms.tm_min, tSeconds, utc1+utc2);
+    //DBG("y=%d, m=%d, d=%d, H=%d, M=%d, seconds=%g, UTC=%g", y, m, d, tms.tm_hour, tms.tm_min, tSeconds, utc1+utc2);
     MJD->MJD = (utc1 - ERFA_DJM0) + utc2;
     MJD->utc1 = utc1;
     MJD->utc2 = utc2;
-    DBG("MJD: %g, %.8f", utc1 - ERFA_DJM0, utc2);
+    //DBG("MJD: %g, %.8f", utc1 - ERFA_DJM0, utc2);
     if(eraUtctai(utc1, utc2, &MJD->tai1, &MJD->tai2)){
         WARNX("get_MJDt(): eraUtctai() error");
         return false;
@@ -322,8 +370,8 @@ bool get_LST(sMJD_t *mjd, double *LST){
     }else Mjd = *mjd;
     if(eraUtcut1(Mjd.utc1, Mjd.utc2, AlmDut.DUT1, &ut11, &ut12)) return false;
     double ST = eraGst06a(ut11, ut12, Mjd.tt1, Mjd.tt2);
-    DBG("ST0=%gh; longitude=%gh (%gdeg) STl=%gh", RAD2HRS(ST),
-        RAD2HRS(place.slong), RAD2DEG(place.slong), RAD2HRS(ST+place.slong));
+    //DBG("ST0=%gh; longitude=%gh (%gdeg) STl=%gh", RAD2HRS(ST),
+    //    RAD2HRS(place.slong), RAD2DEG(place.slong), RAD2HRS(ST+place.slong));
     ST += place.slong;
     if(ST > ERFA_D2PI) ST -= ERFA_D2PI;
     else if(ST < 0.) ST += ERFA_D2PI;

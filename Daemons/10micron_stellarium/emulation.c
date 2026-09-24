@@ -25,8 +25,9 @@
 #include "angles.h"
 #include "emulation.h"
 
-// emulation speed over any trajectory
-#define SPEED           (DEG2RAD(5.))
+// emulation speed over axis
+#define RASPEED         (DEG2RAD(5.))
+#define DECSPEED        (DEG2RAD(8.))
 // limiting Zen.d.
 #define ZD_LIMIT        (DEG2RAD(80.))
 // pointing tolerance: ~1''
@@ -108,11 +109,12 @@ static double angular_distance(const polarCrds_t *a, const polarCrds_t *b){
     return acos(cd);
 }
 #endif
-// distance by axis moving
-static double axdist(const polarCrds_t *a, const polarCrds_t *b){
+// time to reach position b from position a
+static double reacht(const polarCrds_t *a, const polarCrds_t *b){
     // convert to [-pi, pi)
-    double dra = eraAnpm(b->ra - a->ra), ddec = eraAnpm(b->dec - a->dec);
-    return sqrt(dra*dra + ddec*ddec);
+    double tra = fabs(eraAnpm(b->ra - a->ra)) / RASPEED, tdec = fabs(eraAnpm(b->dec - a->dec)) / DECSPEED;
+    if(tra > tdec) return tra;
+    return tdec;
 }
 
 // calculate flip target (dec>90deg)
@@ -142,47 +144,49 @@ void get_emul_coords(double *ra, double *decl){
         }
         if(!flip_in_progress){ // check if we need to flip
             // distance for direct moving
-            double dist_direct = axdist(&CurRD, &TagRD);
+            double time_direct = reacht(&CurRD, &TagRD);
             // new point after flipping
             polarCrds_t flip_candidate;
             get_flip_target(&TagRD, &flip_candidate);
             // distance for moving with flip
-            double dist_flip = axdist(&CurRD, &flip_candidate);
+            double time_flip = reacht(&CurRD, &flip_candidate);
 
-            if(dist_flip < dist_direct){
+            if(time_flip < time_direct){
                 // need to make flip: it's shorter
                 flip_target = flip_candidate;
                 flip_in_progress = true;
-                DBG("Flip chosen: direct=%.3fdeg, flip=%.3fdeg\n\n\n", RAD2DEG(dist_direct), RAD2DEG(dist_flip));
+                DBG("Target: ra=%gdeg, dec=%gdeg; flip target: ra=%gdeg, dec=%gdec", RAD2DEG(TagRD.ra), RAD2DEG(TagRD.dec), RAD2DEG(flip_candidate.ra), RAD2DEG(flip_candidate.dec));
+                DBG("Flip chosen: direct=%.3fsec, flip=%.3fsec\n\n\n", RAD2DEG(time_direct), RAD2DEG(time_flip));
             }else{
                 flip_in_progress = false;
-                DBG("Move directly: direct=%.3fdeg, flip=%.3fdeg\n\n\n", RAD2DEG(dist_direct), RAD2DEG(dist_flip));
+                DBG("Move directly: direct=%.3fsec, flip=%.3fsec\n\n\n", RAD2DEG(time_direct), RAD2DEG(time_flip));
             }
         }
         // flip target is the same as TagRD, but with RA+=12h and dec > 90deg
         polarCrds_t *target = flip_in_progress ? &flip_target : &TagRD;
         // RA difference over target and last position: [-pi, pi)
         double dRA = eraAnpm(target->ra - CurRD.ra);
-        DBG("RA difference: %gdegr", RAD2DEG(dRA));
+        DBG("RA difference: %gdegr (tag: %g, cur: %g)", RAD2DEG(dRA), RAD2DEG(target->ra), RAD2DEG(CurRD.ra));
         double dDec = eraAnpm(target->dec - CurRD.dec);
-        DBG("DEC difference: %gdegr", RAD2DEG(dDec));
+        DBG("DEC difference: %gdegr (tag: %g, cur: %g)", RAD2DEG(dDec), RAD2DEG(target->dec), RAD2DEG(CurRD.dec));
         double dist = sqrt(dRA*dRA + dDec*dDec);
-        if(dist < POINTING_TOL){ // on position
+        double tra = fabs(dRA) / RASPEED, tdec = fabs(dDec) / DECSPEED;
+        double time_to_reach = (tra > tdec) ? tra : tdec;
+        double dt = tcur - tlast;
+        if(dist < POINTING_TOL || time_to_reach < dt){ // on position
+            DBG("ON Position, time to reach=%gs, dt=%gs\n\n\n", time_to_reach, dt);
             if(pointAZ) emulation_stop(); // got A/Z position, stop
             else atomic_store(&emul_status, MNT_S_TRACKING);
-            if(flip_in_progress){
-                flip_in_progress = false;
-                CurRD = TagRD; // fix to dec <=90
-            }
+            if(flip_in_progress) flip_in_progress = false;
+            CurRD = TagRD; // fix to dec <=90
         }else{
-            double dt = tcur - tlast;
-            double step = SPEED * dt;
-            if(step > dist) step = dist;
-            double factor = step / dist;
-            CurRD.ra += dRA * factor;
-            CurRD.dec += dDec * factor;
-            //if(CurRD.dec > ERFA_DPI/2.0) CurRD.dec = ERFA_DPI/2.0;
-            //else if(CurRD.dec < -ERFA_DPI/2.0) CurRD.dec = -ERFA_DPI/2.0;
+            DBG("dRA=%gdeg, dDEC=%gdegh\n\n\n", RAD2DEG(dRA), RAD2DEG(dDec));
+            double sign = (dRA > 0.) ? 1. : -1.;
+            if(tra < dt) CurRD.ra = target->ra;
+            else CurRD.ra += dt * RASPEED * sign;
+            sign = (dDec > 0.) ? 1. : -1.;
+            if(tdec < dt) CurRD.dec = target->dec;
+            else CurRD.dec += dt * DECSPEED * sign;
             if(CurRD.ra < 0.) CurRD.ra += ERFA_D2PI;
             else if(CurRD.ra >= ERFA_D2PI) CurRD.ra -= ERFA_D2PI;
         }
