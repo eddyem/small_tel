@@ -18,7 +18,15 @@
 
 #pragma once
 
+#include <weather_data.h>
+
 #include "angles.h"
+
+// input coordinates lifetime - 24hrs
+#define COORDS_OLD_T            (86400)
+
+// make datetime/pressure/temperature corrections each CORRECTIONS_TIMEDIFF seconds
+#define CORRECTIONS_TIMEDIFF    (3600)
 
 // mount statuses
 typedef enum{
@@ -55,21 +63,28 @@ double mount_getInpHor(horizCrds_t *c);
 
 
 bool mount_set_name(const char *name);
+void mount_get_name(char *nm, size_t l);
 bool mount_set_dev(char *dev, int speed, double timeout);
 const char* mount_status_str(mount_status_t st);
 mount_status_t mount_status();
 bool mount_connect();
 void mount_disconnect();
 
-mount_status_t mount_getcoords(double *ra, double *dec);
-mount_status_t mount_getaz(double *a, double *z);
+bool mount_getcoords(double *ra, double *dec);
+bool mount_getaz(double *a, double *z);
+
+bool mount_corrdata(weather_data_t *w);
+
+bool mount_getpierside(char *Ps, size_t len);
+
 bool mount_point(double ra, double dec);
 bool mount_pointAZ(double A, double Z);
+
 bool mount_stop();
 bool mount_tracking_stop();
 bool mount_tracking_start();
-bool mount_park();
 
+bool mount_park();
 bool mount_setParkAz(double az);
 bool mount_setParkZD(double zd);
 void mount_getPark(horizCrds_t *c);

@@ -8,6 +8,8 @@ dome.c
 dome.h
 emulation.c
 emulation.h
+fitshdr.c
+fitshdr.h
 main.c
 server.c
 server.h

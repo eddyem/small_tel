@@ -20,21 +20,23 @@
 #include <stdatomic.h>
 #include <stdint.h>
 #include <string.h>
+#include <sys/time.h>
 #include <usefull_macros.h>
 
 #include "10micron_commands.h"
 #include "emulation.h"
 #include "mount.h"
+#include "server.h" // isrunning
 
 
-#define MNAME_LEN   31
+#define MNAME_LEN   32
 
 static bool isemulated = false; // ==true for emulation mode
 
 // default serial timeout, seconds
 static double sertmout = 1.;
 
-static char mount_name[MNAME_LEN+3] = "'noname'";
+static char mount_name[MNAME_LEN] = "noname";
 static sl_tty_t *mount_dev = NULL;
 // device mutex, blocking only in non-local functions
 static pthread_mutex_t mntdev_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -47,7 +49,7 @@ static horizCrds_t ParkCoords = {.az = 0., .zd = DEG2RAD(80.)};
 static polarCrds_t InpCoords = {0}, // input as user give (for epoch InpMJD)
     TagCoords = {0}; // target for Jnow after command "point to input"
 static horizCrds_t InpHoriz = {0};
-// input MJD (Modified Julian Date: started from ERFA_DJM0==2400000.5
+// input MJD (Modified Julian Date: started from ERFA_DJM0==2400000.5)
 static double InpMJD = ERFA_DJM00; // J2000
 // times of coords/mjd change
 static double InpCTime = 0., TagTime = 0., InpHTime = 0., InpMTime = 0.;
@@ -141,9 +143,18 @@ bool mount_setInpMJD(double m){
 bool mount_set_name(const char *name){
     if(!name || !*name) return false;
     int l = strlen(name);
-    if(l > MNAME_LEN) return false;
-    sprintf(mount_name, "'%s'", name);
+    if(l > MNAME_LEN-1) return false;
+    strcpy(mount_name, name);
     return true;
+}
+
+void mount_get_name(char *nm, size_t l){
+    if(!nm) return;
+    size_t L = snprintf(nm, l, "'%s'", mount_name);
+    if(L == l){
+        nm[l-1] = 0;
+        nm[l-2] = '\'';
+    }
 }
 
 /**
@@ -164,9 +175,6 @@ bool mount_set_dev(char *dev, int speed, double timeout){
         return false;
     }
     DBG("Mount device inited and opened");
-    // set terminal timeout to `timeout / 10` or 100ms
-    int usecs = (timeout < 1.) ? (int)(timeout * 1e5) : 100000;
-    sl_tty_tmout(usecs);
     sertmout = timeout;
     DBG("set timeout of answer waiting to %gs", sertmout);
     pthread_mutex_unlock(&mntdev_mutex);
@@ -319,7 +327,7 @@ static bool chkconn(){
     }
     write_cmd("#", false); // clear cmd buffer
     bool ret = false;
-    for(int i = 0; i < 5; ++i){
+    for(int i = 0; i < 3 && isrunning; ++i){
         DBG("Try %d", i+1);
         ret = write_cmd(CMD_BAUDRATE, true);
         if(ret) break;
@@ -334,19 +342,24 @@ static bool guess_speed(){
 #define SPDBUFSZ    7
     const int speeds[SPDBUFSZ] = {57600, 38400, 19200, 9600, 4800, 2400, 1200};
     int idx = 0;
-    for(; idx < SPDBUFSZ; ++idx){
+    for(; idx < SPDBUFSZ && isrunning; ++idx){
         DBG("try speed %d", speeds[idx]);
         mount_dev->speed = speeds[idx];
         sl_tty_t *trydev = sl_tty_open(mount_dev, 1);
         if(!trydev) continue;
-        if(chkconn()) break;
+        if(chkconn()){
+            close(mount_dev->comfd);
+            break;
+        }
         close(mount_dev->comfd);
     }
-    if(idx == SPDBUFSZ) return false; // device not responding
-    close(mount_dev->comfd);
     mount_dev->speed = 115200;
-    if(!sl_tty_open(mount_dev, 1)) return false;
-    DBG("OK, opened @ 115200");
+    if(!sl_tty_open(mount_dev, 1)){
+        WARN("Can't open serial @115200");
+        return false;
+    }
+    DBG("Opened @ 115200");
+    if(idx == SPDBUFSZ) return false; // device not responding
 #undef SPDBUFSZ
     return true;
 }
@@ -362,7 +375,9 @@ bool mount_connect(){
     }
     bool ret = true;
     if(!write_cmd(CMD_STOP, false)) ret = false; // stop tracking after poweron
+    usleep(100000);
     if(!write_cmd(CMD_HIGHPREC, false)) ret = false; // set high precision
+    usleep(100000);
     char buf[64];
     snprintf(buf, 63, CMD_SETMINALT, 10);
     if(!write_cmd(buf, true)) ret = false; // set minimum altitude to 10 degrees
@@ -412,6 +427,9 @@ bool mount_point(double ra, double dec){
         }
     }
     ret = true;
+    TagCoords.ra = DEG2RAD(ra);
+    TagCoords.dec = DEG2RAD(dec);
+    TagTime = sl_dtime();
 retn:
     pthread_mutex_unlock(&mntdev_mutex);
     return ret;
@@ -460,30 +478,29 @@ void set_emulation_mode(){
     isemulated = true;
 }
 
-mount_status_t mount_getcoords(double *ra, double *dec){
-    if(!ra || !dec) return MNT_S_ERROR;
+bool mount_getcoords(double *ra, double *dec){
+    if(!ra || !dec) return false;
     if(isemulated){
         get_emul_coords(ra, dec);
         DBG("Emulated coordinates: %gh, %gdeg", RAD2HRS(*ra), RAD2DEG(*dec));
-        return emulation_status();
+        return true;
     }
-    if(!mount_dev) return MNT_S_ERROR;
+    if(!mount_dev) return false;
     char resp[64];
-    mount_status_t st = MNT_S_ERROR;
+    bool ret = false;
     pthread_mutex_lock(&mntdev_mutex);
     if(!send_cmd_resp(CMD_GETRA, resp, 64)) goto retn;
     if(!str2coord(resp, ra)) goto retn;
     if(!send_cmd_resp(CMD_GETDEC, resp, 64)) goto retn;
     if(!str2coord(resp, dec)) goto retn;
-    st = MNT_S_STATAMOUNT;
+    ret = true;
 retn:
     pthread_mutex_unlock(&mntdev_mutex);
-    if(st == MNT_S_STATAMOUNT) st = mount_status();
-    return st;
+    return ret;
 }
 
-mount_status_t mount_getaz(double *a, double *z){
-    if(!a || !z) return MNT_S_ERROR;
+bool mount_getaz(double *a, double *z){
+    if(!a || !z) return false;
     if(isemulated){
         double ra, dec;
         get_emul_coords(&ra, &dec);
@@ -493,11 +510,11 @@ mount_status_t mount_getaz(double *a, double *z){
         get_LST(NULL, &LST);
         eq2hor(&P, &H, LST);
         *a = H.az; *z = H.zd;
-        return emulation_status();
+        return true;
     }
-    if(!mount_dev) return MNT_S_ERROR;
+    if(!mount_dev) return false;
     char resp[64];
-    mount_status_t st = MNT_S_ERROR;
+    bool ret = false;
     pthread_mutex_lock(&mntdev_mutex);
     if(!send_cmd_resp(CMD_GETAZIM, resp, 64)) goto retn;
     if(!str2coord(resp, a)) goto retn;
@@ -505,11 +522,10 @@ mount_status_t mount_getaz(double *a, double *z){
     double alt;
     if(!str2coord(resp, &alt)) goto retn;
     *z = 90. - alt;
-    st = MNT_S_STATAMOUNT;
+    ret = true;
 retn:
     pthread_mutex_unlock(&mntdev_mutex);
-    if(st == MNT_S_STATAMOUNT) st = mount_status();
-    return st;
+    return ret;
 }
 
 /**
@@ -599,4 +615,60 @@ bool mount_setParkZD(double zd){
  */
 void mount_getPark(horizCrds_t *c){
     if(c) *c = ParkCoords;
+}
+
+/**
+ * @brief mount_getpierside - get pier-side of telescope
+ * @param Ps (o) - side
+ * @param len - length of `Ps`
+ * @return false if failed
+ */
+bool mount_getpierside(char *Ps, size_t len){
+    pthread_mutex_lock(&mntdev_mutex);
+    bool ret = send_cmd_resp(CMD_GETPS, Ps, len);
+    pthread_mutex_unlock(&mntdev_mutex);
+    return ret;
+}
+
+/**
+ * @brief mount_corrdata - correct mount time & weather data
+ * @param w - new data
+ * @return false if failed to connect
+ */
+bool mount_corrdata(weather_data_t *w){
+    if(!w) return false;
+    bool ret = true; // returning value
+    mount_status_t curst = mount_status();
+    if(curst == MNT_S_SLEWING || curst == MNT_S_TRACKING) return true;
+    DBG("Refresh datetime");
+    pthread_mutex_lock(&mntdev_mutex);
+    char buf[128];
+    buf[127] = 0;
+    time_t t = time(NULL);
+    struct tm *stm = localtime(&t);
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    snprintf(buf, 127, CMD_SETTIME, 1900+stm->tm_year, stm->tm_mon+1, stm->tm_mday,
+             stm->tm_hour, stm->tm_min, stm->tm_sec, tv.tv_usec/10000);
+    DBG("write: %s", buf);
+    if(!write_cmd(buf, true)){
+        WARNX("Can't write current date/time");
+        LOGWARN("Can't set system time");
+        ret = false;
+    }else LOGMSG("Set system time by command %s", buf);
+    // set refraction model data
+    snprintf(buf, 127, CMD_SETPRESSURE, w->pressure*1013./760.);
+    if(!write_cmd(buf, true)){
+        LOGWARN("Can't set pressure data of refraction model");
+        ret = false;
+    }else LOGMSG("Correct pressure to %gmmHg", w->pressure);
+    snprintf(buf, 64, CMD_SETTEMPER, w->exttemp);
+    if(!write_cmd(buf, true)){
+        LOGWARN("Can't set temperature data of refraction model");
+        ret = false;
+    }else LOGMSG("Correct temperature to %g", w->exttemp);
+    if(!write_cmd(CMD_REFCORR_ON, true)) ret = false;
+    if(!write_cmd(CMD_DUALTRK, true)) ret = false;
+    pthread_mutex_unlock(&mntdev_mutex);
+    return ret;
 }

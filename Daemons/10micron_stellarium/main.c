@@ -25,14 +25,12 @@
 #include <usefull_macros.h>
 
 #include "args.h"
+#include "fitshdr.h"
 #include "server.h"
 #include "mount.h"
 
 static pid_t childpid = -1; // PID of child process
 static parameters_t *G = NULL;
-#ifndef EBUG
-static bool isrunning = false;
-#endif
 
 void signals(int sig){
     if(childpid){ // single or parent process
@@ -49,9 +47,6 @@ void signals(int sig){
         LOGWARN("Child %d died with %d", getpid(), sig);
         server_stop();
     }
-#ifndef EBUG
-    isrunning = true;
-#endif
     DBG("EXIT");
 }
 
@@ -62,12 +57,7 @@ int main(int argc, char **argv){
     sl_loglevel_e lvl = G->verbose + LOGLEVEL_ERR;
     if(lvl >= LOGLEVEL_AMOUNT) lvl = LOGLEVEL_AMOUNT - 1;
     DBG("verb: %d, level: %d", G->verbose, lvl);
-    int fd;
-    if((fd = open(G->crdsfile, O_WRONLY | O_TRUNC | O_CREAT, 0644)) < 0){ // test FITS-header file for writing
-        WARN(_("Can't open %s for writing"), G->crdsfile);
-        return 1;
-    }
-    close(fd);
+    if(!set_header_name(G->crdsfile)) return 1;
     if(G->sleept < 1){
         WARNX("Sleeping time sould be positive value (%d)", G->sleept);
         return 2;

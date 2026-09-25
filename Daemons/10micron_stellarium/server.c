@@ -27,6 +27,7 @@
 #include <usefull_macros.h>
 #include <weather_data.h>
 
+#include "fitshdr.h"
 #include "mount.h"
 #include "server.h"
 #include "stellarium.h"
@@ -64,7 +65,12 @@ static int stellarium_sockfd = -1;
 // sleep time (us)
 static unsigned int sleept = DEFAULT_SLEEP_T;
 // running flag
-static volatile bool isrunning = false;
+volatile bool isrunning = false;
+// lost weather flag
+static bool weatherlost = false;
+
+// data for FITS-header (also to send user)
+static fitsheader_t HDR = {0};
 
 unsigned int server_getsleept(){ return sleept; }
 bool server_setsleept(unsigned int t){
@@ -86,8 +92,7 @@ static sl_sock_hresult_e dtimeh(sl_sock_t *c, _U_ sl_sock_hitem_t *item, _U_ con
 // statust - text format status
 static sl_sock_hresult_e status(sl_sock_t *c, sl_sock_hitem_t *item, _U_ const char *req){
     char buf[BUFSIZ];
-    mount_status_t st = mount_status();
-    snprintf(buf, BUFSIZ-1, "%s=%s\n", item->key, mount_status_str(st));
+    snprintf(buf, BUFSIZ-1, "%s=%s\n", item->key, mount_status_str(HDR.status));
     LOGDBG("Client %d asks status: %s", c->fd, buf);
     sl_sock_sendstrmessage(c, buf);
     return RESULT_SILENCE;
@@ -123,7 +128,7 @@ static sl_sock_hresult_e cmd_tagra(sl_sock_t *c, sl_sock_hitem_t *item, const ch
     return RESULT_SILENCE;
 }
 
-static sl_sock_hresult_e cmd_tagdec(sl_sock_t *c, sl_sock_hitem_t *item, const char *req) {
+static sl_sock_hresult_e cmd_tagdec(sl_sock_t *c, sl_sock_hitem_t *item, const char *req){
     double val;
     int res = parse_key_value(req, &val);
     if(res < 0) return RESULT_BADVAL;
@@ -141,7 +146,7 @@ static sl_sock_hresult_e cmd_tagdec(sl_sock_t *c, sl_sock_hitem_t *item, const c
     return RESULT_SILENCE;
 }
 
-static sl_sock_hresult_e cmd_tagha(sl_sock_t *c, sl_sock_hitem_t *item, const char *req) {
+static sl_sock_hresult_e cmd_tagha(sl_sock_t *c, sl_sock_hitem_t *item, const char *req){
     double val;
     int res = parse_key_value(req, &val);
     if(res < 0) return RESULT_BADVAL;
@@ -159,7 +164,7 @@ static sl_sock_hresult_e cmd_tagha(sl_sock_t *c, sl_sock_hitem_t *item, const ch
     return RESULT_SILENCE;
 }
 
-static sl_sock_hresult_e cmd_tagaz(sl_sock_t *c, sl_sock_hitem_t *item, const char *req) {
+static sl_sock_hresult_e cmd_tagaz(sl_sock_t *c, sl_sock_hitem_t *item, const char *req){
     double val;
     int res = parse_key_value(req, &val);
     if(res < 0) return RESULT_BADVAL;
@@ -177,7 +182,7 @@ static sl_sock_hresult_e cmd_tagaz(sl_sock_t *c, sl_sock_hitem_t *item, const ch
     return RESULT_SILENCE;
 }
 
-static sl_sock_hresult_e cmd_tagzd(sl_sock_t *c, sl_sock_hitem_t *item, const char *req) {
+static sl_sock_hresult_e cmd_tagzd(sl_sock_t *c, sl_sock_hitem_t *item, const char *req){
     double val;
     int res = parse_key_value(req, &val);
     if(res < 0) return RESULT_BADVAL;
@@ -195,43 +200,40 @@ static sl_sock_hresult_e cmd_tagzd(sl_sock_t *c, sl_sock_hitem_t *item, const ch
     return RESULT_SILENCE;
 }
 
-static sl_sock_hresult_e cmd_telra(sl_sock_t *c, sl_sock_hitem_t *item, _U_ const char *req) {
-    double ra, dec;
-    if(mount_getcoords(&ra, &dec) == MNT_S_ERROR) return RESULT_FAIL;
+static sl_sock_hresult_e cmd_telra(sl_sock_t *c, sl_sock_hitem_t *item, _U_ const char *req){
+    if(weatherlost || HDR.status == MNT_S_ERROR) return RESULT_FAIL;
     char buf[64];
-    snprintf(buf, 63, "%s=%.6f\n", item->key, ra);
+    snprintf(buf, 63, "%s=%.6f\n", item->key, RAD2HRS(HDR.polar.ra));
     sl_sock_sendstrmessage(c, buf);
     return RESULT_SILENCE;
 }
 
-static sl_sock_hresult_e cmd_teldec(sl_sock_t *c, sl_sock_hitem_t *item, _U_ const char *req) {
-    double ra, dec;
-    if(mount_getcoords(&ra, &dec) == MNT_S_ERROR) return RESULT_FAIL;
+static sl_sock_hresult_e cmd_teldec(sl_sock_t *c, sl_sock_hitem_t *item, _U_ const char *req){
+    if(weatherlost || HDR.status == MNT_S_ERROR) return RESULT_FAIL;
     char buf[64];
-    snprintf(buf, 63, "%s=%.6f\n", item->key, dec);
+    snprintf(buf, 63, "%s=%.6f\n", item->key, RAD2DEG(HDR.polar.dec));
     sl_sock_sendstrmessage(c, buf);
     return RESULT_SILENCE;
 }
 
-static sl_sock_hresult_e cmd_telaz(sl_sock_t *c, sl_sock_hitem_t *item, _U_ const char *req) {
-    double a, z;
-    if(mount_getaz(&a, &z) == MNT_S_ERROR) return RESULT_FAIL;
+static sl_sock_hresult_e cmd_telaz(sl_sock_t *c, sl_sock_hitem_t *item, _U_ const char *req){
+    if(weatherlost || HDR.status == MNT_S_ERROR) return RESULT_FAIL;
     char buf[64];
-    snprintf(buf, 63, "%s=%.6f\n", item->key, a);
+    snprintf(buf, 63, "%s=%.6f\n", item->key, RAD2DEG(HDR.altaz.az));
     sl_sock_sendstrmessage(c, buf);
     return RESULT_SILENCE;
 }
 
-static sl_sock_hresult_e cmd_telzd(sl_sock_t *c, sl_sock_hitem_t *item, _U_ const char *req) {
-    double a, z;
-    if(mount_getaz(&a, &z) == MNT_S_ERROR) return RESULT_FAIL;
+static sl_sock_hresult_e cmd_telzd(sl_sock_t *c, sl_sock_hitem_t *item, _U_ const char *req){
+    if(weatherlost || HDR.status == MNT_S_ERROR) return RESULT_FAIL;
     char buf[64];
-    snprintf(buf, 63, "%s=%.6f\n", item->key, z);
+    snprintf(buf, 63, "%s=%.6f\n", item->key, RAD2DEG(HDR.altaz.zd));
     sl_sock_sendstrmessage(c, buf);
     return RESULT_SILENCE;
 }
 
-static sl_sock_hresult_e cmd_gotord(_U_ sl_sock_t *c, _U_ sl_sock_hitem_t *item, _U_ const char *req) {
+static sl_sock_hresult_e cmd_gotord(_U_ sl_sock_t *c, _U_ sl_sock_hitem_t *item, _U_ const char *req){
+    if(weatherlost || HDR.status == MNT_S_ERROR) return RESULT_FAIL;
     polarCrds_t p;
     mount_getInpCoords(&p);
     double ra_h = RAD2HRS(p.ra);
@@ -240,7 +242,8 @@ static sl_sock_hresult_e cmd_gotord(_U_ sl_sock_t *c, _U_ sl_sock_hitem_t *item,
     return RESULT_OK;
 }
 
-static sl_sock_hresult_e cmd_gotorh(_U_ sl_sock_t *c, _U_ sl_sock_hitem_t *item, _U_ const char *req) {
+static sl_sock_hresult_e cmd_gotorh(_U_ sl_sock_t *c, _U_ sl_sock_hitem_t *item, _U_ const char *req){
+    if(weatherlost || HDR.status == MNT_S_ERROR) return RESULT_FAIL;
     polarCrds_t p;
     mount_getInpCoords(&p);
     sMJD_t mjd;
@@ -254,25 +257,27 @@ static sl_sock_hresult_e cmd_gotorh(_U_ sl_sock_t *c, _U_ sl_sock_hitem_t *item,
     return RESULT_OK;
 }
 
-static sl_sock_hresult_e cmd_gotoaz(_U_ sl_sock_t *c, _U_ sl_sock_hitem_t *item, _U_ const char *req) {
+static sl_sock_hresult_e cmd_gotoaz(_U_ sl_sock_t *c, _U_ sl_sock_hitem_t *item, _U_ const char *req){
+    if(weatherlost || HDR.status == MNT_S_ERROR) return RESULT_FAIL;
     horizCrds_t h;
     mount_getInpHor(&h);
     if(mount_pointAZ(RAD2DEG(h.az), RAD2DEG(h.zd))) return RESULT_OK;
     return RESULT_FAIL;
 }
 
-static sl_sock_hresult_e cmd_stop(_U_ sl_sock_t *c, _U_ sl_sock_hitem_t *item, _U_ const char *req) {
+static sl_sock_hresult_e cmd_stop(_U_ sl_sock_t *c, _U_ sl_sock_hitem_t *item, _U_ const char *req){
     if(mount_stop()) return RESULT_OK;
     return RESULT_FAIL;
 }
 
-static sl_sock_hresult_e cmd_stoptrk(_U_ sl_sock_t *c, _U_ sl_sock_hitem_t *item, _U_ const char *req) {
+static sl_sock_hresult_e cmd_stoptrk(_U_ sl_sock_t *c, _U_ sl_sock_hitem_t *item, _U_ const char *req){
     if(mount_tracking_stop()) return RESULT_OK;
     return RESULT_FAIL;
 }
 
 // run tracking from current position
-static sl_sock_hresult_e cmd_track(_U_ sl_sock_t *c, _U_ sl_sock_hitem_t *item, _U_ const char *req) {
+static sl_sock_hresult_e cmd_track(_U_ sl_sock_t *c, _U_ sl_sock_hitem_t *item, _U_ const char *req){
+    if(weatherlost || HDR.status == MNT_S_ERROR) return RESULT_FAIL;
     if(mount_tracking_start()) return RESULT_OK;
     return RESULT_FAIL;
 }
@@ -423,12 +428,15 @@ void server_run(){
         LOGERR("Can't start stellarium server");
         return;
     }
+    isrunning = true;
     if(!mount_connect()){
         LOGWARN("Can't connect to mount, will try to reconnect later");
     }
-    isrunning = true;
     DBG("While");
-    double tcheck = 0.;
+    double tcheck = 0., treconnect = sl_dtime();
+    time_t lastweathertime = 0;
+    getPlaceData(&HDR.place);
+    mount_get_name(HDR.mountname, MAX_HDR_STRLEN);
     bool notlogged = true;
     while(isrunning && cmd_socket && cmd_socket->connected){
         usleep(sleept);
@@ -440,22 +448,59 @@ void server_run(){
         double tnow = sl_dtime();
         if(tnow - tcheck >= MOUNT_CHECK_T){
             tcheck = tnow;
-            mount_status_t curst = mount_status();
-            if(curst == MNT_S_OFF){ // mount is off -> try to reconnect
+            if(get_weather_data(&HDR.weather) == 0){
+                lastweathertime = HDR.weather.last_update;
+            }else{
+                WARNX("Can't get weather data");
+            }
+            // collect data for other fields
+            HDR.status = mount_status();
+            get_MJDt(NULL, &HDR.MJD);
+            get_LST(&HDR.MJD, &HDR.sidtime);
+            if(HDR.status != MNT_S_OFF){
+                double deg1, deg2;
+                if(mount_getcoords(&deg1, &deg2)){
+                    HDR.polar.ra = DEG2RAD(deg1);
+                    HDR.polar.dec = DEG2RAD(deg2);
+                }
+                if(mount_getaz(&deg1, &deg2)){
+                    HDR.altaz.az = DEG2RAD(deg1);
+                    HDR.altaz.zd = DEG2RAD(deg2);
+                }
+            }
+            if(tnow - lastweathertime > MOUNT_WEATHER_ALRM){
+                weatherlost = true;
+                if(HDR.status == MNT_S_TRACKING || HDR.status == MNT_S_SLEWING){
+                    LOGERR("Lost meteo connection -> park");
+                    if(mount_park()) lastweathertime = tnow;
+                }
+            } else weatherlost = false;
+            getDUT(&HDR.dut);
+            if(HDR.status == MNT_S_OFF || !mount_getpierside(HDR.pierside, MAX_HDR_STRLEN)) *HDR.pierside = 0;
+            // and write FITS-header
+            wrhdr(&HDR);
+            // check need of reconnection
+            if(HDR.status == MNT_S_OFF){ // mount is off -> try to reconnect
                 if(notlogged){
                     WARNX("Mount is OFF");
                     LOGWARN("Mount is OFF");
                     notlogged = false;
                 }
-                DBG("Try to [re]connect");
-                if(mount_connect()){
-                    notlogged = true;
-                    WARNX("Mount is ON");
+                if(tnow - treconnect >= MOUNT_RECONNECT_T){
+                    treconnect = tnow;
+                    DBG("Try to [re]connect");
+                    if(mount_connect()){
+                        notlogged = true;
+                        WARNX("Mount is ON");
+                    }
                 }
             }
-            DBG("Current status: %s", mount_status_str(curst));
+            DBG("Current status: %s", mount_status_str(HDR.status));
         }
     }
+    DBG("Stop mount");
+    double t0 = sl_dtime();
+    while(sl_dtime() - t0 < 3. && !mount_stop());
     DBG("Stop command socket");
     sl_sock_delete(&cmd_socket);
     WARNX("Server is dead");

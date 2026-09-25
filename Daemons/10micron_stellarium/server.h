@@ -27,8 +27,10 @@
 // maximal amount of connected clients
 #define DEFAULT_MAXCLIENTS  5
 
-// status checking interval, seconds
-#define MOUNT_CHECK_T       10.
+// try to reconnect each RECONN seconds
+#define MOUNT_RECONNECT_T   60.
+// max weather lost time
+#define MOUNT_WEATHER_ALRM  900.
 
 typedef struct{
     int cmd_isunix;         // UNIX-socket instead of INET for `cmdnode`
@@ -36,6 +38,8 @@ typedef struct{
     const char *cmdnode;    // node of command socket
     int maxclients;         // maximal amount of clients connected
 } server_sock_t;
+
+extern volatile bool isrunning;
 
 bool server_check(server_sock_t *sockt);
 void server_run();

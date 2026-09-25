@@ -227,9 +227,9 @@ void eq2horH(polarCrds_t *pc, horizCrds_t *h){
 
 /**
  * @brief eq2hor  - convert polar coordinates to horizontal
- * @param pc (i)  - polar coordinates (only RA used)
- * @param h (o)   - horizontal coordinates
- * @param sidTime - sidereal time
+ * @param pc (i)  - polar coordinates (RA, EO, DEC used) (radians)
+ * @param h (o)   - horizontal coordinates (radians)
+ * @param sidTime - sidereal time (radians)
  */
 void eq2hor(polarCrds_t *pc, horizCrds_t *h, double sidTime){
     if(!h || !pc) return;
@@ -262,7 +262,7 @@ void r2sDMS(double radians, char *dms, int len){
     char pm;
     int i[4];
     eraA2af(1, radians, &pm, i);
-    snprintf(dms, len, "'%c%02d:%02d:%02d.%d'", pm, i[0],i[1],i[2],i[3]);
+    snprintf(dms, len, "%c%02d:%02d:%02d.%d", pm, i[0],i[1],i[2],i[3]);
 }
 // the same, but argument in degrees
 void d2sDMS(double degrees, char *dms, int len){

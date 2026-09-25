@@ -25,6 +25,8 @@
 #define CMD_GOTOAZ          ":MA#"
 #define CMD_SLEWRADEC       ":MS#"
 #define CMD_BAUDRATE        ":SB0#"
+#define CMD_DUALTRK         ":Sdat1#"
+#define CMD_REFCORR_ON      ":SREF1#"
 #define CMD_STOP            ":STOP#"
 #define CMD_HIGHPREC        ":U2#"
 
@@ -34,10 +36,14 @@
 #define CMD_GETDEC          ":GD#"
 #define CMD_GETSTAT         ":Gstat#"
 #define CMD_GETRA           ":GR#"
+#define CMD_GETPS           ":pS#"
 
 // setters
 #define CMD_SETALT          ":Sa%s#"
 #define CMD_SETDEC          ":Sd%s#"
-#define CMD_SETRA           ":Sr%s#"
+#define CMD_SETTIME         ":SLDT%04d-%02d-%02d,%02d:%02d:%02d.%02ld#"
 #define CMD_SETMINALT       ":So%d#"
+#define CMD_SETRA           ":Sr%s#"
+#define CMD_SETPRESSURE     ":SRPRS%.1f#"
+#define CMD_SETTEMPER       ":SRTMP%.1f#"
 #define CMD_SETZD           ":Sz%s#"

@@ -162,12 +162,13 @@ static void *handle_socket(void *sockd){
     dout.type = 0;
     while(isrunning){
         // get coordinates
-        double RA = 0., Decl = 0.;
-        if((dout.status = mount_getcoords(&RA, &Decl)) == MNT_S_ERROR){
+        double Rhrs = 0., Ddeg = 0.;
+        if((dout.status = mount_getcoords(&Rhrs, &Ddeg)) == false){
             WARNX("Error: can't get coordinates");
             sleep(1);
             continue;
         }
+        double RA = HRS2RAD(Rhrs), Decl = DEG2RAD(Ddeg);
         //DBG("got : %g/%g", RA, Decl);
         dout.ra = htole32(RAD2RA(RA));
         dout.dec = (int32_t)htole32(RAD2DEC(Decl));
