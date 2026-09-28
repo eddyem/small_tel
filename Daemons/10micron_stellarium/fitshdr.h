@@ -27,6 +27,10 @@
 // status checking interval and writing FITS-header, seconds
 #define MOUNT_CHECK_T       0.5
 
+#ifndef FLT_EPSILON
+#define FLT_EPSILON 1e-6
+#endif
+
 typedef struct{
     weather_data_t weather;
     mount_status_t status;

@@ -80,9 +80,7 @@ void eq2hor(polarCrds_t *pc, horizCrds_t *h, double sidTime);
 void r2sHMS(double radians, char *hms, int len);
 void r2sDMS(double radians, char *hms, int len);
 void d2sDMS(double degrees, char *dms, int len);
-void hor2eq(horizCrds_t *h, polarCrds_t *pc, double sidTime);
-void eq2horH(polarCrds_t *pc, horizCrds_t *h);
-void eq2hor(polarCrds_t *pc, horizCrds_t *h, double sidTime);
+
 bool get_MJDt(struct timeval *tval, sMJD_t *MJD);
 bool get_LST(sMJD_t *mjd, double *LST);
 bool get_ObsPlace(struct timeval *tval, polarCrds_t *p2000, polarCrds_t *pnow, horizCrds_t *hnow);
@@ -90,5 +88,8 @@ bool get_ObsPlace(struct timeval *tval, polarCrds_t *p2000, polarCrds_t *pnow, h
 bool setDUT(almDut_t *D);
 void getDUT(almDut_t *D);
 
-bool setPlaceData(double longitude, double latitude, double altitude);
+bool setPlaceData(placeData_t *pd);
 void getPlaceData(placeData_t *pd);
+
+bool JnowtoJ2000(const polarCrds_t *in, polarCrds_t *out);
+bool JXtoJnow(const polarCrds_t *in, polarCrds_t *out, double Jx);

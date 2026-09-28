@@ -26,6 +26,11 @@ typedef struct{
     char *logfile;          // logging to this file
     char *crdsfile;         // file where FITS-header should be written
     char *mountname;        // set mount name for FITS-header
+    char *parkA;            // parking coordinates (degrees or "DD:MM:SS")
+    char *parkZ;
+    char *latitude;         // place coordinates
+    char *longitude;
+    char *altitude;         // place altitude
     int emulation;          // run in emulation mode
     int verbose;            // verbose level
     int sleept;             // server's sleeping in main cycle time
@@ -33,6 +38,8 @@ typedef struct{
     int serspeed;           // serial speed, baud
     int maxclients;         // max amount of clients connected to one socket
     double sertmout;        // serial timeout, s
+    double DUT1;            // DUT1 value
+    double polarx, polary;  // polar coordinates, m
 } parameters_t;
 
 parameters_t *parse_cmdline(int *argc, char ***argv);

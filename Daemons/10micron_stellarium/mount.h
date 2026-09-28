@@ -88,3 +88,5 @@ bool mount_park();
 bool mount_setParkAz(double az);
 bool mount_setParkZD(double zd);
 void mount_getPark(horizCrds_t *c);
+
+bool mount_shutdown();

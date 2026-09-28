@@ -28,6 +28,7 @@
 #include "fitshdr.h"
 #include "server.h"
 #include "mount.h"
+#include "stellarium.h"
 
 static pid_t childpid = -1; // PID of child process
 static parameters_t *G = NULL;
@@ -43,9 +44,11 @@ void signals(int sig){
     }
     if(childpid > 0){ // parent process
         LOGERR("PID %d exit with status %d", getpid(), sig);
+        isrunning = false;
     }else{
         LOGWARN("Child %d died with %d", getpid(), sig);
         server_stop();
+        stellarium_stop();
     }
     DBG("EXIT");
 }
@@ -75,11 +78,33 @@ int main(int argc, char **argv){
         WARNX("Can't set mount name to %s", G->mountname);
         return 5;
     }
+    if(G->parkA){
+        double A = 0.;
+        if(!str2coord(G->parkA, &A) || !mount_setParkAz(A)) WARNX("Can't set parking azimuth to %g", A);
+    }
+    if(G->parkZ){
+        double Z = 0.;
+        if(!str2coord(G->parkZ, &Z) || !mount_setParkZD(Z)) WARNX("Can't set parking zenith distance to %g", Z);
+    }
+    if(fabs(G->DUT1) > FLT_EPSILON || fabs(G->polarx) > FLT_EPSILON || fabs(G->polary) > FLT_EPSILON){
+        almDut_t par = {.DUT1 = G->DUT1, .px = G->polarx, .py = G->polary};
+        setDUT(&par);
+    }
+    if(G->altitude || G->longitude || G->latitude){
+        placeData_t place;
+        double val;
+        getPlaceData(&place);
+        if(G->altitude && sl_str2d(&val, G->altitude)) place.salt = val;
+        if(G->longitude && str2coord(G->longitude, &val)) place.slong = DEG2RAD(val);
+        if(G->latitude && str2coord(G->latitude, &val)) place.slat = DEG2RAD(val);
+        setPlaceData(&place);
+    }
     signal(SIGTERM, signals);
     signal(SIGINT, signals);
     signal(SIGQUIT, signals);
     signal(SIGTSTP, SIG_IGN);
-    signal(SIGHUP, signals);
+    signal(SIGHUP, SIG_IGN);
+    //signal(SIGHUP, signals); // re-read config file
     sl_check4running((char*)__progname, G->pidfile);
     if(G->logfile) OPENLOG(G->logfile, lvl, 1);
     DBG("Started");
@@ -108,6 +133,7 @@ int main(int argc, char **argv){
             break; // go out to normal functional
         }
     }
+    if(!isrunning) return 0;
 #endif
     server_sock_t sockt = {
         .cmd_isunix = G->isunix,

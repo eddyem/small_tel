@@ -215,7 +215,9 @@ void emulation_stop(){
 void emul_start_tracking(){
     if(MNT_S_TRACKING == emulation_status()) return;
     atomic_store(&emul_status, MNT_S_TRACKING);
-    // TODO: convert current A/Z into RA/Dec and set zero speeds by both axes
+    double LST;
+    if(!get_LST(NULL, &LST)) return;
+    hor2eq(&CurAZ, &CurRD, LST);
 }
 
 mount_status_t emulation_status(){

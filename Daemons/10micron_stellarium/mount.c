@@ -42,9 +42,12 @@ static sl_tty_t *mount_dev = NULL;
 static pthread_mutex_t mntdev_mutex = PTHREAD_MUTEX_INITIALIZER;
 // status
 static atomic_int mountstatus = MNT_S_ERROR;
-
 // parking coordinates
-static horizCrds_t ParkCoords = {.az = 0., .zd = DEG2RAD(80.)};
+/*
+A="01:48:38" -> A=1.8105556
+H="01:13:29" -> Z=88.7752778
+*/
+static horizCrds_t ParkCoords = {.az = DEG2RAD(1.8105556), .zd = DEG2RAD(88.7752778)};
 // input and current target coordinates
 static polarCrds_t InpCoords = {0}, // input as user give (for epoch InpMJD)
     TagCoords = {0}; // target for Jnow after command "point to input"
@@ -79,6 +82,7 @@ double mount_getInpHor(horizCrds_t *c){
  * @return false if `ha` isn't in [0,24)
  */
 bool mount_setInpHA(double ha){
+    if(ha < 0) ha += 24.;
     if(ha < 0. || ha >= 24.) return false;
     InpCoords.ha = HRS2RAD(ha);
     InpCTime = sl_dtime();
@@ -228,7 +232,7 @@ static bool send_cmd_resp(const char *cmd, char *resp, size_t resplen){
     size_t pos = 0;
     double t0 = sl_dtime();
     bool gotEOM = false;
-    while(sl_dtime() - t0 < sertmout){
+    while(sl_dtime() - t0 < sertmout && !gotEOM){
         int got = sl_tty_read(mount_dev);
         if(got < 0){
             WARN("sl_tty_read()");
@@ -241,9 +245,6 @@ static bool send_cmd_resp(const char *cmd, char *resp, size_t resplen){
             if(c == '\r' || c == '\n') continue; // WTF?
             if(c == '#'){ // end of message
                 gotEOM = true;
-                //if(resp && resplen) resp[pos < resplen ? pos : resplen-1] = 0;
-                //DBG("Got end of message: '%s' (waited for %gs)", resp, );
-                //return true;
                 break;
             }
             if(resp && pos + 1 < resplen) resp[pos++] = c;
@@ -340,7 +341,7 @@ static bool guess_speed(){
     if(!mount_dev) return false;
     close(mount_dev->comfd);
 #define SPDBUFSZ    7
-    const int speeds[SPDBUFSZ] = {57600, 38400, 19200, 9600, 4800, 2400, 1200};
+    const int speeds[SPDBUFSZ] = {9600, 57600, 38400, 19200, 4800, 2400, 1200};
     int idx = 0;
     for(; idx < SPDBUFSZ && isrunning; ++idx){
         DBG("try speed %d", speeds[idx]);
@@ -382,8 +383,10 @@ bool mount_connect(){
     snprintf(buf, 63, CMD_SETMINALT, 10);
     if(!write_cmd(buf, true)) ret = false; // set minimum altitude to 10 degrees
     pthread_mutex_unlock(&mntdev_mutex);
-    if(ret) LOGMSG("Connected to %s@115200", mount_dev->portname);
-    else LOGERR("Can't write commands to mount");
+    if(ret){
+        LOGMSG("Connected to %s@115200", mount_dev->portname);
+        atomic_store(&mountstatus, MNT_S_STOPPED);
+    }else LOGERR("Can't write commands to mount");
     return ret;
 }
 
@@ -392,7 +395,9 @@ void mount_disconnect(){
         emulation_stop();
         return;
     }
-    pthread_mutex_trylock(&mntdev_mutex); // at least, try
+    double t0 = sl_dtime();
+    while(sl_dtime() - t0 < 120. && pthread_mutex_trylock(&mntdev_mutex))
+        usleep(100000);
     if(mount_dev) close(mount_dev->comfd);
     pthread_mutex_unlock(&mntdev_mutex);
 }
@@ -427,7 +432,7 @@ bool mount_point(double ra, double dec){
         }
     }
     ret = true;
-    TagCoords.ra = DEG2RAD(ra);
+    TagCoords.ra = HRS2RAD(ra);
     TagCoords.dec = DEG2RAD(dec);
     TagTime = sl_dtime();
 retn:
@@ -461,7 +466,7 @@ bool mount_pointAZ(double A, double Z){
     if(!write_cmd(cmd, true)) goto retn;
     snprintf(cmd, 127, CMD_SETZD, azstr);
     if(!write_cmd(cmd, true)) goto retn;
-    if(send_cmd_resp(CMD_GOTOAZ, cmd, 127)){ // returned not '0'
+    if(send_cmd_resp(CMD_GOTOAZ, cmd, 128)){ // returned not '0'
         if(*cmd != '0'){
             WARNX("Goto error, answer: %s", cmd);
             LOGWARN("Goto error, answer: %s", cmd);
@@ -482,7 +487,9 @@ bool mount_getcoords(double *ra, double *dec){
     if(!ra || !dec) return false;
     if(isemulated){
         get_emul_coords(ra, dec);
-        DBG("Emulated coordinates: %gh, %gdeg", RAD2HRS(*ra), RAD2DEG(*dec));
+        *ra = RAD2HRS(*ra);
+        *dec = RAD2DEG(*dec);
+        DBG("Emulated coordinates: %gh, %gdeg", *ra, *dec);
         return true;
     }
     if(!mount_dev) return false;
@@ -509,7 +516,7 @@ bool mount_getaz(double *a, double *z){
         double LST;
         get_LST(NULL, &LST);
         eq2hor(&P, &H, LST);
-        *a = H.az; *z = H.zd;
+        *a = RAD2DEG(H.az); *z = RAD2DEG(H.zd);
         return true;
     }
     if(!mount_dev) return false;
@@ -582,7 +589,9 @@ bool mount_tracking_start(){
  */
 bool mount_park(){
     if(isemulated) return pointAZ_emulation(ParkCoords.az, ParkCoords.zd);
-    // TODO: set lower limit to 0deg
+    char buf[64];
+    snprintf(buf, 63, CMD_SETMINALT, 0);
+    if(!write_cmd(buf, true)) return false;
     return mount_pointAZ(RAD2DEG(ParkCoords.az), RAD2DEG(ParkCoords.zd));
 }
 
@@ -671,4 +680,12 @@ bool mount_corrdata(weather_data_t *w){
     if(!write_cmd(CMD_DUALTRK, true)) ret = false;
     pthread_mutex_unlock(&mntdev_mutex);
     return ret;
+}
+
+/**
+ * @brief mount_shutdown - turn off mount
+ * @return false if failed
+ */
+bool mount_shutdown(){
+    return write_cmd(CMD_SHUTDOWN, true);
 }

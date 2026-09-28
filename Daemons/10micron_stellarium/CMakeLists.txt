@@ -4,7 +4,7 @@ set(PROJ mountdaemon_10micron)
 project(${PROJ})
 
 set(MAJOR_VERSION "0")
-set(MID_VERSION "1")
+set(MID_VERSION "2")
 set(MINOR_VERSION "1")
 set(VERSION "${MAJOR_VERSION}.${MID_VERSION}.${MINOR_VERSION}")
 
@@ -36,7 +36,7 @@ aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR} SOURCES)
 
 ###### pkgconfig ######
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(MODULES REQUIRED usefull_macros>=0.3.2 erfa>=2.0.0)
+pkg_check_modules(MODULES REQUIRED usefull_macros>=0.3.5 erfa>=2.0.0)
 
 # change wrong behaviour with install prefix
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT AND CMAKE_INSTALL_PREFIX MATCHES "/usr/local")
@@ -57,7 +57,7 @@ target_link_libraries(${PROJ} ${MODULES_LIBRARIES} -lweather -lm)
 # -D
 add_definitions(-D_XOPEN_SOURCE=1234 -D_DEFAULT_SOURCE -D_GNU_SOURCE
 		-DPACKAGE_VERSION=\"${VERSION}\" -DMINOR_VERSION=\"${MINOR_VERSION}\" 
-		-DMID_VERSION=\"${MID_VERSION}\" -DMAJOR_VERSION=\"${MAJOR_VESION}\"
+		-DMID_VERSION=\"${MID_VERSION}\" -DMAJOR_VERSION=\"${MAJOR_VERSION}\"
 		)
 
 # Installation of the program

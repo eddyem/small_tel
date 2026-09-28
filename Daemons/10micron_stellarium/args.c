@@ -50,20 +50,28 @@ static parameters_t Conf = {0};
 #define STR(x) STR_HELPER(x)
 
 #define OPTIONS(Stor) \
-    {"device",  NEED_ARG,   NULL,   'd',    arg_string, APTR(&Stor.device),    "serial device name"}, \
-    {"emulation",NO_ARGS,   NULL,   'e',    arg_int,    APTR(&Stor.emulation), "run in emulation mode"},  \
-    {"logfile", NEED_ARG,   NULL,   'l',    arg_string, APTR(&Stor.logfile),   "file to save logs"}, \
-    {"hdrfile", NEED_ARG,   NULL,   'o',    arg_string, APTR(&Stor.crdsfile),  "file to save FITS-header with coordinates and time (default: " DEFAULT_FITSHDR ")"}, \
-    {"pidfile", NEED_ARG,   NULL,     0,    arg_string, APTR(&Stor.pidfile),   "pidfile (default: " DEFAULT_PIDFILE ")"}, \
-    {"port",    NEED_ARG,   NULL,   'p',    arg_string, APTR(&Stor.port),      "port for stellaruim's connect (default: " DEFAULT_PORT ")"}, \
-    {"cmdport", NEED_ARG,   NULL,   'P',    arg_string, APTR(&Stor.cmdnode),   "port or UNIX-socket path to connect for command console (default: " DEFAULT_CMDNODE ")"}, \
-    {"sleept",  NEED_ARG,   NULL,   't',    arg_int,    APTR(&Stor.sleept),    "time of servers' sleeping in main cycle, us (default: " STR(DEFAULT_SLEEP_T) " us)"}, \
-    {"isunix",  NO_ARGS,    NULL,   'U',    arg_int,    APTR(&Stor.isunix),    "use UNIX-socket for cmdport"}, \
-    {"sertmout",NEED_ARG,   NULL,   'T',    arg_double, APTR(&Stor.sertmout),  "serial timeout, seconds (default: " STR(DEFAULT_SERTMOUT) " s)"}, \
-    {"serspeed",NEED_ARG,   NULL,   'S',    arg_int,    APTR(&Stor.serspeed),  "serial speed (default: " STR(DEFAULT_SERSPEED) ")"}, \
-    {"maxclients",NEED_ARG, NULL,     0,    arg_int,    APTR(&Stor.maxclients),"max amount of clients connected to one socket (default: " STR(DEFAULT_MAXCLIENTS) ")"}, \
-    {"mountname",NEED_ARG,  NULL,     0,    arg_string, APTR(&Stor.mountname), "mount name (default: " DEFAULT_MOUNT_NAME ")"},  \
-    {"verbose", NO_ARGS,    NULL,   'v',    arg_none,   APTR(&Stor.verbose),   "verbose level (each -v increases it)"}, \
+    {"device",  NEED_ARG,   NULL,   'd',    arg_string, APTR(&Stor.device),     "serial device name"}, \
+    {"emulation",NO_ARGS,   NULL,   'e',    arg_int,    APTR(&Stor.emulation),  "run in emulation mode"},  \
+    {"logfile", NEED_ARG,   NULL,   'l',    arg_string, APTR(&Stor.logfile),    "file to save logs"}, \
+    {"hdrfile", NEED_ARG,   NULL,   'o',    arg_string, APTR(&Stor.crdsfile),   "file to save FITS-header with coordinates and time (default: " DEFAULT_FITSHDR ")"}, \
+    {"pidfile", NEED_ARG,   NULL,     0,    arg_string, APTR(&Stor.pidfile),    "pidfile (default: " DEFAULT_PIDFILE ")"}, \
+    {"port",    NEED_ARG,   NULL,   'p',    arg_string, APTR(&Stor.port),       "port for stellaruim's connect (default: " DEFAULT_PORT ")"}, \
+    {"cmdport", NEED_ARG,   NULL,   'P',    arg_string, APTR(&Stor.cmdnode),    "port or UNIX-socket path to connect for command console (default: " DEFAULT_CMDNODE ")"}, \
+    {"sleept",  NEED_ARG,   NULL,   't',    arg_int,    APTR(&Stor.sleept),     "time of servers' sleeping in main cycle, us (default: " STR(DEFAULT_SLEEP_T) " us)"}, \
+    {"isunix",  NO_ARGS,    NULL,   'U',    arg_int,    APTR(&Stor.isunix),     "use UNIX-socket for cmdport"}, \
+    {"sertmout",NEED_ARG,   NULL,   'T',    arg_double, APTR(&Stor.sertmout),   "serial timeout, seconds (default: " STR(DEFAULT_SERTMOUT) " s)"}, \
+    {"serspeed",NEED_ARG,   NULL,   'S',    arg_int,    APTR(&Stor.serspeed),   "serial speed (default: " STR(DEFAULT_SERSPEED) ")"}, \
+    {"maxclients",NEED_ARG, NULL,     0,    arg_int,    APTR(&Stor.maxclients), "max amount of clients connected to one socket (default: " STR(DEFAULT_MAXCLIENTS) ")"}, \
+    {"mountname",NEED_ARG,  NULL,     0,    arg_string, APTR(&Stor.mountname),  "mount name (default: " DEFAULT_MOUNT_NAME ")"},  \
+    {"verbose", NO_ARGS,    NULL,   'v',    arg_none,   APTR(&Stor.verbose),    "verbose level (each -v increases it)"}, \
+    {"parka",   NEED_ARG,   NULL,   'A',    arg_string, APTR(&Stor.parkA),      "azimuth of parking point"}, \
+    {"parkz",   NEED_ARG,   NULL,   'Z',    arg_string, APTR(&Stor.parkZ),      "zenith distance of parking point"}, \
+    {"dut1",    NEED_ARG,   NULL,   0,      arg_double, APTR(&Stor.DUT1),       "set DUT1 value (s)"}, \
+    {"polarx",  NEED_ARG,   NULL,   0,      arg_double, APTR(&Stor.polarx),     "set polar X value (m)"}, \
+    {"polary",  NEED_ARG,   NULL,   0,      arg_double, APTR(&Stor.polary),     "set polar Y value (m)"}, \
+    {"latitude",NEED_ARG,   NULL,   0,      arg_string, APTR(&Stor.latitude),   "latitude of mount"}, \
+    {"altitude",NEED_ARG,   NULL,   0,      arg_string, APTR(&Stor.altitude),   "altitude of mount"}, \
+    {"longitude",NEED_ARG,  NULL,   0,      arg_string, APTR(&Stor.longitude),  "longitude of mount"}, \
 
 
 static sl_option_t cmdlnopts[] = {
@@ -126,7 +134,6 @@ static void chkdbl(double *conf, double *cmd, double dflt){
 parameters_t *parse_cmdline(int *argc, char ***argv){
     sl_parseargs(argc, argv, cmdlnopts);
     if(help) sl_showhelp(-1, cmdlnopts);
-    //if(!conffile) return &G;
     // fix for conffile
     if(conffile){
         if(!sl_conf_readopts(conffile, confopts)){ // show conf help
@@ -150,5 +157,13 @@ parameters_t *parse_cmdline(int *argc, char ***argv){
     DBLCHKD(sertmout, DEFAULT_SERTMOUT);
     INTCHKD(serspeed, DEFAULT_SERSPEED);
     INTCHKD(maxclients, DEFAULT_MAXCLIENTS);
+    STRCHK(parkA);
+    STRCHK(parkZ);
+    STRCHK(longitude);
+    STRCHK(latitude);
+    STRCHK(altitude);
+    DBLCHK(DUT1);
+    DBLCHK(polarx);
+    DBLCHK(polary);
     return &G;
 }

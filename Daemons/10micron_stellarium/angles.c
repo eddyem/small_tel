@@ -53,27 +53,26 @@ void getDUT(almDut_t *D){
 
 /**
  * @brief setPlaceData - correct place data to given values
- * @param longitude - degrees, (-180, 180], minus to west
- * @param latitude - degrees, [-90, 90], minus to south
+ * @param longitude - radians, (-180, 180], minus to west
+ * @param latitude - radians, [-90, 90], minus to south
  * @param altitude - meters
  * @return false if some of data wrong
  */
-bool setPlaceData(double longitude, double latitude, double altitude){
-    if(longitude <= -180. || longitude > 180.){
-        WARNX("setPlaceData(): bad longitude (%g)", longitude);
+bool setPlaceData(placeData_t *pd){
+    if(!pd) return false;
+    if(pd->slong <= -M_PI || pd->slong > M_PI){
+        WARNX("setPlaceData(): bad longitude (%g)", pd->slong);
         return false;
     }
-    if(latitude < -90. || latitude > 90.){
-        WARNX("setPlaceData(): bad latitude (%g)", latitude);
+    if(pd->slat < -M_PI_2 || pd->slat > M_PI_2){
+        WARNX("setPlaceData(): bad latitude (%g)", pd->slat);
         return false;
     }
-    if(altitude < -500. || altitude > 9000.){
-        WARNX("setPlaceData(): bad altitude (%g)", altitude);
+    if(pd->salt < -500. || pd->salt > 9000.){
+        WARNX("setPlaceData(): bad altitude (%g)", pd->salt);
         return false;
     }
-    place.salt = altitude;
-    place.slat = DEG2RAD(latitude);
-    place.slong = DEG2RAD(longitude);
+    place = *pd;
     DBG("Change place data: alt=%gm, lat=%gdeg, long=%gdeg", place.salt, RAD2DEG(place.slat), RAD2DEG(place.slong));
     return true;
 }
@@ -94,7 +93,7 @@ char *ra2str(double ra, char buf[RADEC_STR_MAXLEN]){
     ra -= h; ra *= 60.;
     int m = (int)ra;
     ra -= m; ra *= 60.;
-    snprintf(buf, RADEC_STR_MAXLEN, "%d:%d:%.2f", h,m,ra);
+    snprintf(buf, RADEC_STR_MAXLEN, "%d:%02d:%05.2f", h,m,ra);
     buf[RADEC_STR_MAXLEN-1] = 0;
     return buf;
 }
@@ -114,7 +113,7 @@ char *dec2str(double dec, char buf[RADEC_STR_MAXLEN]){
     dec -= d; dec *= 60.;
     int dm = (int)dec;
     dec -= dm; dec *= 60.;
-    snprintf(buf, RADEC_STR_MAXLEN, "%c%d:%d:%.1f",sign,d,dm,dec);
+    snprintf(buf, RADEC_STR_MAXLEN, "%c%d:%02d:%04.1f",sign,d,dm,dec);
     buf[RADEC_STR_MAXLEN-1] = 0;
     return buf;
 }
@@ -128,12 +127,12 @@ bool normAZ(double *a, double *z){
     }
     if(z){
         norm_angle180(z);
-        if(*z > 90. || *z < -90.) return false;
-        if(*z < 0.){
+        if(*z > 90. || *z < 0.) return false;
+        /*if(*z < 0.){
             *z += 90.;
             *a += 180.;
             if(*a >= 360.) *a -= 360.;
-        }
+        }*/
     }
     return true;
 }
@@ -287,11 +286,14 @@ bool str2coord(const char *str, double *val){
         ++str;
     }
     int n = sscanf(str, "%d:%d:%f#", &d, &m, &s);
+    double ang = 0.;
     if(n != 3){
-        DBG("sscanf('%s')=%d", str, 3);
-        return false;
-    }
-    double ang = d + ((double)m)/60. + s/3600.;
+        DBG("sscanf('%s')=%d; try to read double", str, 3);
+        if(!sl_str2d(&ang, str)){
+            WARNX("Wrong number %s", str);
+            return false;
+        }
+    }else ang = d + ((double)m)/60. + s/3600.;
     if(sign == -1) *val = -ang;
     else *val = ang;
     return true;
@@ -443,69 +445,47 @@ bool get_ObsPlace(struct timeval *tval, polarCrds_t *p2000, polarCrds_t *pnow, h
 bool JnowtoJ2000(const polarCrds_t *in, polarCrds_t *out){
     bool ret = false;
     DBG("appRa: %gdegr, appDecl: %gdegr", RAD2DEG(in->ra), RAD2DEG(in->dec));
-#define ERFA(f, ...) do{if(f(__VA_ARGS__)){WARNX("Error in " #f); goto rtn;}}while(0)
+//#define ERFA(f, ...) do{if(f(__VA_ARGS__)){WARNX("Error in " #f); goto rtn;}}while(0)
     sMJD_t MJD;
     if(!get_MJDt(NULL, &MJD)) return false;
     double ri = 0., di = 0., eo = 0.;
     eraAtic13(in->ra, in->dec, MJD.tt1, MJD.tt2, &ri, &di, &eo);
     if(out){
         out->ha = 0.; out->eo = 0.;
-        out->ra = eraAnp(ri + eo);
+        //out->ra = eraAnp(ri - eo);
+        out->ra = ri;
         out->dec = di;
         DBG("JnowtoJ2000: ra=%gdeg, dec=%gdeg", RAD2DEG(out->ra), RAD2DEG(out->dec));
     }
     ret = true;
-#undef ERFA
+//#undef ERFA
     return ret;
 }
 
 /**
- * @brief J2000toJnow - convert ra/dec between epochs
- * @param in  - J2000 (degrees)
+ * @brief JXtoJnow - convert ra/dec between epochs
+ * @param in  - coordinates for Jx (degrees)
  * @param out - Jnow  (degrees)
+ * @param Jx - Epoch for `in`
  * @return false if failed
  */
-bool J2000toJnow(const polarCrds_t *in, polarCrds_t *out){
-    DBG("J200RA: %gdegr, J200Dec: %gdegr", RAD2DEG(in->ra), RAD2DEG(in->dec));
-    sMJD_t MJD;
+bool JXtoJnow(const polarCrds_t *in, polarCrds_t *out, double Jx){
+    DBG("JXRA: %ghrs, JXDec: %gdegr; epoch X: %g", RAD2HRS(in->ra), RAD2DEG(in->dec), Jx);
     if(!in) return false;
-    if(!get_MJDt(NULL, &MJD)) return false;
     // these values could be changed (e.g. by user's input)
     double pr = 0.0;     // RA proper motion (radians/year)
     double pd = 0.0;     // Dec proper motion (radians/year)
     double px = 0.0;     // parallax (arcsec)
     double rv = 0.0;     // radial velocity (km/s, positive if receding)
     double ri, di, eo;
-    eraAtci13(in->ra, in->dec, pr, pd, px, rv, MJD.tt1, MJD.tt2, &ri, &di, &eo);
+    eraAtci13(in->ra, in->dec, pr, pd, px, rv, ERFA_DJM0, Jx, &ri, &di, &eo);
+    LOGDBG("ri: %ghrs, eo: %ghrs, di: %gdeg", RAD2HRS(ri), RAD2HRS(eo), RAD2DEG(di));
     if(out){
-        out->ra  = eraAnp(ri - eo);
+        out->ha = 0.; out->eo = 0.;
+        //out->ra  = eraAnp(ri - eo);
+        out->ra = ri;
         out->dec = di;
     }
     return true;
 }
 
-
-
-#if 0
-typedef enum {
-    WEATHER_GOOD = 0,               // may start observations
-    WEATHER_BAD = 1,                // cannot start but can continue if want
-    WEATHER_TERRIBLE = 2,           // close & park: wind, precipitation, humidity etc.
-    WEATHER_PROHIBITED = 3,         // force closing & parking; power off equipment, ready to power off computer
-} weather_condition_t;
-
-typedef struct {
-    weather_condition_t weather;    // conditions: field "WEATHER"
-    float windmax;                  // maximal wind for last hour, m/s: "WINDMAX1"
-    float wind;                     // current wind speed, m/s: "WIND"
-    float clouds;                   // sky "quality" (>2500 - OK): "CLOUDS"
-    float exttemp;                  // external temperature, degC: "EXTTEMP"
-    float pressure;                 // atm. pressure, mmHg: "PRESSURE"
-    float humidity;                 // humidity, percents: "HUMIDITY"
-    int rain;                       // ==1 when rainy: "PRECIP"
-    int forceoff;                   // force power off (AC power lost or lightning)
-    time_t last_update;             // value of "TMEAS"
-} weather_data_t;
-
-int get_weather_data(weather_data_t *data);
-#endif

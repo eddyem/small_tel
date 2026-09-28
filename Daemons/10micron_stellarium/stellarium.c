@@ -32,7 +32,7 @@
 #define BUFLEN  256
 
 // running flag
-static volatile bool isrunning = false;
+extern volatile bool isrunning;
 static pthread_t mainthread;
 
 //read: 0x14 0x0 0x0 0x0 0x5b 0x5a 0x2e 0xc6 0x8c 0x23 0x5 0x0 0x23 0x9 0xe5 0xaf 0x23 0x2e 0x34 0xed
@@ -138,7 +138,7 @@ static bool proc_data(uint8_t *data, ssize_t len){
  * @param sockfd - socket fd for sending data
  * @return false if client disconnected
  */
-float send_data(uint8_t *data, size_t dlen, int sockfd){
+static bool send_data(uint8_t *data, size_t dlen, int sockfd){
     ssize_t sent = send(sockfd, data, dlen, MSG_NOSIGNAL);
     if(sent != (ssize_t)dlen){
         if(sent == -1 && errno != EINTR){
@@ -168,10 +168,19 @@ static void *handle_socket(void *sockd){
             sleep(1);
             continue;
         }
-        double RA = HRS2RAD(Rhrs), Decl = DEG2RAD(Ddeg);
+        /*
+        // convert from Jnow to J2000
+        polarCrds_t Jn = {0}, J2000 = {0};
+        Jn.ra = HRS2RAD(Rhrs);
+        Jn.dec = DEG2RAD(Ddeg);
+        if(!JnowtoJ2000(&Jn, &J2000)) break;
         //DBG("got : %g/%g", RA, Decl);
-        dout.ra = htole32(RAD2RA(RA));
-        dout.dec = (int32_t)htole32(RAD2DEC(Decl));
+        dout.ra = htole32(RAD2RA(J2000.ra));
+        dout.dec = (int32_t)htole32(RAD2DEC(J2000.dec));
+        */
+        dout.ra = htole32(RAD2RA(HRS2RAD(Rhrs)));
+        dout.dec = (int32_t)htole32(RAD2DEC(DEG2RAD(Ddeg)));
+        /**/
         if(!send_data((uint8_t*)&dout, sizeof(outdata), sock)) break;
         if(!sl_canread(sock)){
             sleep(1);
@@ -199,10 +208,6 @@ static void *handle_socket(void *sockd){
 
 // Main loop thread: wait connections over socket and create one thread for each
 static void* start(void *F){
-    if(isrunning){
-        WARNX("already running");
-        return NULL;
-    }
     if(!F){
         WARNX("start(): No arg");
         return NULL;
@@ -213,7 +218,6 @@ static void* start(void *F){
         return NULL;
     }
     DBG("Start main loop, sockfd=%d", sockfd);
-    isrunning = true;
     // Main loop
     while(isrunning){
         socklen_t size = sizeof(struct sockaddr_in);
@@ -271,11 +275,13 @@ bool stellarium_start(int sockfd){
         return false;
     }
     DBG("Stellarium server started");
+    LOGDBG("Stellarium server started");
     return true;
 }
 
 void stellarium_stop(){
-    if(!isrunning) return;
-    isrunning = false;
+    if(isrunning) isrunning = false;
+    /*DBG("Wait for stellarium thread");
     pthread_join(mainthread, NULL);
+    LOGDBG("Stellarium thread died");*/
 }

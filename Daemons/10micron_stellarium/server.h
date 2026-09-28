@@ -32,6 +32,9 @@
 // max weather lost time
 #define MOUNT_WEATHER_ALRM  900.
 
+// shutdown key refresh period (5min)
+#define SHTDWN_KEY_TMOUT    300
+
 typedef struct{
     int cmd_isunix;         // UNIX-socket instead of INET for `cmdnode`
     const char *stellport;  // port of stellarium server; could be "localhost:port" for local-only work

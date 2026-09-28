@@ -19,7 +19,7 @@
 #pragma once
 
 // commands
-#define CMD_SHUTDOWN        ":shutdown#"  // TODO!
+#define CMD_SHUTDOWN        ":shutdown#"
 #define CMD_TRKSTART        ":AP#"
 #define CMD_TRKSTOP         ":AL#"
 #define CMD_GOTOAZ          ":MA#"
