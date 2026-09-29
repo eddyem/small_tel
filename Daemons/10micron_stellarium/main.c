@@ -25,7 +25,6 @@
 #include <usefull_macros.h>
 
 #include "args.h"
-#include "fitshdr.h"
 #include "server.h"
 #include "mount.h"
 #include "stellarium.h"

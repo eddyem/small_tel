@@ -90,3 +90,5 @@ bool mount_setParkZD(double zd);
 void mount_getPark(horizCrds_t *c);
 
 bool mount_shutdown();
+
+bool mount_rawcmd(const char *cmd, char *ans, size_t anslen);

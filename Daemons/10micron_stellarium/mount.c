@@ -689,3 +689,14 @@ bool mount_corrdata(weather_data_t *w){
 bool mount_shutdown(){
     return write_cmd(CMD_SHUTDOWN, true);
 }
+
+/**
+ * @brief mount_rawcmd - send raw command `cmd` to mount
+ * @param cmd - raw command
+ * @param ans (o) - answer text
+ * @param anslen - length of `ans` buffer
+ * @return false if failed
+ */
+bool mount_rawcmd(const char *cmd, char *ans, size_t anslen){
+    return send_cmd_resp(cmd, ans, anslen);
+}

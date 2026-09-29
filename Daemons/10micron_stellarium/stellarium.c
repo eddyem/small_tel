@@ -27,6 +27,7 @@
 
 #include "angles.h"
 #include "mount.h"
+#include "server.h"
 #include "stellarium.h"
 
 #define BUFLEN  256
@@ -161,13 +162,8 @@ static void *handle_socket(void *sockd){
     dout.len = htole16(sizeof(outdata));
     dout.type = 0;
     while(isrunning){
-        // get coordinates
-        double Rhrs = 0., Ddeg = 0.;
-        if((dout.status = mount_getcoords(&Rhrs, &Ddeg)) == false){
-            WARNX("Error: can't get coordinates");
-            sleep(1);
-            continue;
-        }
+        fitsheader_t HDR;
+        server_getheader(&HDR);
         /*
         // convert from Jnow to J2000
         polarCrds_t Jn = {0}, J2000 = {0};
@@ -178,10 +174,10 @@ static void *handle_socket(void *sockd){
         dout.ra = htole32(RAD2RA(J2000.ra));
         dout.dec = (int32_t)htole32(RAD2DEC(J2000.dec));
         */
-        dout.ra = htole32(RAD2RA(HRS2RAD(Rhrs)));
-        dout.dec = (int32_t)htole32(RAD2DEC(DEG2RAD(Ddeg)));
+        dout.ra = htole32(RAD2RA(HRS2RAD(HDR.polar.ra)));
+        dout.dec = (int32_t)htole32(RAD2DEC(DEG2RAD(HDR.polar.dec)));
         /**/
-        if(!send_data((uint8_t*)&dout, sizeof(outdata), sock)) break;
+        if(!send_data((uint8_t*)&dout, sizeof(outdata), sock)) break; // send data even in `off` state
         if(!sl_canread(sock)){
             sleep(1);
             continue;

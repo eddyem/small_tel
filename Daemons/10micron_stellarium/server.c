@@ -27,7 +27,6 @@
 #include <usefull_macros.h>
 #include <weather_data.h>
 
-#include "fitshdr.h"
 #include "mount.h"
 #include "server.h"
 #include "stellarium.h"
@@ -47,6 +46,7 @@
 #define CMD_PLACE       "place"
 #define CMD_POLARX      "polarx"
 #define CMD_POLARY      "polary"
+#define CMD_RAW         "raw"
 #define CMD_SHUTDOWN    "shutdown"
 #define CMD_STATUS      "status"
 #define CMD_STOP        "stop"
@@ -79,6 +79,7 @@ static bool weatherlost = false;
 
 // data for FITS-header (also to send user)
 static fitsheader_t HDR = {0};
+static pthread_mutex_t headermutex = PTHREAD_MUTEX_INITIALIZER;
 
 unsigned int server_getsleept(){ return sleept; }
 bool server_setsleept(unsigned int t){
@@ -448,6 +449,17 @@ static sl_sock_hresult_e cmd_place(sl_sock_t *c, sl_sock_hitem_t _U_ *item, cons
     return RESULT_SILENCE;
 }
 
+static sl_sock_hresult_e cmd_raw(sl_sock_t *c, sl_sock_hitem_t _U_ *item, const char *req){
+    char buf[128];
+    if(!req || !*req) return RESULT_BADVAL;
+    if(!mount_rawcmd(req, buf, 126)) strcpy(buf, "No answer");
+    size_t L = strlen(buf);
+    buf[L] = '\n';
+    buf[L + 1] = 0;
+    sl_sock_sendstrmessage(c, buf);
+    return RESULT_SILENCE;
+}
+
 static sl_sock_hresult_e cmd_shutdown(sl_sock_t *c, sl_sock_hitem_t *item, const char *req){
     double val;
     static int shtdwnkey = -1;
@@ -491,6 +503,7 @@ static sl_sock_hitem_t handlers[] = {
     {cmd_place, CMD_PLACE, "get place data", NULL},
     {cmd_polarx, CMD_POLARX, "set polar X value (m)", NULL},
     {cmd_polary, CMD_POLARY, "set polar Y value (m)", NULL},
+    {cmd_raw, CMD_RAW, "send raw command to mount", NULL},
     {cmd_shutdown, CMD_SHUTDOWN, "shut down mount power", NULL},
     {status, CMD_STATUS, "get mount status", NULL},
     {cmd_stop, CMD_STOP, "stop telescope", NULL},
@@ -613,9 +626,11 @@ void server_run(){
                 WARNX("Can't get weather data");
             }
             // collect data for other fields
+            pthread_mutex_lock(&headermutex);
             HDR.status = mount_status();
             if(HDR.status != MNT_S_OFF){
                 double deg1, deg2;
+                DBG("Take coordinates");
                 if(mount_getcoords(&deg1, &deg2)){
                     get_MJDt(NULL, &HDR.MJD);
                     get_LST(&HDR.MJD, &HDR.sidtime);
@@ -639,6 +654,7 @@ void server_run(){
             }
             getDUT(&HDR.dut);
             if(HDR.status == MNT_S_OFF || !mount_getpierside(HDR.pierside, MAX_HDR_STRLEN)) *HDR.pierside = 0;
+            pthread_mutex_unlock(&headermutex);
             // and write FITS-header
             wrhdr(&HDR);
             // check need of reconnection
@@ -672,4 +688,11 @@ void server_run(){
 
 void server_stop(){
     isrunning = false;
+}
+
+void server_getheader(fitsheader_t *fh){
+    if(!fh) return;
+    pthread_mutex_lock(&headermutex);
+    *fh = HDR;
+    pthread_mutex_unlock(&headermutex);
 }

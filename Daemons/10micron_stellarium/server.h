@@ -20,6 +20,8 @@
 
 #include <usefull_macros.h>
 
+#include "fitshdr.h"
+
 // default and max available time for "usleep"
 #define DEFAULT_SLEEP_T     100
 #define MAX_SLEEP_T         10000
@@ -49,3 +51,4 @@ void server_run();
 void server_stop();
 unsigned int server_getsleept();
 bool server_setsleept(unsigned int t);
+void server_getheader(fitsheader_t *fh);

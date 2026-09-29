@@ -325,6 +325,12 @@ Place data can only be set at start-up (via CLI/config).
 | `parkaz`  | get/set| Parking azimuth, degrees.            |
 | `parkzd`  | get/set| Parking zenith distance, degrees.    |
 
+### Sending custom command
+
+The `raw` command allows to send any unsupported command string directly to mount.
+E.g. to set lunar tracking rate send `raw = :TL#`. If mount gives no answer for command, you will
+get message "No answer", otherwise you'll get this answer.
+
 ### Shutdown
 
 The `shutdown` command implements a simple confirmation handshake:
