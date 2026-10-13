@@ -52,10 +52,16 @@ static horizCrds_t ParkCoords = {.az = DEG2RAD(1.8105556), .zd = DEG2RAD(88.7752
 static polarCrds_t InpCoords = {0}, // input as user give (for epoch InpMJD)
     TagCoords = {0}; // target for Jnow after command "point to input"
 static horizCrds_t InpHoriz = {0};
-// input MJD (Modified Julian Date: started from ERFA_DJM0==2400000.5)
-static double InpMJD = ERFA_DJM00; // J2000
-// times of coords/mjd change
-static double InpCTime = 0., TagTime = 0., InpHTime = 0., InpMTime = 0.;
+// epoch for input coordinates
+static double InpEpoch = 2000.; // J2000
+// times of coords/epoch change
+static double InpCTime = 0., TagTime = 0., InpHTime = 0., InpETime = 0.;
+
+// safe strncpy
+static void scpy(size_t len, char *dest, const char *src){
+    size_t l = snprintf(dest, len, "%s", src);
+    if(l >= len) dest[len-1] = 0;
+}
 
 // return time of modification
 double mount_getInpCoords(polarCrds_t *c){
@@ -66,9 +72,9 @@ double mount_getTagCoords(polarCrds_t *c){
     if(c) *c = TagCoords;
     return TagTime;
 }
-double mount_getInpMJD(double *MJD){
-    if(MJD) *MJD = InpMJD;
-    return InpMTime;
+double mount_getInpEpoch(double *epoch){
+    if(epoch) *epoch = InpEpoch;
+    return InpETime;
 }
 double mount_getInpHor(horizCrds_t *c){
     if(c) *c = InpHoriz;
@@ -133,9 +139,9 @@ bool mount_setInpZ(double Z){
     return true;
 }
 // without checking
-bool mount_setInpMJD(double m){
-    InpMJD = m;
-    InpMTime = sl_dtime();
+bool mount_setInpEpoch(double epoch){
+    InpEpoch = epoch;
+    InpETime = sl_dtime();
     return true;
 }
 
@@ -169,6 +175,7 @@ void mount_get_name(char *nm, size_t l){
  * @return false if failed to open device `dev`
  */
 bool mount_set_dev(char *dev, int speed, double timeout){
+    if(isemulated) return true;
     pthread_mutex_lock(&mntdev_mutex);
     if(mount_dev) sl_tty_close(&mount_dev);
     mount_dev = sl_tty_new(dev, speed, 4096);
@@ -288,6 +295,7 @@ static bool write_cmd(const char *cmd, bool haveanswer){
 
 // return current mount status
 mount_status_t mount_status(){
+    if(isemulated) return emulation_status();
     mount_status_t curst = (mount_status_t)atomic_load(&mountstatus);
     if(curst == MNT_S_OFF) return curst; // do nothing when mount if off
     if(!mount_dev){
@@ -588,7 +596,7 @@ bool mount_tracking_start(){
  * @return false if failed to run command
  */
 bool mount_park(){
-    if(isemulated) return pointAZ_emulation(ParkCoords.az, ParkCoords.zd);
+    if(isemulated) return pointAZ_emulation(RAD2DEG(ParkCoords.az), RAD2DEG(ParkCoords.zd));
     char buf[64];
     snprintf(buf, 63, CMD_SETMINALT, 0);
     if(!write_cmd(buf, true)) return false;
@@ -633,6 +641,10 @@ void mount_getPark(horizCrds_t *c){
  * @return false if failed
  */
 bool mount_getpierside(char *Ps, size_t len){
+    if(isemulated){
+        scpy(len, Ps, "Emulation");
+        return true;
+    }
     pthread_mutex_lock(&mntdev_mutex);
     bool ret = send_cmd_resp(CMD_GETPS, Ps, len);
     pthread_mutex_unlock(&mntdev_mutex);
@@ -645,6 +657,7 @@ bool mount_getpierside(char *Ps, size_t len){
  * @return false if failed to connect
  */
 bool mount_corrdata(weather_data_t *w){
+    if(isemulated) return true;
     if(!w) return false;
     bool ret = true; // returning value
     mount_status_t curst = mount_status();
@@ -687,6 +700,7 @@ bool mount_corrdata(weather_data_t *w){
  * @return false if failed
  */
 bool mount_shutdown(){
+    if(isemulated) return false;
     return write_cmd(CMD_SHUTDOWN, true);
 }
 
@@ -698,5 +712,6 @@ bool mount_shutdown(){
  * @return false if failed
  */
 bool mount_rawcmd(const char *cmd, char *ans, size_t anslen){
+    if(isemulated) return false;
     return send_cmd_resp(cmd, ans, anslen);
 }

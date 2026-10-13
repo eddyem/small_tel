@@ -53,8 +53,8 @@
 #define CMD_STOPTRK     "stoptrk"
 #define CMD_TAGAZ       "tagaz"
 #define CMD_TAGDEC      "tagdec"
+#define CMD_TAGEPOCH    "tagepoch"
 #define CMD_TAGHA       "tagha"
-#define CMD_TAGMJD      "tagmjd"
 #define CMD_TAGRA       "tagra"
 #define CMD_TAGZD       "tagzd"
 #define CMD_TELAZ       "telaz"
@@ -265,7 +265,7 @@ static sl_sock_hresult_e cmd_gotord(_U_ sl_sock_t *c, _U_ sl_sock_hitem_t *item,
     polarCrds_t px, pnow;
     mount_getInpCoords(&px);
     double Epoch;
-    mount_getInpMJD(&Epoch);
+    mount_getInpEpoch(&Epoch);
     if(Epoch > 0.){
         if(!JXtoJnow(&px, &pnow, Epoch)) return RESULT_FAIL;
     }else pnow = px;
@@ -363,24 +363,18 @@ static sl_sock_hresult_e cmd_parkzd(sl_sock_t *c, sl_sock_hitem_t *item, const c
     return RESULT_SILENCE;
 }
 
-static sl_sock_hresult_e cmd_tagmjd(sl_sock_t *c, sl_sock_hitem_t *item, const char *req){
+static sl_sock_hresult_e cmd_tagepoch(sl_sock_t *c, sl_sock_hitem_t *item, const char *req){
     double val;
-    bool isyear = false;
-    if(req && *req == 'J'){ // e.g. J2050.
-        ++req;
-        isyear = true;
-    }
     int res = parse_key_value(req, &val);
     if(res < 0) return RESULT_BADVAL;
-    if(res > 0){
-        if(isyear) val = (val - 2000.)*365.25 + ERFA_DJM00;
-        LOGDBG("Client %d set target epoch %g", c->fd, val);
-        if(mount_setInpMJD(val)) return RESULT_OK;
+    if(res > 0){ // setter
+        LOGDBG("Client %d set target epoch %g", res);
+        if(mount_setInpEpoch(val)) return RESULT_OK;
         return RESULT_BADVAL;
     }
-    mount_getInpMJD(&val);
+    mount_getInpEpoch(&val);
     char buf[64];
-    snprintf(buf, 63, "%s=%.1f\n", item->key, val);
+    snprintf(buf, 63, "%s=%.6f\n", item->key, val);
     sl_sock_sendstrmessage(c, buf);
     return RESULT_SILENCE;
 }
@@ -511,7 +505,7 @@ static sl_sock_hitem_t handlers[] = {
     {cmd_tagaz, CMD_TAGAZ, "get/set target azimuth (Deg)", NULL},
     {cmd_tagdec, CMD_TAGDEC, "get/set target declination (Deg)", NULL},
     {cmd_tagha, CMD_TAGHA, "get/set target hour angle (Hrs)", NULL},
-    {cmd_tagmjd, CMD_TAGMJD, "get/set target MJD epoch (-1 for Jnow) or Jxxx for year, like J2050.", NULL},
+    {cmd_tagepoch, CMD_TAGEPOCH, "get/set target epoch (-1 for Jnow), like 2050.", NULL},
     {cmd_tagra, CMD_TAGRA, "get/set target right acsention (Hrs)", NULL},
     {cmd_tagzd, CMD_TAGZD, "get/set target zenith distance (Deg)", NULL},
     {cmd_teldec, CMD_TELDEC, "get current telescope declination (Deg)", NULL},

@@ -164,7 +164,7 @@ void wrhdr(fitsheader_t *HDR){
     }
     WRHDR("TELSTAT", mount_status_str(HDR->status), "Telescope mount status");
     double mjd;
-    mount_getInpMJD(&mjd);
+    mount_getInpEpoch(&mjd);
     if(mjd > 0.) snprintf(val, 22, "%.10f", 2000.+(mjd - ERFA_DJM00)/365.25); // calculate EPOCH/EQUINOX
     else snprintf(val, 22, "%.10f", 2000.+(HDR->MJD.MJD - ERFA_DJM00)/365.25);
     WRHDR("INPEQUIN", val, "Equinox of input celestial coordinate system");

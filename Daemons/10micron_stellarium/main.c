@@ -68,11 +68,6 @@ int main(int argc, char **argv){
         WARNX("Can't set sleep time to %d", G->sleept);
         return 3;
     }
-    if(G->emulation) set_emulation_mode();
-    else if(!mount_set_dev(G->device, G->serspeed, G->sertmout)){
-        WARNX("Can't open device %s @ %d", G->device, G->serspeed);
-        return 4;
-    }
     if(!mount_set_name(G->mountname)){
         WARNX("Can't set mount name to %s", G->mountname);
         return 5;
@@ -134,6 +129,13 @@ int main(int argc, char **argv){
     }
     if(!isrunning) return 0;
 #endif
+
+    if(G->emulation) set_emulation_mode();
+    else if(!mount_set_dev(G->device, G->serspeed, G->sertmout)){
+        WARNX("Can't open device %s @ %d", G->device, G->serspeed);
+        return 4;
+    }
+
     server_sock_t sockt = {
         .cmd_isunix = G->isunix,
         .cmdnode = G->cmdnode,

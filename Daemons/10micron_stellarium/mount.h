@@ -54,11 +54,11 @@ bool mount_setInpRA(double ra);
 bool mount_setInpDec(double dec);
 bool mount_setInpA(double A);
 bool mount_setInpZ(double Z);
-bool mount_setInpMJD(double m);
+bool mount_setInpEpoch(double epoch);
 
 double mount_getInpCoords(polarCrds_t *c);
 double mount_getTagCoords(polarCrds_t *c);
-double mount_getInpMJD(double *MJD);
+double mount_getInpEpoch(double *epoch);
 double mount_getInpHor(horizCrds_t *c);
 
 

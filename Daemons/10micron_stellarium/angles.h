@@ -83,13 +83,18 @@ void d2sDMS(double degrees, char *dms, int len);
 
 bool get_MJDt(struct timeval *tval, sMJD_t *MJD);
 bool get_LST(sMJD_t *mjd, double *LST);
+#if 0
 bool get_ObsPlace(struct timeval *tval, polarCrds_t *p2000, polarCrds_t *pnow, horizCrds_t *hnow);
+#endif
 
 bool setDUT(almDut_t *D);
 void getDUT(almDut_t *D);
 
 bool setPlaceData(placeData_t *pd);
 void getPlaceData(placeData_t *pd);
+
+bool J2000_to_epoch_pn(const polarCrds_t *j2000, double epoch, polarCrds_t *jepoch);
+bool epoch_to_J2000_pn(const polarCrds_t *jepoch, double epoch, polarCrds_t *j2000);
 
 bool JnowtoJ2000(const polarCrds_t *in, polarCrds_t *out);
 bool JXtoJnow(const polarCrds_t *in, polarCrds_t *out, double Jx);

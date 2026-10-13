@@ -35,6 +35,8 @@
 // running flag
 extern volatile bool isrunning;
 static pthread_t mainthread;
+static int newsockfd = -1; // new socket fd for handler thread
+static pthread_mutex_t sockmutex = PTHREAD_MUTEX_INITIALIZER; // mutex for copying previous variable
 
 //read: 0x14 0x0 0x0 0x0 0x5b 0x5a 0x2e 0xc6 0x8c 0x23 0x5 0x0 0x23 0x9 0xe5 0xaf 0x23 0x2e 0x34 0xed
 // command: goto 16h29 24.45 -26d25 55.62
@@ -129,7 +131,7 @@ static bool proc_data(uint8_t *data, ssize_t len){
     double tagRA = RA2HRS(ra), tagDec = DEC2DEG(dec);
     DBG("RA: %u (%g hrs), DEC: %d (%g degr)", ra, tagRA, dec, tagDec);
     LOGMSG("(stellarium) RA: %u (%g hrs), DEC: %d (%g degr)", ra, tagRA, dec, tagDec);
-    return (mount_setInpRA(tagRA) && mount_setInpDec(tagDec) && mount_setInpMJD(ERFA_DJM00));
+    return (mount_setInpRA(tagRA) && mount_setInpDec(tagDec) && mount_setInpEpoch(ERFA_DJM00));
 }
 
 /**
@@ -151,14 +153,35 @@ static bool send_data(uint8_t *data, size_t dlen, int sockfd){
     return true;
 }
 
+// read exactly dlen bytes of data with timeout 1s
+static ssize_t get_data(int sockfd, uint8_t *data, size_t dlen){
+    double t0 = sl_dtime();
+    uint8_t *ptr = data;
+    ssize_t got = 0;
+    while(sl_dtime() - t0 < 1. && dlen){
+        if(!sl_canread(sockfd)) continue;
+        ssize_t rd = read(sockfd, ptr, dlen);
+        if(rd < 0) return -1;
+        else if(rd == 0) break;
+        dlen -= rd;
+        ptr += rd;
+        got += rd;
+    }
+    return got;
+}
+
 /**
  * main socket service procedure
  */
 static void *handle_socket(void *sockd){
     FNAME();
-    if(!isrunning) return NULL;
+    if(!isrunning){
+        pthread_mutex_unlock(&sockmutex);
+        return NULL;
+    }
     outdata dout;
     int sock = *(int*)sockd;
+    pthread_mutex_unlock(&sockmutex); // copy done
     dout.len = htole16(sizeof(outdata));
     dout.type = 0;
     while(isrunning){
@@ -174,8 +197,8 @@ static void *handle_socket(void *sockd){
         dout.ra = htole32(RAD2RA(J2000.ra));
         dout.dec = (int32_t)htole32(RAD2DEC(J2000.dec));
         */
-        dout.ra = htole32(RAD2RA(HRS2RAD(HDR.polar.ra)));
-        dout.dec = (int32_t)htole32(RAD2DEC(DEG2RAD(HDR.polar.dec)));
+        dout.ra = htole32(RAD2RA(HDR.polar.ra));
+        dout.dec = (int32_t)htole32(RAD2DEC(HDR.polar.dec));
         /**/
         if(!send_data((uint8_t*)&dout, sizeof(outdata), sock)) break; // send data even in `off` state
         if(!sl_canread(sock)){
@@ -184,7 +207,7 @@ static void *handle_socket(void *sockd){
         }
         // fill incoming buffer
         uint8_t buff[BUFLEN];
-        ssize_t rd = read(sock, buff, BUFLEN-1);
+        ssize_t rd = get_data(sock, buff, sizeof(indata));
         if(rd <= 0){ // error or disconnect
             DBG("Nothing to read from fd %d (ret: %zd)", sock, rd);
             WARNX("Client disconnected?");
@@ -192,7 +215,7 @@ static void *handle_socket(void *sockd){
         }
         buff[rd] = 0;
         DBG("read %zd (%s)", rd, buff);
-        if(!proc_data(buff, rd)) dout.status = -1;
+        if(!proc_data(buff, rd)) dout.status = htole32(-1);
         else{
             DBG("sent OK");
             dout.status = 0;
@@ -218,10 +241,9 @@ static void* start(void *F){
     while(isrunning){
         socklen_t size = sizeof(struct sockaddr_in);
         struct sockaddr_in myaddr;
-        int newsock;
         DBG("ACCEPT");
-        newsock = accept(sockfd, (struct sockaddr*)&myaddr, &size);
-        if(newsock <= 0){
+        newsockfd = accept(sockfd, (struct sockaddr*)&myaddr, &size);
+        if(newsockfd <= 0){
             if(errno == EAGAIN){
                 usleep(1000);
                 continue; // nothing available
@@ -233,14 +255,14 @@ static void* start(void *F){
         }
         struct sockaddr_in peer;
         socklen_t peer_len = sizeof(peer);
-        if(getpeername(newsock, (struct sockaddr*)&peer, &peer_len) == -1){
+        if(getpeername(newsockfd, (struct sockaddr*)&peer, &peer_len) == -1){
             LOGWARN("Stellarium socket error in getpeername()");
             WARN("getpeername()");
-            close(newsock);
+            close(newsockfd);
             continue;
         }
         int sockport = -1;
-        if(getsockname(newsock, (struct sockaddr*)&peer, &peer_len) == 0){
+        if(getsockname(newsockfd, (struct sockaddr*)&peer, &peer_len) == 0){
             sockport = ntohs(peer.sin_port);
         }
         char *peerIP = inet_ntoa(peer.sin_addr);
@@ -252,21 +274,29 @@ static void* start(void *F){
             continue;
         }*/
         pthread_t rthrd;
-        if(pthread_create(&rthrd, NULL, handle_socket, (void*)&newsock)){
+        pthread_mutex_lock(&sockmutex);
+        if(pthread_create(&rthrd, NULL, handle_socket, (void*)&newsockfd)){
             WARN("Can't create socket thread");
             LOGERR("Stellarium socket: error creating listen thread");
         }else{
             DBG("Thread created, detouch");
             pthread_detach(rthrd); // don't care about thread state
+            // mutex unlocking will be in thread, but care for timeout
+            double t0 = sl_dtime();
+            while(sl_dtime() - t0 < 3.){
+                if(0 == pthread_mutex_trylock(&sockmutex)){ // released
+                    break;
+                }
+            }
         }
+        pthread_mutex_unlock(&sockmutex);
     }
     close(sockfd);
     return NULL;
 }
 
 bool stellarium_start(int sockfd){
-    int fd = sockfd;
-    if(pthread_create(&mainthread, NULL, start, (void*)&fd)){
+    if(pthread_create(&mainthread, NULL, start, (void*)&sockfd)){
         WARN("pthread_create()");
         return false;
     }

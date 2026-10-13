@@ -24,7 +24,7 @@
 
 #include "angles.h"
 
-static placeData_t place = {.slong = 0.7232763200, .slat = 0.7618977414, .salt = 2070.};
+static placeData_t place = {.slong = -0.7232763200, .slat = 0.7618977414, .salt = 2070.};
 static almDut_t AlmDut = {0};
 
 // set/get polar/DUT1 data
@@ -189,9 +189,9 @@ void norm_RADECr(double *ra, double *dec){
 // normalize angle to (-180, 180]
 void norm_angle180(double *a){
     if(!a) return;
-    double d = fmod(*a + 180.0, 360.0);
-    if(d < 0.) d += 360.0;
-    else d -= 180;
+    double d = fmod(*a, 360.0);
+    if(d < -180.) d += 360.0;
+    else if(d > 180.) d -= 360.;
     *a = d;
 }
 
@@ -381,6 +381,7 @@ bool get_LST(sMJD_t *mjd, double *LST){
     return true;
 }
 
+#if 0
 /**
  * @brief get_ObsPlace - calculate observed place (without PM etc) for given date @550nm
  * @param tval  (i) - time
@@ -436,6 +437,99 @@ bool get_ObsPlace(struct timeval *tval, polarCrds_t *p2000, polarCrds_t *pnow, h
     }
     return true;
 }
+#endif
+
+
+// used in two functions
+static bool J2000to_ep_(const polarCrds_t *j2000, polarCrds_t *jepoch, double date1, double date2){
+    if(!j2000 || !jepoch) return false;
+    double r_j2000[3], r_ep[3], rmat[3][3];
+
+    // spherical coordinates to vector
+    eraS2c(j2000->ra, j2000->dec, r_j2000);
+    // rmat - prec/nut matrix from J2000 to given epoch
+    eraPnm06a(date1, date2, rmat);
+    // r_ep = rmat * r_j2000
+    eraRxp(rmat, r_j2000, r_ep);
+    // vector to coordinates
+    eraC2s(r_ep, &jepoch->ra, &jepoch->dec);
+    // normalize angle
+    jepoch->ra = eraAnp(jepoch->ra);
+    return true;
+}
+
+static bool ep_toJ2000_(const polarCrds_t *jepoch, polarCrds_t *j2000, double date1, double date2){
+    if(!j2000 || !jepoch) return false;
+    double r_ep[3], r_j2000[3], rmat[3][3];
+
+    eraS2c(jepoch->ra, jepoch->dec, r_ep);
+    eraPnm06a(date1, date2, rmat);
+    // use eraTrxp for multiplication by transposed matrix (reverse transform)
+    eraTrxp(rmat, r_ep, r_j2000);
+    eraC2s(r_j2000, &j2000->ra, &j2000->dec);
+    j2000->ra = eraAnp(j2000->ra);
+    return true;
+}
+
+/**
+ * @brief J2000_to_epoch_pn - convert J2000 to given epoch (prec/nut)
+ * @param j2000 (i) - catalog coordinates
+ * @param epoch - epoch (like 2050.)
+ * @param jepoch (o) - coordinates for epoch
+ */
+bool J2000_to_epoch_pn(const polarCrds_t *j2000, double epoch, polarCrds_t *jepoch){
+    double date1, date2;
+
+    // calculate JD for target epoch
+    eraEpj2jd(epoch, &date1, &date2);
+    return J2000to_ep_(j2000, jepoch, date1, date2);
+}
+
+/**
+ * @brief epoch_to_J2000_pn - convert coordinates for given epoch to J2000
+ * @param jepoch (i) - coordinates for epoch
+ * @param epoch (o) - epoch (like 2050.)
+ */
+bool epoch_to_J2000_pn(const polarCrds_t *jepoch, double epoch, polarCrds_t *j2000){
+    double date1, date2;
+
+    eraEpj2jd(epoch, &date1, &date2);
+    return ep_toJ2000_(jepoch, j2000, date1, date2);
+}
+
+/**
+ * @brief JnowtoJ2000 - convert coordinates from Jnow to J2000
+ * @param in - current coordinates
+ * @param out - catalog coordinates
+ * @return false if arguments are wrong
+ */
+bool JnowtoJ2000(const polarCrds_t *in, polarCrds_t *out){
+    sMJD_t MJD;
+    // calculate current MJD
+    if(!get_MJDt(NULL, &MJD)) return false;
+    return ep_toJ2000_(in, out, MJD.tt1, MJD.tt2);
+}
+
+/**
+ * @brief JXtoJnow - convert coordinates from any epoch to Jnow
+ * @param in - epoch coordinates
+ * @param out - current coordinates
+ * @param Jx - given epoch like 2050.
+ * @return false if arguments are wrong
+ */
+bool JXtoJnow(const polarCrds_t *in, polarCrds_t *out, double Jx){
+    sMJD_t MJD;
+    polarCrds_t j2000;
+    // calculate current MJD
+    if(!get_MJDt(NULL, &MJD)) return false;
+
+    // convert Jx to J2000
+    if(!epoch_to_J2000_pn(in, Jx, &j2000)) return false;
+    // and convert J2000 to Jnow
+    return J2000to_ep_(&j2000, out, MJD.tt1, MJD.tt2);
+}
+
+#if 0
 
 /**
  * convert geocentric coordinates (nowadays, CIRS) to mean (JD2000, ICRS)
@@ -489,3 +583,4 @@ bool JXtoJnow(const polarCrds_t *in, polarCrds_t *out, double Jx){
     return true;
 }
 
+#endif
