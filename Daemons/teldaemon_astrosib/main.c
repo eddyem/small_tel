@@ -138,30 +138,39 @@ int main(int argc, char **argv){
         ERRX("Cannot write into '%s'", G.headerfile);
     telname(G.telescope_name);
     sl_check4running(NULL, G.pidfile);
+#ifndef EBUG
     if(sl_daemonize()) ERR("Can't daemonize!");
+#endif
     sl_loglevel_e lvl = G.verbose + LOGLEVEL_ERR;
     if(lvl >= LOGLEVEL_AMOUNT) lvl = LOGLEVEL_AMOUNT - 1;
     if(G.logfile) OPENLOG(G.logfile, lvl, 1);
     LOGMSG("Started");
-    if(!term_open(G.termpath, G.serspeed, G.sertmout)){
-        LOGERR("Can't open %s", G.termpath);
-        ERRX("Fatal error");
-    }
     signal(SIGTERM, signals);
     signal(SIGINT, signals);
     signal(SIGQUIT, signals);
     signal(SIGTSTP, SIG_IGN);
     signal(SIGUSR1, SIG_IGN);
     signal(SIGUSR2, SIG_IGN);
+    int pause = 1;
     while(1){ // guard for dead processes
         childpid = fork();
+        double runat = sl_dtime();
         if(childpid){
-            LOGMSG("create child with PID %d\n", childpid);
             DBG("Created child with PID %d\n", childpid);
-            wait(NULL);
-            WARNX("Child %d died\n", childpid);
-            LOGWARN("Child %d died\n", childpid);
-            sleep(1);
+            usleep(100000); // let child to test connection
+            if(0 == waitpid(childpid, NULL, WNOHANG)){ // child is still alive
+                LOGMSG("Created child with PID %d\n", childpid);
+                wait(NULL);
+            }
+            double dt = sl_dtime() - runat;
+            WARNX("Child %d died after %gs\n", childpid, dt);
+            if(dt > pause){ // child's life was long enough
+                DBG("pause=%d, TTL=%g", pause, dt);
+                LOGWARN("Child %d died after %gs of life\n", childpid, dt);
+                pause = 1;
+            }else if((pause *= 2) > 60) pause = 60; // increase pause up to 1 minute when there's no connection to telescope
+            DBG("sleep %ds", pause);
+            sleep(pause);
         }else{
             prctl(PR_SET_PDEATHSIG, SIGTERM); // send SIGTERM to child when parent dies
             break; // go out to normal functional
@@ -170,6 +179,9 @@ int main(int argc, char **argv){
     // react for USRx only in child
     signal(SIGUSR1, signals);
     signal(SIGUSR2, signals);
+    if(!term_open(G.termpath, G.serspeed, G.sertmout)){
+        ERRX("Fatal error");
+    }
     runserver(G.isunix, G.node, G.maxclients);
     LOGERR("Server error -> exit");
     return 0;

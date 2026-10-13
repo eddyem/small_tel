@@ -40,7 +40,7 @@ void term_close(){
 int term_open(char *path, int speed, double usec){
     pthread_mutex_lock(&mutex);
     if(dev) sl_tty_close(&dev);
-    LOGMSG("Try to open serial %s at speed %d", path, speed);
+    LOGDBG("Try to open serial %s at speed %d", path, speed);
     DBG("Init serial");
     dev = sl_tty_new(path, speed, 4096);
     DBG("Open serial");
@@ -61,7 +61,7 @@ int term_open(char *path, int speed, double usec){
     pthread_mutex_unlock(&mutex);
 rtn:
     if(dev) return TRUE;
-    LOGERR("Can't open %s with speed %d. Exit.", path, speed);
+    LOGDBG("Can't open %s with speed %d. Exit.", path, speed);
     return FALSE;
 }
 
@@ -125,6 +125,10 @@ static char *nonblk_read(char ans[ANSLEN]){
 static int nonblk_write(const char *buf, int length){
     if(!buf || length < 1) return 0;
     if(0 == sl_tty_write(dev->comfd, buf, length)) return length;
+    else{
+        LOGERR("Serial device disconnected");
+        ERR("Can't write");
+    }
     return 0;
 }
 
