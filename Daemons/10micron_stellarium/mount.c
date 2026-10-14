@@ -278,16 +278,16 @@ static bool write_cmd(const char *cmd, bool haveanswer){
     if(!haveanswer){
         DBG("Command '%s'", cmd);
         if(!mount_dev || !cmd){
-            DBG("no mount device?");
+            WARNX("no mount device?");
             return false;
         }
         if(sl_tty_write(mount_dev->comfd, cmd, strlen(cmd))){
-            DBG("Error writing request '%s'", cmd);
+            WARNX("Error writing request '%s'", cmd);
             return false;
         }
         while(sl_tty_read(mount_dev) > 0);
     }else if(!send_cmd_resp(cmd, buf, 128)){
-        DBG("Error writing command '%s'", cmd);
+        WARNX("Error writing command '%s'", cmd);
         return false;
     }
     return true;
@@ -376,7 +376,10 @@ static bool guess_speed(){
 // connect to mount
 bool mount_connect(){
     if(isemulated) return true;
-    if(!mount_dev) return false;
+    if(!mount_dev){
+        WARNX("Mount not initialized!");
+        return false;
+    }
     pthread_mutex_lock(&mntdev_mutex);
     if(!chkconn() && !guess_speed()){
         pthread_mutex_unlock(&mntdev_mutex);
@@ -419,12 +422,15 @@ void mount_disconnect(){
 bool mount_point(double ra, double dec){
     char rastr[RADEC_STR_MAXLEN], decstr[RADEC_STR_MAXLEN];
     norm_RADEC(&ra, &dec);
-    ra2str(ra, rastr);
-    dec2str(dec, decstr);
+    h2sHMS(ra, rastr);
+    d2sDMS(dec, decstr);
+    LOGDBG("try to set RA/DEC to %s/%s", rastr, decstr);
     DBG("Set RA/Decl to %s/%s", rastr, decstr);
-    LOGMSG("Try to set RA/Decl to %s/%s", rastr, decstr);
     if(isemulated) return point_emulation(ra, dec);
-    if(!mount_dev) return false;
+    if(!mount_dev){
+        WARNX("No mount device!");
+        return false;
+    }
     pthread_mutex_lock(&mntdev_mutex);
     char cmd[128];
     bool ret = false;
@@ -443,6 +449,7 @@ bool mount_point(double ra, double dec){
     TagCoords.ra = HRS2RAD(ra);
     TagCoords.dec = DEG2RAD(dec);
     TagTime = sl_dtime();
+    LOGMSG("Go to RA/Decl: %s/%s", rastr, decstr);
 retn:
     pthread_mutex_unlock(&mntdev_mutex);
     return ret;
@@ -460,8 +467,8 @@ bool mount_pointAZ(double A, double Z){
         DBG("Wrong Z?");
         return false;
     }
-    d2sDMS(A, azstr, RADEC_STR_MAXLEN);
-    d2sDMS(90. - Z, altstr, RADEC_STR_MAXLEN);
+    d2sDMS(A, azstr);
+    d2sDMS(90. - Z, altstr);
     DBG("Point to stationary object, Az=%s, Alt=%s", azstr, altstr);
     if(isemulated){
         return pointAZ_emulation(A, Z);

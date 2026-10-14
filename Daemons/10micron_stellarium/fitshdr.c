@@ -108,22 +108,25 @@ void wrhdr(fitsheader_t *HDR){
         return;
     }
     fchmod(fd, 0644);
-    char val[23];
-    val[22] = 0;
+#define VALLEN 22
+#define CMNTLEN 51
+    char val[VALLEN+1];
+    char ang[RADEC_STR_MAXLEN], cmnt[CMNTLEN+1];
+    val[VALLEN] = 0, cmnt[CMNTLEN] = 0;
 #define WRHDR(k, v, c)  do{if(printhdr(fd, k, v, c)){goto returning;}}while(0)
     WRHDR("TIMESYS", "'UTC'", "Time system");
     WRHDR("ORIGIN", "'SAO RAS'", "Organization responsible for the data");
     WRHDR("MOUNTNAM", HDR->mountname, "Mount name");
     if(fabs(HDR->dut.px) > FLT_EPSILON){
-        snprintf(val, 22, "%.10f", HDR->dut.px);
+        snprintf(val, VALLEN, "%.10f", HDR->dut.px);
         WRHDR("POLARX", val, "IERS pole X coordinate, arcsec");
     }
     if(fabs(HDR->dut.py) > FLT_EPSILON){
-        snprintf(val, 22, "%.10f", HDR->dut.py);
+        snprintf(val, VALLEN, "%.10f", HDR->dut.py);
         WRHDR("POLARY", val, "IERS pole Y coordinate, arcsec");
     }
     if(fabs(HDR->dut.DUT1) > FLT_EPSILON){
-        snprintf(val, 22, "%.10f", HDR->dut.DUT1);
+        snprintf(val, VALLEN, "%.10f", HDR->dut.DUT1);
         WRHDR("DUT1", val, "IERS `UT1-UTC`, sec");
     }
     polarCrds_t polar;
@@ -131,75 +134,98 @@ void wrhdr(fitsheader_t *HDR){
     double pt = mount_getInpCoords(&polar), ht = mount_getInpHor(&horiz);
     if(pt > ht){ // horcrds is older -> show polar
         if(curtime - pt < COORDS_OLD_T){
-            snprintf(val, 22, "%.10f", RAD2DEG(polar.ra));
-            WRHDR("INPRA", val, "Input RA, degrees");
-            snprintf(val, 22, "%.10f", RAD2DEG(polar.dec));
-            WRHDR("INPDEC", val, "Input DEC, degrees");
+            snprintf(val, VALLEN, "%.10f", RAD2DEG(polar.ra));
+            r2sHMS(polar.ra, ang);
+            snprintf(cmnt, CMNTLEN, "Input RA, deg. (%s)", ang);
+            WRHDR("INPRA", val, cmnt);
+            snprintf(val, VALLEN, "%.10f", RAD2DEG(polar.dec));
+            r2sDMS(polar.dec, ang);
+            snprintf(cmnt, CMNTLEN, "Input DEC, deg. (%s)", ang);
+            WRHDR("INPDEC", val, cmnt);
         }
     }else{ // show horiz
         if(curtime - ht < COORDS_OLD_T){
-            snprintf(val, 22, "%.10f", RAD2DEG(horiz.az));
-            WRHDR("INPAZ", val, "Input Azimuth, degrees");
-            snprintf(val, 22, "%.10f", RAD2DEG(horiz.zd));
-            WRHDR("INPZD", val, "Input Zenith dist., degrees");
+            snprintf(val, VALLEN, "%.10f", RAD2DEG(horiz.az));
+            r2sDMS(horiz.az, ang);
+            snprintf(cmnt, CMNTLEN, "Input Azimuth, deg. (%s)", ang);
+            WRHDR("INPAZ", val, cmnt);
+            snprintf(val, VALLEN, "%.10f", RAD2DEG(horiz.zd));
+            r2sDMS(horiz.zd, ang);
+            snprintf(cmnt, CMNTLEN, "Input Zenith dist., deg. (%s)", ang);
+            WRHDR("INPZD", val, cmnt);
         }
     }
     if(curtime - mount_getTagCoords(&polar) < COORDS_OLD_T){
-        snprintf(val, 22, "%.10f", RAD2DEG(polar.ra));
-        WRHDR("TAGRA", val, "Target RA, degrees");
-        snprintf(val, 22, "%.10f", RAD2DEG(polar.dec));
-        WRHDR("TAGDEC", val, "Target DEC, degrees");
+        snprintf(val, VALLEN, "%.10f", RAD2DEG(polar.ra));
+        r2sHMS(polar.ra, ang);
+        snprintf(cmnt, CMNTLEN, "Target RA, deg. (%s)", ang);
+        WRHDR("TAGRA", val, cmnt);
+        snprintf(val, VALLEN, "%.10f", RAD2DEG(polar.dec));
+        r2sDMS(polar.dec, ang);
+        snprintf(cmnt, CMNTLEN, "Target DEC, deg. (%s)", ang);
+        WRHDR("TAGDEC", val, cmnt);
     }
     if(poweredON){
-        snprintf(val, 22, "%.10f", RAD2HRS(HDR->polar.ra)); // convert RA to degrees
-        WRHDR("RA", val, "Telescope right ascension, current epoch, deg");
-        snprintf(val, 22, "%.10f", RAD2HRS(eraAnp(HDR->sidtime - HDR->polar.ra))); // hour angle
-        WRHDR("HA", val, "Telescope hour angle, deg");
-        snprintf(val, 22, "%.10f", RAD2DEG(HDR->polar.dec));
-        WRHDR("DEC", val, "Telescope declination, current epoch, deg");
-        snprintf(val, 22, "%.10f", RAD2DEG(HDR->altaz.az));
-        WRHDR("AZ", val, "Telescope azimuth, deg");
-        snprintf(val, 22, "%.10f", RAD2DEG(HDR->altaz.zd));
-        WRHDR("ZD", val, "Telescope zenith distance, deg");
+        snprintf(val, VALLEN, "%.10f", RAD2HRS(HDR->polar.ra)); // convert RA to degrees
+        r2sHMS(HDR->polar.ra, ang);
+        snprintf(cmnt, CMNTLEN, "Telescope Right Ascension, deg. (%s)", ang);
+        WRHDR("RA", val, cmnt);
+        double ha = eraAnp(HDR->sidtime - HDR->polar.ra);
+        snprintf(val, VALLEN, "%.10f", RAD2HRS(ha)); // hour angle
+        r2sHMS(ha, ang);
+        snprintf(cmnt, CMNTLEN, "Telescope Hour Angle, deg. (%s)", ang);
+        WRHDR("HA", val, cmnt);
+        snprintf(val, VALLEN, "%.10f", RAD2DEG(HDR->polar.dec));
+        r2sDMS(HDR->polar.dec, ang);
+        snprintf(cmnt, CMNTLEN, "Telescope Declination, deg. (%s)", ang);
+        WRHDR("DEC", val, cmnt);
+        snprintf(val, VALLEN, "%.10f", RAD2DEG(HDR->altaz.az));
+        r2sDMS(HDR->altaz.az, ang);
+        snprintf(cmnt, CMNTLEN, "Telescope Azimuth, deg. (%s)", ang);
+        WRHDR("AZ", val, cmnt);
+        snprintf(val, VALLEN, "%.10f", RAD2DEG(HDR->altaz.zd));
+        r2sDMS(HDR->altaz.zd, ang);
+        snprintf(cmnt, CMNTLEN, "Telescope Zenith Distance, deg. (%s)", ang);
+        WRHDR("ZD", val, cmnt);
     }
     WRHDR("TELSTAT", mount_status_str(HDR->status), "Telescope mount status");
-    double mjd;
-    mount_getInpEpoch(&mjd);
-    if(mjd > 0.) snprintf(val, 22, "%.10f", 2000.+(mjd - ERFA_DJM00)/365.25); // calculate EPOCH/EQUINOX
-    else snprintf(val, 22, "%.10f", 2000.+(HDR->MJD.MJD - ERFA_DJM00)/365.25);
+    double epoch;
+    mount_getInpEpoch(&epoch);
+    if(epoch > 0.) snprintf(val, VALLEN, "%.8f", epoch); // calculate EPOCH/EQUINOX
+    else snprintf(val, VALLEN, "%.10f", 2000.+(HDR->MJD.MJD - ERFA_DJM00)/365.25);
     WRHDR("INPEQUIN", val, "Equinox of input celestial coordinate system");
     if(poweredON){
-        snprintf(val, 22, "%.10f", 2000.+(HDR->MJD.MJD - ERFA_DJM00)/365.25); // telescope coordinates: JNOW
+        snprintf(val, VALLEN, "%.10f", 2000.+(HDR->MJD.MJD - ERFA_DJM00)/365.25); // telescope coordinates: JNOW
         WRHDR("EQUINOX", val, "Equinox of telescope celestial coordinate sys.");
-        snprintf(val, 22, "%.10f", HDR->MJD.MJD);
+        snprintf(val, VALLEN, "%.10f", HDR->MJD.MJD);
         WRHDR("MJD", val, "Modified Julian date of file creation");
         if(*HDR->pierside) WRHDR("PIERSIDE", HDR->pierside, "Pier side of telescope mount");
     }
-    snprintf(val, 22, "%.1f", HDR->place.salt);
+    snprintf(val, VALLEN, "%.1f", HDR->place.salt);
     WRHDR("ELEVAT", val, "Elevation of site over the sea level");
-    snprintf(val, 22, "%.10f", RAD2DEG(HDR->place.slong));
+    snprintf(val, VALLEN, "%.10f", RAD2DEG(HDR->place.slong));
     WRHDR("LONGITUD", val, "Geo longitude of site (east negative)");
-    snprintf(val, 22, "%.10f", RAD2DEG(HDR->place.slat));
+    snprintf(val, VALLEN, "%.10f", RAD2DEG(HDR->place.slat));
     WRHDR("LATITUDE", val, "Geo latitude of site (south negative)");
-    snprintf(val, 22, "%.6f", RAD2HRS(HDR->sidtime));
+    snprintf(val, VALLEN, "%.6f", RAD2HRS(HDR->sidtime));
     WRHDR("LSTEND", val, "Local sidereal time of file creation");
     /* Weather data is written into separate header-file by weather daemon
     if(haveweather){
-        snprintf(val, 22, "%.1f", HDR->weather.humidity);
+        snprintf(val, VALLEN, "%.1f", HDR->weather.humidity);
         WRHDR("HUMIDITY", val, "Relative humidity, %%");
-        snprintf(val, 22, "%.1f", HDR->weather.pressure);
+        snprintf(val, VALLEN, "%.1f", HDR->weather.pressure);
         WRHDR("PRESSURE", val, "Atmospheric pressure, mmHg");
-        snprintf(val, 22, "%.1f", HDR->weather.exttemp);
+        snprintf(val, VALLEN, "%.1f", HDR->weather.exttemp);
         WRHDR("EXTTEMP", val, "External temperature, degrC");
-        snprintf(val, 22, "%d", HDR->weather.rain);
+        snprintf(val, VALLEN, "%d", HDR->weather.rain);
         WRHDR("RAIN", val, "Rain conditions");
-        snprintf(val, 22, "%.1f", HDR->weather.clouds);
+        snprintf(val, VALLEN, "%.1f", HDR->weather.clouds);
         WRHDR("SKYQUAL", val, "Sky quality (0 - wery bad, >2500 - good)");
-        snprintf(val, 22, "%.1f", HDR->weather.wind);
+        snprintf(val, VALLEN, "%.1f", HDR->weather.wind);
         WRHDR("WINDSPD", val, "Wind speed (m/s)");
-        snprintf(val, 22, "%.1f", HDR->weather.windmax);
+        snprintf(val, VALLEN, "%.1f", HDR->weather.windmax);
         WRHDR("WINDMAX", val, "Last hour maximal wind speed (m/s)");
-        snprintf(val, 22, "%lld", (long long)HDR->weather.last_update);
+        snprintf(val, VALLEN, "%lld", (long long)HDR->weather.last_update);
         WRHDR("WEATTIME", val, "Unix time of weather measurements");
     }*/
     // WRHDR("", , "");

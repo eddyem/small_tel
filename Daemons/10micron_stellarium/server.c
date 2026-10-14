@@ -267,11 +267,12 @@ static sl_sock_hresult_e cmd_gotord(_U_ sl_sock_t *c, _U_ sl_sock_hitem_t *item,
     double Epoch;
     mount_getInpEpoch(&Epoch);
     if(Epoch > 0.){
+        LOGDBG("Convert ra=%ghrs, dec=%gdeg from epoch=%g", RAD2HRS(px.ra), RAD2DEG(px.dec), Epoch);
         if(!JXtoJnow(&px, &pnow, Epoch)) return RESULT_FAIL;
     }else pnow = px;
     double ra_h = RAD2HRS(pnow.ra);
     double dec_d = RAD2DEG(pnow.dec);
-    LOGDBG("Client %d asks to point ra=%ghrs, dec=%gdeg", c->fd, ra_h, dec_d);
+    LOGMSG("Client %d asks to point ra=%ghrs, dec=%gdeg", c->fd, ra_h, dec_d);
     if(!mount_point(ra_h, dec_d)) return RESULT_FAIL;
     return RESULT_OK;
 }
@@ -599,7 +600,7 @@ void server_run(){
         LOGWARN("Can't connect to mount, will try to reconnect later");
     }
     DBG("While");
-    double tcheck = 0., treconnect = sl_dtime();
+    double tcheck = sl_dtime(), treconnect = 0.;
     time_t lastweathertime = 0;
     getPlaceData(&HDR.place);
     mount_get_name(HDR.mountname, MAX_HDR_STRLEN);
@@ -664,7 +665,7 @@ void server_run(){
                     if(mount_connect()){
                         notlogged = true;
                         WARNX("Mount is ON");
-                    }
+                    }else WARNX("Still can't connect");
                 }
             }
             DBG("Current status: %s", mount_status_str(HDR.status));

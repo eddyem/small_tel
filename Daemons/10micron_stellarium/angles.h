@@ -64,8 +64,10 @@ typedef struct{
     double py;
 } almDut_t;
 
+#if 0
 char *ra2str(double ra, char buf[RADEC_STR_MAXLEN]);
 char *dec2str(double dec, char buf[RADEC_STR_MAXLEN]);
+#endif
 bool str2coord(const char *str, double *val);
 bool normAZ(double *a, double *z);
 void norm_RA(double *ra);
@@ -77,9 +79,10 @@ void hor2eq(horizCrds_t *h, polarCrds_t *pc, double sidTime);
 void eq2horH(polarCrds_t *pc, horizCrds_t *h);
 void eq2hor(polarCrds_t *pc, horizCrds_t *h, double sidTime);
 
-void r2sHMS(double radians, char *hms, int len);
-void r2sDMS(double radians, char *hms, int len);
-void d2sDMS(double degrees, char *dms, int len);
+void r2sHMS(double radians, char buf[RADEC_STR_MAXLEN]);
+void r2sDMS(double radians, char buf[RADEC_STR_MAXLEN]);
+void d2sDMS(double degrees, char buf[RADEC_STR_MAXLEN]);
+void h2sHMS(double hours, char buf[RADEC_STR_MAXLEN]);
 
 bool get_MJDt(struct timeval *tval, sMJD_t *MJD);
 bool get_LST(sMJD_t *mjd, double *LST);

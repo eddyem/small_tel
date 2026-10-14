@@ -24,7 +24,8 @@
 
 #include "angles.h"
 
-static placeData_t place = {.slong = -0.7232763200, .slat = 0.7618977414, .salt = 2070.};
+// in ERFA library east longitudes are POSITIVE (but in 10micron they are negative)
+static placeData_t place = {.slong = 0.7232763200, .slat = 0.7618977414, .salt = 2070.};
 static almDut_t AlmDut = {0};
 
 // set/get polar/DUT1 data
@@ -82,6 +83,7 @@ void getPlaceData(placeData_t *pd){
     *pd = place;
 }
 
+#if 0
 /**
  * @brief ra2str - convert RA to string form "HH:MM:SS.SS"
  * @param ra - RA (hours)
@@ -117,6 +119,7 @@ char *dec2str(double dec, char buf[RADEC_STR_MAXLEN]){
     buf[RADEC_STR_MAXLEN-1] = 0;
     return buf;
 }
+#endif
 
 // normalize azimuth to [0, 360.) and z.d. to [0, 90]
 // if z>90 || z<-90 return false; if z < 0 rotate azimuth to 180
@@ -239,34 +242,38 @@ void eq2hor(polarCrds_t *pc, horizCrds_t *h, double sidTime){
 }
 
 /**
- * @brief r2sHMS  - convert angle in radians into string "'HH:MM:SS.SS'"
+ * @brief r2sHMS  - convert angle in radians into string "HH:MM:SS.SS"
  * @param radians - angle
- * @param hms (o) - string
- * @param len     - length of hms
+ * @param buf (o) - string
  */
-void r2sHMS(double radians, char *hms, int len){
+void r2sHMS(double radians, char buf[RADEC_STR_MAXLEN]){
     char pm;
     int i[4];
     eraA2tf(2, radians, &pm, i);
-    snprintf(hms, len, "'%c%02d:%02d:%02d.%02d'", pm, i[0],i[1],i[2],i[3]);
+    size_t l = snprintf(buf, RADEC_STR_MAXLEN, "%c%02d:%02d:%02d.%02d", pm, i[0],i[1],i[2],i[3]);
+    if(l >= RADEC_STR_MAXLEN) buf[RADEC_STR_MAXLEN-1] = 0;
 }
 
 /**
- * @brief r2sDMS  - convert angle in radians into string "'DD:MM:SS.S'"
+ * @brief r2sDMS  - convert angle in radians into string "DD:MM:SS.S"
  * @param radians - angle
- * @param dms (o) - string
- * @param len     - length of hms
+ * @param buf (o) - string
  */
-void r2sDMS(double radians, char *dms, int len){
+void r2sDMS(double radians, char buf[RADEC_STR_MAXLEN]){
     char pm;
     int i[4];
     eraA2af(1, radians, &pm, i);
-    snprintf(dms, len, "%c%02d:%02d:%02d.%d", pm, i[0],i[1],i[2],i[3]);
+    size_t l = snprintf(buf, RADEC_STR_MAXLEN, "%c%02d:%02d:%02d.%d", pm, i[0],i[1],i[2],i[3]);
+    if(l >= RADEC_STR_MAXLEN) buf[RADEC_STR_MAXLEN-1] = 0;
 }
 // the same, but argument in degrees
-void d2sDMS(double degrees, char *dms, int len){
+void d2sDMS(double degrees, char buf[RADEC_STR_MAXLEN]){
     double radians = DEG2RAD(degrees);
-    return r2sDMS(radians, dms, len);
+    r2sDMS(radians, buf);
+}
+void h2sHMS(double hours, char buf[RADEC_STR_MAXLEN]){
+    double radians = HRS2RAD(hours);
+    r2sHMS(radians, buf);
 }
 
 /**

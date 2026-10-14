@@ -131,7 +131,7 @@ static bool proc_data(uint8_t *data, ssize_t len){
     double tagRA = RA2HRS(ra), tagDec = DEC2DEG(dec);
     DBG("RA: %u (%g hrs), DEC: %d (%g degr)", ra, tagRA, dec, tagDec);
     LOGMSG("(stellarium) RA: %u (%g hrs), DEC: %d (%g degr)", ra, tagRA, dec, tagDec);
-    return (mount_setInpRA(tagRA) && mount_setInpDec(tagDec) && mount_setInpEpoch(ERFA_DJM00));
+    return (mount_setInpRA(tagRA) && mount_setInpDec(tagDec) && mount_setInpEpoch(2000.));
 }
 
 /**
@@ -187,19 +187,17 @@ static void *handle_socket(void *sockd){
     while(isrunning){
         fitsheader_t HDR;
         server_getheader(&HDR);
-        /*
+        /**/
         // convert from Jnow to J2000
-        polarCrds_t Jn = {0}, J2000 = {0};
-        Jn.ra = HRS2RAD(Rhrs);
-        Jn.dec = DEG2RAD(Ddeg);
-        if(!JnowtoJ2000(&Jn, &J2000)) break;
+        polarCrds_t J2000 = {0};
+        if(!JnowtoJ2000(&HDR.polar, &J2000)) break;
         //DBG("got : %g/%g", RA, Decl);
         dout.ra = htole32(RAD2RA(J2000.ra));
         dout.dec = (int32_t)htole32(RAD2DEC(J2000.dec));
-        */
+        /*
         dout.ra = htole32(RAD2RA(HDR.polar.ra));
         dout.dec = (int32_t)htole32(RAD2DEC(HDR.polar.dec));
-        /**/
+        */
         if(!send_data((uint8_t*)&dout, sizeof(outdata), sock)) break; // send data even in `off` state
         if(!sl_canread(sock)){
             sleep(1);
