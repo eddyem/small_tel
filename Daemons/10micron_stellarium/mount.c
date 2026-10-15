@@ -91,6 +91,7 @@ bool mount_setInpHA(double ha){
     if(ha < 0) ha += 24.;
     if(ha < 0. || ha >= 24.) return false;
     InpCoords.ha = HRS2RAD(ha);
+    InpCoords.ra = raha(InpCoords.ha);
     InpCTime = sl_dtime();
     return true;
 }
@@ -102,6 +103,7 @@ bool mount_setInpHA(double ha){
 bool mount_setInpRA(double ra){
     if(ra < 0. || ra >= 24.) return false;
     InpCoords.ra = HRS2RAD(ra);
+    InpCoords.ha = raha(InpCoords.ra);
     InpCTime = sl_dtime();
     return true;
 }
@@ -286,7 +288,7 @@ static bool write_cmd(const char *cmd, bool haveanswer){
             return false;
         }
         while(sl_tty_read(mount_dev) > 0);
-    }else if(!send_cmd_resp(cmd, buf, 128)){
+    }else if(!send_cmd_resp(cmd, buf, sizeof(buf))){
         WARNX("Error writing command '%s'", cmd);
         return false;
     }
@@ -306,7 +308,7 @@ mount_status_t mount_status(){
     pthread_mutex_lock(&mntdev_mutex);
     int ntry = 0;
     for(; ntry < 3; ++ntry)
-        if(send_cmd_resp(CMD_GETSTAT, resp, 64)) break;
+        if(send_cmd_resp(CMD_GETSTAT, resp, sizeof(resp))) break;
     if(ntry == 3){ // mount not responded -> set status OFF
         curst = MNT_S_OFF;
     }else{ // parsing of status
@@ -438,7 +440,7 @@ bool mount_point(double ra, double dec){
     if(!write_cmd(cmd, true)) goto retn;
     snprintf(cmd, 127, CMD_SETDEC, decstr); // send Dec
     if(!write_cmd(cmd, true)) goto retn;
-    if(send_cmd_resp(CMD_SLEWRADEC, cmd, 127)){ // check error
+    if(send_cmd_resp(CMD_SLEWRADEC, cmd, sizeof(cmd))){ // check error
         if(*cmd != '0'){
             WARNX("Slew error, answer: %s", cmd);
             LOGWARN("Slew error, answer: %s", cmd);
@@ -447,6 +449,7 @@ bool mount_point(double ra, double dec){
     }
     ret = true;
     TagCoords.ra = HRS2RAD(ra);
+    TagCoords.ha = raha(TagCoords.ra);
     TagCoords.dec = DEG2RAD(dec);
     TagTime = sl_dtime();
     LOGMSG("Go to RA/Decl: %s/%s", rastr, decstr);
@@ -481,7 +484,7 @@ bool mount_pointAZ(double A, double Z){
     if(!write_cmd(cmd, true)) goto retn;
     snprintf(cmd, 127, CMD_SETZD, azstr);
     if(!write_cmd(cmd, true)) goto retn;
-    if(send_cmd_resp(CMD_GOTOAZ, cmd, 128)){ // returned not '0'
+    if(send_cmd_resp(CMD_GOTOAZ, cmd, sizeof(cmd))){ // returned not '0'
         if(*cmd != '0'){
             WARNX("Goto error, answer: %s", cmd);
             LOGWARN("Goto error, answer: %s", cmd);
@@ -498,6 +501,12 @@ void set_emulation_mode(){
     isemulated = true;
 }
 
+static bool get_declination(double *dec){
+    char resp[64];
+    if(!send_cmd_resp(CMD_GETDEC, resp, sizeof(resp))) return false;
+    return str2coord(resp, dec);
+}
+
 bool mount_getcoords(double *ra, double *dec){
     if(!ra || !dec) return false;
     if(isemulated){
@@ -511,10 +520,9 @@ bool mount_getcoords(double *ra, double *dec){
     char resp[64];
     bool ret = false;
     pthread_mutex_lock(&mntdev_mutex);
-    if(!send_cmd_resp(CMD_GETRA, resp, 64)) goto retn;
+    if(!get_declination(dec)) goto retn;
+    if(!send_cmd_resp(CMD_GETRA, resp, sizeof(resp))) goto retn;
     if(!str2coord(resp, ra)) goto retn;
-    if(!send_cmd_resp(CMD_GETDEC, resp, 64)) goto retn;
-    if(!str2coord(resp, dec)) goto retn;
     ret = true;
 retn:
     pthread_mutex_unlock(&mntdev_mutex);
@@ -538,9 +546,9 @@ bool mount_getaz(double *a, double *z){
     char resp[64];
     bool ret = false;
     pthread_mutex_lock(&mntdev_mutex);
-    if(!send_cmd_resp(CMD_GETAZIM, resp, 64)) goto retn;
+    if(!send_cmd_resp(CMD_GETAZIM, resp, sizeof(resp))) goto retn;
     if(!str2coord(resp, a)) goto retn;
-    if(!send_cmd_resp(CMD_GETALT, resp, 64)) goto retn;
+    if(!send_cmd_resp(CMD_GETALT, resp, sizeof(resp))) goto retn;
     double alt;
     if(!str2coord(resp, &alt)) goto retn;
     *z = 90. - alt;
@@ -585,6 +593,13 @@ bool mount_tracking_stop(){
  * @return false if failed
  */
 bool mount_tracking_start(){
+    double ra, dec;
+    if(!mount_getcoords(&ra, &dec)) return false;
+    TagCoords.ra = HRS2RAD(ra);
+    TagCoords.dec = DEG2RAD(dec);
+    TagCoords.ha = raha(TagCoords.ra);
+    TagTime = sl_dtime();
+    mount_setInpEpoch(-1.); // Jnow
     if(isemulated){
         emul_start_tracking();
         return true;
@@ -606,7 +621,10 @@ bool mount_park(){
     if(isemulated) return pointAZ_emulation(RAD2DEG(ParkCoords.az), RAD2DEG(ParkCoords.zd));
     char buf[64];
     snprintf(buf, 63, CMD_SETMINALT, 0);
-    if(!write_cmd(buf, true)) return false;
+    pthread_mutex_lock(&mntdev_mutex);
+    bool ret = write_cmd(buf, true);
+    pthread_mutex_unlock(&mntdev_mutex);
+    if(!ret) return false;
     return mount_pointAZ(RAD2DEG(ParkCoords.az), RAD2DEG(ParkCoords.zd));
 }
 
@@ -708,7 +726,10 @@ bool mount_corrdata(weather_data_t *w){
  */
 bool mount_shutdown(){
     if(isemulated) return false;
-    return write_cmd(CMD_SHUTDOWN, true);
+    pthread_mutex_lock(&mntdev_mutex);
+    bool ret = write_cmd(CMD_SHUTDOWN, true);
+    pthread_mutex_unlock(&mntdev_mutex);
+    return ret;
 }
 
 /**
@@ -720,5 +741,94 @@ bool mount_shutdown(){
  */
 bool mount_rawcmd(const char *cmd, char *ans, size_t anslen){
     if(isemulated) return false;
-    return send_cmd_resp(cmd, ans, anslen);
+    pthread_mutex_lock(&mntdev_mutex);
+    LOGDBG("Send %s", cmd);
+    bool ret = send_cmd_resp(cmd, ans, anslen);
+    LOGDBG("Ans: %s", ret ? "true" : "false");
+    pthread_mutex_unlock(&mntdev_mutex);
+    return ret;
+}
+
+
+/**** Coordinate correction (useful for guiding etc) ****/
+/**
+ * @brief get_guide_rate - get current guiding rate
+ * @return fraction of sidereal rate
+ */
+static double get_guide_rate(){
+    char resp[32];
+    if(send_cmd_resp(CMD_GETGUIDERATE, resp, sizeof(resp))){
+        double rate = atof(resp);
+        LOGDBG("get guide rate: %g", rate);
+        if(rate > 0.0 && rate <= SIDEREAL_RATE){
+            return rate;
+        }
+    }
+    return DEFAULT_GUIDE_RATE;
+}
+
+/**
+ * @brief send_pulse - common funtion to send correction pulse
+ * @param dir_cmd - direction like "Me" etc.
+ * @param total_ms - pulse length
+ * @return false if failed
+ */
+static bool send_pulse(const char *dir_cmd, int total_ms){
+    char cmd[16];
+    snprintf(cmd, sizeof(cmd), CMD_CORRECT, dir_cmd, total_ms);
+    LOGDBG("Correct by command %s", cmd);
+    return write_cmd(cmd, false); // these commands have no answer
+}
+
+/**
+ * @brief correct_ra - correct RA by `arcsec` arcseconds
+ * @param arcsec - angle to correct
+ * @return false if failed
+ */
+bool correct_ra(double arcsec){
+    if(fabs(arcsec) < 1e-6) return false; // near pole there's may be...
+    bool ret = false;
+    pthread_mutex_lock(&mntdev_mutex);
+    double guide_rate = get_guide_rate();
+    // recalculate by plate coordinates
+    double dec_deg;
+    if(!get_declination(&dec_deg)){
+        LOGDBG("Can't get dec");
+        goto rtn;
+    }
+    double cos_dec = cos(DEG2RAD(dec_deg));
+    if(fabs(cos_dec) < 1e-6) cos_dec = 1e-6; // avoid dividing by zero
+    // calculate guiding duration
+    double duration_ms = (fabs(arcsec) / cos_dec) / (guide_rate) * 1000.0;
+    //LOGDBG("arcsec=%g, cosdec=%g, gr=%g, dms=%g", arcsec, cos_dec, guide_rate, duration_ms);
+    int total_ms = (int)round(duration_ms);
+    if(total_ms > MAX_PULSE_MS){
+        LOGDBG("duration %d too high", total_ms);
+        goto rtn;
+    }
+    const char *dir = (arcsec > 0) ? CORR_EAST : CORR_WEST;
+    ret = send_pulse(dir, total_ms);
+rtn:
+    pthread_mutex_unlock(&mntdev_mutex);
+    return ret;
+}
+
+/**
+ * @brief correct_dec - make correction for declination
+ * @param arcsec - angle to correct
+ * @return false if failed
+ */
+bool correct_dec(double arcsec){
+    if(fabs(arcsec) < MIN_CORR_ANGLE) return false;
+    bool ret = false;
+    pthread_mutex_lock(&mntdev_mutex);
+    double guide_rate = get_guide_rate();
+    double duration_ms = fabs(arcsec) / (guide_rate) * 1000.0;
+    int total_ms = (int)round(duration_ms);
+    if(total_ms > MAX_PULSE_MS) goto rtn;
+    const char *dir = (arcsec > 0) ? CORR_NORTH : CORR_SOUTH;
+    ret = send_pulse(dir, total_ms);
+rtn:
+    pthread_mutex_unlock(&mntdev_mutex);
+    return ret;
 }

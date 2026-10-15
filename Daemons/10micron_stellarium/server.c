@@ -35,6 +35,8 @@
 #define STATUS_MAX_AGE      (30.)
 
 // commands
+#define CMD_CORDEC      "cordec"
+#define CMD_CORRA       "corra"
 #define CMD_DUT1        "dut1"
 #define CMD_GOTOAZ      "gotoaz"
 #define CMD_GOTORD      "gotord"
@@ -116,7 +118,7 @@ static int parse_key_value(const char *req, double *val){
     return 1; // is setter
 }
 
-// setters of RA/DEC/HA/Az/ZD (TODO: fix `parse_key_value` for HH:MM:SS/DD:MM:SS/DDD.DD/HHH.HH formats!)
+// setters of RA/DEC/HA/Az/ZD
 static sl_sock_hresult_e cmd_tagra(sl_sock_t *c, sl_sock_hitem_t *item, const char *req){
     double val;
     int res = parse_key_value(req, &val);
@@ -230,8 +232,7 @@ static sl_sock_hresult_e cmd_telra(sl_sock_t *c, sl_sock_hitem_t *item, _U_ cons
 static sl_sock_hresult_e cmd_telha(sl_sock_t *c, sl_sock_hitem_t *item, _U_ const char *req){
     if(weatherlost || HDR.status == MNT_S_ERROR) return RESULT_FAIL;
     char buf[64];
-    double ha = eraAnp(HDR.sidtime - HDR.polar.ra);
-    snprintf(buf, 63, "%s=%.6f\n", item->key, RAD2HRS(ha));
+    snprintf(buf, 63, "%s=%.6f\n", item->key, RAD2HRS(HDR.polar.ha));
     sl_sock_sendstrmessage(c, buf);
     return RESULT_SILENCE;
 }
@@ -281,11 +282,7 @@ static sl_sock_hresult_e cmd_gotorh(_U_ sl_sock_t *c, _U_ sl_sock_hitem_t *item,
     if(weatherlost || HDR.status == MNT_S_ERROR) return RESULT_FAIL;
     polarCrds_t p;
     mount_getInpCoords(&p);
-    sMJD_t mjd;
-    if(!get_MJDt(NULL, &mjd)) return RESULT_FAIL;
-    double LST;
-    if(!get_LST(&mjd, &LST)) return RESULT_FAIL;
-    double RA_rad = eraAnp(LST - p.ha);
+    double RA_rad = raha(p.ha); // re-convert (as time could have passed)
     double ra_h = RAD2HRS(RA_rad);
     double dec_d = RAD2DEG(p.dec);
     LOGDBG("Client %d asks to point to HA/Dec", c->fd);
@@ -451,6 +448,7 @@ static sl_sock_hresult_e cmd_raw(sl_sock_t *c, sl_sock_hitem_t _U_ *item, const 
     size_t L = strlen(buf);
     buf[L] = '\n';
     buf[L + 1] = 0;
+    LOGMSG("Client %d asks for raw command '%s'; answer: '%s'", req, buf);
     sl_sock_sendstrmessage(c, buf);
     return RESULT_SILENCE;
 }
@@ -484,6 +482,25 @@ static sl_sock_hresult_e cmd_shutdown(sl_sock_t *c, sl_sock_hitem_t *item, const
     return RESULT_OK;
 }
 
+static sl_sock_hresult_e cmd_cordec(sl_sock_t *c, sl_sock_hitem_t _U_ *item, const char *req){
+    double val;
+    int res = parse_key_value(req, &val);
+    if(res <= 0) return RESULT_BADVAL;
+    LOGDBG("Client %d ask to correct Dec by %g''", c->fd, val);
+    if(correct_dec(val)) return RESULT_OK;
+    return RESULT_FAIL;
+}
+
+static sl_sock_hresult_e cmd_corra(sl_sock_t *c, sl_sock_hitem_t _U_ *item, const char *req){
+    double val;
+    int res = parse_key_value(req, &val);
+    if(res <= 0) return RESULT_BADVAL;
+    LOGDBG("Client %d ask to correct RA by %g''", c->fd, val);
+    if(correct_ra(val)) return RESULT_OK;
+    return RESULT_FAIL;
+}
+
+
 
 //  and all handlers collection
 static sl_sock_hitem_t handlers[] = {
@@ -516,6 +533,8 @@ static sl_sock_hitem_t handlers[] = {
     {cmd_telzd, CMD_TELZD, "get current telescope zenith distance (Deg)", NULL},
     {cmd_track, CMD_TRACK, "start tracking from current position", NULL},
     {dtimeh, CMD_UNIXT, "get server's UNIX time", NULL},
+    {cmd_corra, CMD_CORRA, "correct RA by x arcseconds", NULL},
+    {cmd_cordec, CMD_CORDEC, "correct Dec by x arcseconds", NULL},
     {NULL, NULL, NULL, NULL}
 };
 
@@ -631,6 +650,7 @@ void server_run(){
                     get_LST(&HDR.MJD, &HDR.sidtime);
                     HDR.polar.ra = HRS2RAD(deg1);
                     HDR.polar.dec = DEG2RAD(deg2);
+                    HDR.polar.ha = eraAnp(HDR.sidtime - HDR.polar.ra);
                 }
                 if(mount_getaz(&deg1, &deg2)){
                     HDR.altaz.az = DEG2RAD(deg1);

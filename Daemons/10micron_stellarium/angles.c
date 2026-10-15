@@ -211,12 +211,11 @@ void hor2eq(horizCrds_t *h, polarCrds_t *pc, double sidTime){
     pc->ha = eraAnp(pc->ha); // normalize to [0,2pi)
     pc->ra = eraAnp(sidTime - pc->ha);
     DBG("dec=%gdeg, ha=%gh, ra=%gh", RAD2DEG(pc->dec), RAD2HRS(pc->ha), RAD2HRS(pc->ra));
-    pc->eo = 0.;
 }
 
 /**
- * @brief eq2horH - convert polar coordinates to horizontal
- * @param pc (i)  - polar coordinates (only HA used)
+ * @brief eq2horH - convert polar coordinates to horizontal (using hour angle)
+ * @param pc (i)  - polar coordinates (HA, DEC used)
  * @param h (o)   - horizontal coordinates
  * @param sidTime - sidereal time
  */
@@ -228,14 +227,14 @@ void eq2horH(polarCrds_t *pc, horizCrds_t *h){
 }
 
 /**
- * @brief eq2hor  - convert polar coordinates to horizontal
- * @param pc (i)  - polar coordinates (RA, EO, DEC used) (radians)
+ * @brief eq2hor  - convert polar coordinates to horizontal (using RA)
+ * @param pc (i)  - polar coordinates (RA, DEC used) (radians)
  * @param h (o)   - horizontal coordinates (radians)
  * @param sidTime - sidereal time (radians)
  */
 void eq2hor(polarCrds_t *pc, horizCrds_t *h, double sidTime){
     if(!h || !pc) return;
-    double ha = sidTime - pc->ra + pc->eo;
+    double ha = sidTime - pc->ra;
     double alt;
     eraHd2ae(ha, pc->dec, place.slat, &h->az, &alt);
     h->zd = ERFA_DPI/2. - alt;
@@ -250,7 +249,9 @@ void r2sHMS(double radians, char buf[RADEC_STR_MAXLEN]){
     char pm;
     int i[4];
     eraA2tf(2, radians, &pm, i);
-    size_t l = snprintf(buf, RADEC_STR_MAXLEN, "%c%02d:%02d:%02d.%02d", pm, i[0],i[1],i[2],i[3]);
+    size_t l;
+    if(radians < 0.) l = snprintf(buf, RADEC_STR_MAXLEN, "-%02d:%02d:%02d.%02d", i[0],i[1],i[2],i[3]);
+    else l = snprintf(buf, RADEC_STR_MAXLEN, "%02d:%02d:%02d.%02d", i[0],i[1],i[2],i[3]);
     if(l >= RADEC_STR_MAXLEN) buf[RADEC_STR_MAXLEN-1] = 0;
 }
 
@@ -263,7 +264,9 @@ void r2sDMS(double radians, char buf[RADEC_STR_MAXLEN]){
     char pm;
     int i[4];
     eraA2af(1, radians, &pm, i);
-    size_t l = snprintf(buf, RADEC_STR_MAXLEN, "%c%02d:%02d:%02d.%d", pm, i[0],i[1],i[2],i[3]);
+    size_t l;
+    if(radians < 0.) l = snprintf(buf, RADEC_STR_MAXLEN, "-%02d:%02d:%02d.%d", i[0],i[1],i[2],i[3]);
+    else l = snprintf(buf, RADEC_STR_MAXLEN, "%02d:%02d:%02d.%d", i[0],i[1],i[2],i[3]);
     if(l >= RADEC_STR_MAXLEN) buf[RADEC_STR_MAXLEN-1] = 0;
 }
 // the same, but argument in degrees
@@ -305,7 +308,6 @@ bool str2coord(const char *str, double *val){
     else *val = ang;
     return true;
 }
-
 
 /**
  * @brief get_MJDt - calculate MJD of date from argument
@@ -381,11 +383,23 @@ bool get_LST(sMJD_t *mjd, double *LST){
     double ST = eraGst06a(ut11, ut12, Mjd.tt1, Mjd.tt2);
     //DBG("ST0=%gh; longitude=%gh (%gdeg) STl=%gh", RAD2HRS(ST),
     //    RAD2HRS(place.slong), RAD2DEG(place.slong), RAD2HRS(ST+place.slong));
-    ST += place.slong;
+    /*ST += place.slong;
     if(ST > ERFA_D2PI) ST -= ERFA_D2PI;
-    else if(ST < 0.) ST += ERFA_D2PI;
+    else if(ST < 0.) ST += ERFA_D2PI;*/
+    ST = eraAnp(ST + place.slong);
     *LST = ST;
     return true;
+}
+
+/**
+ * @brief raha - convert HA to RA and vice versa
+ * @param hara - HA or RA
+ * @return RA or HA
+ */
+double raha(double hara){
+    double LST;
+    if(get_LST(NULL, &LST)) return eraAnp(LST - hara);
+    return 0.;
 }
 
 #if 0

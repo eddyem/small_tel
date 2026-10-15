@@ -40,7 +40,6 @@ typedef struct{
     double ha;  // hour angle
     double dec; // declination
     double ra;  // right ascension
-    double eo;  // equation of origins
 } polarCrds_t;
 
 // horizontal coordinates (all in radians)
@@ -74,6 +73,8 @@ void norm_RA(double *ra);
 void norm_RADEC(double *ra, double *dec);
 void norm_RADECr(double *ra, double *dec);
 void norm_angle180(double *a);
+
+double raha(double hara);
 
 void hor2eq(horizCrds_t *h, polarCrds_t *pc, double sidTime);
 void eq2horH(polarCrds_t *pc, horizCrds_t *h);

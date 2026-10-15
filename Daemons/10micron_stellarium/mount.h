@@ -28,6 +28,15 @@
 // make datetime/pressure/temperature corrections each CORRECTIONS_TIMEDIFF seconds
 #define CORRECTIONS_TIMEDIFF    (3600)
 
+// sidereal tracking rate
+#define SIDEREAL_RATE           15.041
+// max correction pulse (ms)
+#define MAX_PULSE_MS            9999
+// default guiding rate
+#define DEFAULT_GUIDE_RATE      7.5
+// minimal angle (arcsec) for correction
+#define MIN_CORR_ANGLE          1.
+
 // mount statuses
 typedef enum{
     MNT_S_TRACKING = 0,
@@ -92,3 +101,6 @@ void mount_getPark(horizCrds_t *c);
 bool mount_shutdown();
 
 bool mount_rawcmd(const char *cmd, char *ans, size_t anslen);
+
+bool correct_ra(double arcsec);
+bool correct_dec(double arcsec);

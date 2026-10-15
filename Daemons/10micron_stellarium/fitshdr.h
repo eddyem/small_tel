@@ -19,6 +19,20 @@
 #pragma once
 
 #include <weather_data.h>
+/* for:
+typedef struct {
+    weather_condition_t weather;    // conditions: field "WEATHER"
+    float windmax;                  // maximal wind for last hour, m/s: "WINDMAX1"
+    float wind;                     // current wind speed, m/s: "WIND"
+    float clouds;                   // sky "quality" (>2500 - OK): "CLOUDS"
+    float exttemp;                  // external temperature, degC: "EXTTEMP"
+    float pressure;                 // atm. pressure, mmHg: "PRESSURE"
+    float humidity;                 // humidity, percents: "HUMIDITY"
+    int rain;                       // ==1 when rainy: "PRECIP"
+    int forceoff;                   // force power off (AC power lost or lightning)
+    time_t last_update;             // value of "TMEAS"
+} weather_data_t;
+*/
 
 #include "angles.h"
 #include "mount.h"
@@ -32,6 +46,7 @@
 #ifndef FLT_EPSILON
 #define FLT_EPSILON 1e-6
 #endif
+
 
 typedef struct{
     weather_data_t weather;

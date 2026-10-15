@@ -91,7 +91,7 @@ int main(int argc, char **argv){
         if(G->altitude && sl_str2d(&val, G->altitude)) place.salt = val;
         if(G->longitude && str2coord(G->longitude, &val)) place.slong = DEG2RAD(val);
         if(G->latitude && str2coord(G->latitude, &val)) place.slat = DEG2RAD(val);
-        setPlaceData(&place);
+        if(!setPlaceData(&place)) WARNX("Can't change default place data");
     }
     signal(SIGTERM, signals);
     signal(SIGINT, signals);

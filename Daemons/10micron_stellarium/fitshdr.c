@@ -27,6 +27,9 @@
 
 static char *hdname = NULL;
 
+// from am.c
+extern void calc_airmass(double, weather_data_t*, placeData_t*, double, double *, double *, double *, double *);
+
 /**
  * @brief set_header_name - check ability of witing into file and set given name
  * @param name - header filename
@@ -114,8 +117,8 @@ void wrhdr(fitsheader_t *HDR){
     char ang[RADEC_STR_MAXLEN], cmnt[CMNTLEN+1];
     val[VALLEN] = 0, cmnt[CMNTLEN] = 0;
 #define WRHDR(k, v, c)  do{if(printhdr(fd, k, v, c)){goto returning;}}while(0)
-    WRHDR("TIMESYS", "'UTC'", "Time system");
-    WRHDR("ORIGIN", "'SAO RAS'", "Organization responsible for the data");
+    //WRHDR("TIMESYS", "'UTC'", "Time system");
+    WRHDR("ORIGIN", "'SAO RAS, Russia'", "Organization responsible for the data");
     WRHDR("MOUNTNAM", HDR->mountname, "Mount name");
     if(fabs(HDR->dut.px) > FLT_EPSILON){
         snprintf(val, VALLEN, "%.10f", HDR->dut.px);
@@ -168,12 +171,11 @@ void wrhdr(fitsheader_t *HDR){
     if(poweredON){
         snprintf(val, VALLEN, "%.10f", RAD2HRS(HDR->polar.ra)); // convert RA to degrees
         r2sHMS(HDR->polar.ra, ang);
-        snprintf(cmnt, CMNTLEN, "Telescope Right Ascension, deg. (%s)", ang);
+        snprintf(cmnt, CMNTLEN, "Telescope Right Ascension, hrs. (%s)", ang);
         WRHDR("RA", val, cmnt);
-        double ha = eraAnp(HDR->sidtime - HDR->polar.ra);
-        snprintf(val, VALLEN, "%.10f", RAD2HRS(ha)); // hour angle
-        r2sHMS(ha, ang);
-        snprintf(cmnt, CMNTLEN, "Telescope Hour Angle, deg. (%s)", ang);
+        snprintf(val, VALLEN, "%.10f", RAD2HRS(HDR->polar.ha)); // hour angle
+        r2sHMS(HDR->polar.ha, ang);
+        snprintf(cmnt, CMNTLEN, "Telescope Hour Angle, hrs. (%s)", ang);
         WRHDR("HA", val, cmnt);
         snprintf(val, VALLEN, "%.10f", RAD2DEG(HDR->polar.dec));
         r2sDMS(HDR->polar.dec, ang);
@@ -187,6 +189,31 @@ void wrhdr(fitsheader_t *HDR){
         r2sDMS(HDR->altaz.zd, ang);
         snprintf(cmnt, CMNTLEN, "Telescope Zenith Distance, deg. (%s)", ang);
         WRHDR("ZD", val, cmnt);
+        // A/Z calculated by ha/dec
+        horizCrds_t hor;
+        eq2horH(&HDR->polar, &hor);
+        snprintf(val, VALLEN, "%.10f", RAD2DEG(hor.az));
+        r2sDMS(hor.az, ang);
+        snprintf(cmnt, CMNTLEN, "Calculated A, deg. (%s)", ang);
+        WRHDR("AZCALC", val, cmnt);
+        snprintf(val, VALLEN, "%.10f", RAD2DEG(hor.zd));
+        r2sDMS(hor.zd, ang);
+        snprintf(cmnt, CMNTLEN, "Calculated ZD, deg. (%s)", ang);
+        WRHDR("ZDCALC", val, cmnt);
+        // calculate airmass
+        time_t t_now = time(NULL);
+        struct tm *tm_loc;
+        tm_loc = localtime(&t_now);
+        double am, acd, wcd, wam;
+        calc_airmass(tm_loc->tm_yday, &HDR->weather, &HDR->place, hor.zd, &am, &acd, &wcd, &wam);
+        snprintf(val, VALLEN, "%.2f", am);
+        WRHDR("AIRMASS", val, "Air mass by Reed D. Meyer");
+        snprintf(val, VALLEN, "%.2f", acd);
+        WRHDR("ATMDENS", val, "Atm. column density by Reed D. Meyer (g/cm^2)");
+        snprintf(val, VALLEN, "%.2f", wcd);
+        WRHDR("WVDENS", val, "WV column density by Reed D. Meyer (g/cm^2)");
+        snprintf(val, VALLEN, "%.2f", wam);
+        WRHDR("WVAM", val, "Water vapour air mass by Reed D. Meyer");
     }
     WRHDR("TELSTAT", mount_status_str(HDR->status), "Telescope mount status");
     double epoch;
@@ -199,7 +226,10 @@ void wrhdr(fitsheader_t *HDR){
         WRHDR("EQUINOX", val, "Equinox of telescope celestial coordinate sys.");
         snprintf(val, VALLEN, "%.10f", HDR->MJD.MJD);
         WRHDR("MJD", val, "Modified Julian date of file creation");
-        if(*HDR->pierside) WRHDR("PIERSIDE", HDR->pierside, "Pier side of telescope mount");
+        if(*HDR->pierside){
+            snprintf(val, VALLEN, "'%s'", HDR->pierside);
+            WRHDR("PIERSIDE", val, "Pier side of telescope mount");
+        }
     }
     snprintf(val, VALLEN, "%.1f", HDR->place.salt);
     WRHDR("ELEVAT", val, "Elevation of site over the sea level");
@@ -208,26 +238,9 @@ void wrhdr(fitsheader_t *HDR){
     snprintf(val, VALLEN, "%.10f", RAD2DEG(HDR->place.slat));
     WRHDR("LATITUDE", val, "Geo latitude of site (south negative)");
     snprintf(val, VALLEN, "%.6f", RAD2HRS(HDR->sidtime));
-    WRHDR("LSTEND", val, "Local sidereal time of file creation");
-    /* Weather data is written into separate header-file by weather daemon
-    if(haveweather){
-        snprintf(val, VALLEN, "%.1f", HDR->weather.humidity);
-        WRHDR("HUMIDITY", val, "Relative humidity, %%");
-        snprintf(val, VALLEN, "%.1f", HDR->weather.pressure);
-        WRHDR("PRESSURE", val, "Atmospheric pressure, mmHg");
-        snprintf(val, VALLEN, "%.1f", HDR->weather.exttemp);
-        WRHDR("EXTTEMP", val, "External temperature, degrC");
-        snprintf(val, VALLEN, "%d", HDR->weather.rain);
-        WRHDR("RAIN", val, "Rain conditions");
-        snprintf(val, VALLEN, "%.1f", HDR->weather.clouds);
-        WRHDR("SKYQUAL", val, "Sky quality (0 - wery bad, >2500 - good)");
-        snprintf(val, VALLEN, "%.1f", HDR->weather.wind);
-        WRHDR("WINDSPD", val, "Wind speed (m/s)");
-        snprintf(val, VALLEN, "%.1f", HDR->weather.windmax);
-        WRHDR("WINDMAX", val, "Last hour maximal wind speed (m/s)");
-        snprintf(val, VALLEN, "%lld", (long long)HDR->weather.last_update);
-        WRHDR("WEATTIME", val, "Unix time of weather measurements");
-    }*/
+    r2sHMS(HDR->sidtime, ang);
+    snprintf(cmnt, CMNTLEN, "File creation LST, hrs. (%s)", ang);
+    WRHDR("LSTEND", val, cmnt);
     // WRHDR("", , "");
 #undef WRHDR
 returning:

@@ -1,5 +1,7 @@
 10micron_commands.h
 Readme.md
+airmass.inc
+am.c
 angles.c
 angles.h
 args.c

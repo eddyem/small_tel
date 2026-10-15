@@ -47,3 +47,11 @@
 #define CMD_SETPRESSURE     ":SRPRS%.1f#"
 #define CMD_SETTEMPER       ":SRTMP%.1f#"
 #define CMD_SETZD           ":Sz%s#"
+
+// corrections
+#define CMD_GETGUIDERATE    ":Ggui#"
+#define CMD_CORRECT         ":%s%d#"
+#define CORR_EAST           "Me"
+#define CORR_WEST           "Mw"
+#define CORR_SOUTH          "Ms"
+#define CORR_NORTH          "Mn"
