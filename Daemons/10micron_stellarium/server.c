@@ -66,6 +66,7 @@
 #define CMD_TELZD       "telzd"
 #define CMD_TRACK       "track"
 #define CMD_UNIXT       "unixt"
+#define CMD_UPDATE      "update"
 
 
 // main command socket
@@ -78,6 +79,9 @@ static unsigned int sleept = DEFAULT_SLEEP_T;
 volatile bool isrunning = true;
 // lost weather flag
 static bool weatherlost = false;
+
+// make weather/time correction even in tracking state
+static bool needcorr = false;
 
 // data for FITS-header (also to send user)
 static fitsheader_t HDR = {0};
@@ -282,7 +286,7 @@ static sl_sock_hresult_e cmd_gotorh(_U_ sl_sock_t *c, _U_ sl_sock_hitem_t *item,
     if(weatherlost || HDR.status == MNT_S_ERROR) return RESULT_FAIL;
     polarCrds_t p;
     mount_getInpCoords(&p);
-    double RA_rad = raha(p.ha); // re-convert (as time could have passed)
+    double RA_rad = rahaNow(p.ha); // re-convert (as time could have passed)
     double ra_h = RAD2HRS(RA_rad);
     double dec_d = RAD2DEG(p.dec);
     LOGDBG("Client %d asks to point to HA/Dec", c->fd);
@@ -441,16 +445,32 @@ static sl_sock_hresult_e cmd_place(sl_sock_t *c, sl_sock_hitem_t _U_ *item, cons
     return RESULT_SILENCE;
 }
 
-static sl_sock_hresult_e cmd_raw(sl_sock_t *c, sl_sock_hitem_t _U_ *item, const char *req){
+// parsing of raw command (for `cmd_raw` and `unknown_command`)
+static sl_sock_hresult_e rawcommand(sl_sock_t *c, const char *req){
     char buf[128];
-    if(!req || !*req) return RESULT_BADVAL;
-    if(!mount_rawcmd(req, buf, 126)) strcpy(buf, "No answer");
-    size_t L = strlen(buf);
-    buf[L] = '\n';
-    buf[L + 1] = 0;
-    LOGMSG("Client %d asks for raw command '%s'; answer: '%s'", req, buf);
+    if(!mount_rawcmd(req, buf, 126)){
+        LOGMSG("Client %d asks for raw command '%s'; got no answer or error", c->fd, req);
+        return RESULT_FAIL;
+    }else{
+        size_t L = strlen(buf);
+        if(L > 126){ L = 126; buf[126] = 0; }
+        LOGMSG("Client %d asks for raw command '%s'; answer: '%s'", c->fd, req, buf);
+        buf[L] = '\n';
+        buf[L + 1] = 0;
+    }
     sl_sock_sendstrmessage(c, buf);
     return RESULT_SILENCE;
+}
+
+static sl_sock_hresult_e cmd_raw(sl_sock_t *c, sl_sock_hitem_t _U_ *item, const char *req){
+    char cmdbuf[32], *cmdptr = cmdbuf;
+    if(!req || !*req) return RESULT_BADVAL;
+    size_t L = strlen(req);
+    if(L < 1 || L > 29) return RESULT_BADVAL;
+    if(*req != ':') *cmdptr++ = ':';
+    if(req[L-1] != '#') sprintf(cmdptr, "%s#", req);
+    else strcpy(cmdptr, req);
+    return rawcommand(c, cmdbuf);
 }
 
 static sl_sock_hresult_e cmd_shutdown(sl_sock_t *c, sl_sock_hitem_t *item, const char *req){
@@ -500,6 +520,19 @@ static sl_sock_hresult_e cmd_corra(sl_sock_t *c, sl_sock_hitem_t _U_ *item, cons
     return RESULT_FAIL;
 }
 
+static sl_sock_hresult_e cmd_update(sl_sock_t _U_ *c, sl_sock_hitem_t _U_ *item, const char _U_ *req){
+    if(HDR.status == MNT_S_OFF) return RESULT_FAIL;
+    needcorr = true;
+    return RESULT_OK;
+}
+
+// default handler: if message starts from ':' and ends by '#' treat it as raw command
+static sl_sock_hresult_e unknown_command(struct sl_sock *c, const char *str){
+    if(!str || !*str) return RESULT_BADKEY;
+    size_t L = strlen(str);
+    if(*str != ':' || str[L-1] != '#') return RESULT_BADKEY;
+    return rawcommand(c, str);
+}
 
 
 //  and all handlers collection
@@ -535,6 +568,7 @@ static sl_sock_hitem_t handlers[] = {
     {dtimeh, CMD_UNIXT, "get server's UNIX time", NULL},
     {cmd_corra, CMD_CORRA, "correct RA by x arcseconds", NULL},
     {cmd_cordec, CMD_CORDEC, "correct Dec by x arcseconds", NULL},
+    {cmd_update, CMD_UPDATE, "update time/weather data to mount", NULL},
     {NULL, NULL, NULL, NULL}
 };
 
@@ -580,6 +614,7 @@ bool server_check(server_sock_t *sockt){
     sl_sock_maxclhandler(cmd_socket, toomuch);
     sl_sock_connhandler(cmd_socket, connected);
     sl_sock_dischandler(cmd_socket, disconnected);
+    sl_sock_defmsghandler(cmd_socket, unknown_command);
     stellarium_sockfd = sl_sock_open(SOCKT_NET, sockt->stellport, 1, 0);
     if(stellarium_sockfd < 0){
         LOGERR("Can't start stellarium socket");
@@ -618,12 +653,15 @@ void server_run(){
     if(!mount_connect()){
         LOGWARN("Can't connect to mount, will try to reconnect later");
     }
-    DBG("While");
+
     double tcheck = sl_dtime(), treconnect = 0.;
-    time_t lastweathertime = 0;
+    bool notlogged = true;
+    double lastweathertime = 0; // last weather checking time
+    double lastcorr = 0.; // last time of time/weather corrections sent to mount
+
     getPlaceData(&HDR.place);
     mount_get_name(HDR.mountname, MAX_HDR_STRLEN);
-    bool notlogged = true;
+    DBG("While");
     while(isrunning && cmd_socket && cmd_socket->connected){
         usleep(sleept);
         if(!cmd_socket->rthread){
@@ -634,7 +672,7 @@ void server_run(){
         double tnow = sl_dtime();
         if(tnow - tcheck >= MOUNT_CHECK_T){
             tcheck = tnow;
-            if(get_weather_data(&HDR.weather) == 0){
+            if(get_weather_data(&HDR.weather) == 0){ // for airmass
                 lastweathertime = HDR.weather.last_update;
             }else{
                 WARNX("Can't get weather data");
@@ -642,12 +680,23 @@ void server_run(){
             // collect data for other fields
             pthread_mutex_lock(&headermutex);
             HDR.status = mount_status();
+            get_MJDt(NULL, &HDR.MJD);
+            get_LST(&HDR.MJD, &HDR.sidtime);
             if(HDR.status != MNT_S_OFF){
+                mount_info_t info;
+                if(mount_getinfo(&info)){
+                    LOGDBG("Got info; JDtel-JDcomp=%gs", 86400.*(info.JD - ERFA_DJM0 - HDR.MJD.MJD));
+                    HDR.altaz.az = info.az;
+                    HDR.altaz.zd = info.zd;
+                    HDR.polar.dec = info.dec;
+                    HDR.polar.ra = info.ra;
+                    HDR.polar.ha = eraAnp(HDR.sidtime - HDR.polar.ra);
+                    strcpy(HDR.pierside, info.pierside);
+                }else LOGWARN("Can't get mount info");
+                /*
                 double deg1, deg2;
                 DBG("Take coordinates");
                 if(mount_getcoords(&deg1, &deg2)){
-                    get_MJDt(NULL, &HDR.MJD);
-                    get_LST(&HDR.MJD, &HDR.sidtime);
                     HDR.polar.ra = HRS2RAD(deg1);
                     HDR.polar.dec = DEG2RAD(deg2);
                     HDR.polar.ha = eraAnp(HDR.sidtime - HDR.polar.ra);
@@ -656,19 +705,28 @@ void server_run(){
                     HDR.altaz.az = DEG2RAD(deg1);
                     HDR.altaz.zd = DEG2RAD(deg2);
                 }
+                */
                 if(tnow - lastweathertime > MOUNT_WEATHER_ALRM){
                     weatherlost = true;
                     if(HDR.status == MNT_S_TRACKING || HDR.status == MNT_S_SLEWING){
                         LOGERR("Lost meteo connection -> park");
                         if(mount_park()) lastweathertime = tnow;
                     }
-                } else weatherlost = false;
-            }else{
-                get_MJDt(NULL, &HDR.MJD);
-                get_LST(&HDR.MJD, &HDR.sidtime);
+                } else {
+                    weatherlost = false;
+                    if(tnow - lastweathertime < (int)(1. + MOUNT_CHECK_T * 10.)){ // weather data is good
+                        // make correction once per hour, but only in non-tracking state
+                        if(needcorr || ((HDR.status != MNT_S_TRACKING) && tnow - lastcorr > CORRECTIONS_TIMEDIFF)){
+                            if(mount_corrdata(&HDR.weather)){
+                                needcorr = false;
+                                lastcorr = tnow;
+                            }
+                        }
+                    }else WARNX("bad weather; curtime - HDR->weather.last_update = %g", tnow - lastweathertime);
+                }
             }
             getDUT(&HDR.dut);
-            if(HDR.status == MNT_S_OFF || !mount_getpierside(HDR.pierside, MAX_HDR_STRLEN)) *HDR.pierside = 0;
+            //if(HDR.status == MNT_S_OFF || !mount_getpierside(HDR.pierside, MAX_HDR_STRLEN)) *HDR.pierside = 0;
             pthread_mutex_unlock(&headermutex);
             // and write FITS-header
             wrhdr(&HDR);

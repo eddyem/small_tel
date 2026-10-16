@@ -91,7 +91,7 @@ bool mount_setInpHA(double ha){
     if(ha < 0) ha += 24.;
     if(ha < 0. || ha >= 24.) return false;
     InpCoords.ha = HRS2RAD(ha);
-    InpCoords.ra = raha(InpCoords.ha);
+    InpCoords.ra = rahaNow(InpCoords.ha);
     InpCTime = sl_dtime();
     return true;
 }
@@ -103,7 +103,7 @@ bool mount_setInpHA(double ha){
 bool mount_setInpRA(double ra){
     if(ra < 0. || ra >= 24.) return false;
     InpCoords.ra = HRS2RAD(ra);
-    InpCoords.ha = raha(InpCoords.ra);
+    InpCoords.ha = rahaNow(InpCoords.ra);
     InpCTime = sl_dtime();
     return true;
 }
@@ -142,6 +142,7 @@ bool mount_setInpZ(double Z){
 }
 // without checking
 bool mount_setInpEpoch(double epoch){
+    if(epoch < EPOCH_MIN || epoch > EPOCH_MAX) return false;
     InpEpoch = epoch;
     InpETime = sl_dtime();
     return true;
@@ -305,10 +306,11 @@ mount_status_t mount_status(){
         return MNT_S_OFF;
     }
     char resp[64];
-    pthread_mutex_lock(&mntdev_mutex);
     int ntry = 0;
+    pthread_mutex_lock(&mntdev_mutex);
     for(; ntry < 3; ++ntry)
         if(send_cmd_resp(CMD_GETSTAT, resp, sizeof(resp))) break;
+    pthread_mutex_unlock(&mntdev_mutex);
     if(ntry == 3){ // mount not responded -> set status OFF
         curst = MNT_S_OFF;
     }else{ // parsing of status
@@ -319,7 +321,6 @@ mount_status_t mount_status(){
         else curst = (mount_status_t) statN;
         DBG("STATUS: %s (%d)", statuses[curst], curst);
     }
-    pthread_mutex_unlock(&mntdev_mutex);
     atomic_store(&mountstatus, curst);
     return curst;
 }
@@ -449,7 +450,7 @@ bool mount_point(double ra, double dec){
     }
     ret = true;
     TagCoords.ra = HRS2RAD(ra);
-    TagCoords.ha = raha(TagCoords.ra);
+    TagCoords.ha = rahaNow(TagCoords.ra);
     TagCoords.dec = DEG2RAD(dec);
     TagTime = sl_dtime();
     LOGMSG("Go to RA/Decl: %s/%s", rastr, decstr);
@@ -558,6 +559,51 @@ retn:
     return ret;
 }
 
+
+bool mount_getinfo(mount_info_t *info){
+    if(!info || !mount_dev) return false;
+    double ra, dec, az, zd, jd;
+    char pier;
+    int stat, slew;
+    char resp[128];
+    if(isemulated){
+        mount_getaz(&az, &zd);
+        mount_getcoords(&ra, &dec);
+        sMJD_t mjd;
+        get_MJDt(NULL, &mjd);
+        jd = mjd.MJD;
+        pier = 'x';
+        stat = emulation_status();
+        slew = 0;
+    }else{
+        bool OK = false;
+        pthread_mutex_lock(&mntdev_mutex);
+        if(send_cmd_resp(CMD_GETINFO, resp, sizeof(resp))) OK = true;
+        pthread_mutex_unlock(&mntdev_mutex);
+        if(!OK) return false;
+        double alt;
+        if(8 != sscanf(resp, "%lf,%lf,%c,%lf,%lf,%lf,%d,%d",
+                        &ra, &dec, &pier, &az, &alt, &jd, &stat, &slew)) return false;
+        //LOGDBG("ra=%g, dec=%g, az=%g, alt=%g, jd=%g", ra, dec, az, alt, jd);
+        zd = 90. - alt;
+    }
+    info->ra = HRS2RAD(ra);
+    info->dec = DEG2RAD(dec);
+    info->az = DEG2RAD(az);
+    info->zd = DEG2RAD(zd);
+    info->JD = jd;
+    const char *pierside = "Unknown";
+    switch(pier){
+        case 'W': pierside = "West"; break;
+        case 'E': pierside = "East"; break;
+        default : break;
+    }
+    strcpy(info->pierside, pierside);
+    info->status = (mount_status_t) stat;
+    info->slewing = slew;
+    return true;
+}
+
 /**
  * @brief mount_stop - stop any moving
  * @return false if failed
@@ -597,7 +643,7 @@ bool mount_tracking_start(){
     if(!mount_getcoords(&ra, &dec)) return false;
     TagCoords.ra = HRS2RAD(ra);
     TagCoords.dec = DEG2RAD(dec);
-    TagCoords.ha = raha(TagCoords.ra);
+    TagCoords.ha = rahaNow(TagCoords.ra);
     TagTime = sl_dtime();
     mount_setInpEpoch(-1.); // Jnow
     if(isemulated){
@@ -684,19 +730,20 @@ bool mount_getpierside(char *Ps, size_t len){
 bool mount_corrdata(weather_data_t *w){
     if(isemulated) return true;
     if(!w) return false;
-    bool ret = true; // returning value
-    mount_status_t curst = mount_status();
-    if(curst == MNT_S_SLEWING || curst == MNT_S_TRACKING) return true;
-    DBG("Refresh datetime");
-    pthread_mutex_lock(&mntdev_mutex);
     char buf[128];
     buf[127] = 0;
-    time_t t = time(NULL);
-    struct tm *stm = localtime(&t);
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
+    bool ret = true; // returning value
+
+    DBG("Refresh datetime");
+    pthread_mutex_lock(&mntdev_mutex);
+
+    double curt = sl_dtime() + FRAC_T_TODO;
+    time_t seconds = (int) curt;
+    double frac = curt - seconds;
+    struct tm tm_buf;
+    struct tm *stm = localtime_r(&seconds, &tm_buf);
     snprintf(buf, 127, CMD_SETTIME, 1900+stm->tm_year, stm->tm_mon+1, stm->tm_mday,
-             stm->tm_hour, stm->tm_min, stm->tm_sec, tv.tv_usec/10000);
+             stm->tm_hour, stm->tm_min, (double)stm->tm_sec + frac);
     DBG("write: %s", buf);
     if(!write_cmd(buf, true)){
         WARNX("Can't write current date/time");
@@ -740,11 +787,11 @@ bool mount_shutdown(){
  * @return false if failed
  */
 bool mount_rawcmd(const char *cmd, char *ans, size_t anslen){
-    if(isemulated) return false;
+    if(!cmd || isemulated) return false;
     pthread_mutex_lock(&mntdev_mutex);
-    LOGDBG("Send %s", cmd);
+    //LOGDBG("Send %s", cmd);
     bool ret = send_cmd_resp(cmd, ans, anslen);
-    LOGDBG("Ans: %s", ret ? "true" : "false");
+    //LOGDBG("Ans: %s", ret ? "true" : "false");
     pthread_mutex_unlock(&mntdev_mutex);
     return ret;
 }
@@ -759,7 +806,7 @@ static double get_guide_rate(){
     char resp[32];
     if(send_cmd_resp(CMD_GETGUIDERATE, resp, sizeof(resp))){
         double rate = atof(resp);
-        LOGDBG("get guide rate: %g", rate);
+        //LOGDBG("get guide rate: %g", rate);
         if(rate > 0.0 && rate <= SIDEREAL_RATE){
             return rate;
         }

@@ -87,17 +87,9 @@ static int printhdr(int fd, const char *key, const char *val, const char *cmnt){
  */
 void wrhdr(fitsheader_t *HDR){
     if(!HDR) return;
-    static time_t lastcorr = 0; // last time of time/weather corrections sent to mount
     double curtime = sl_dtime();
     //bool haveweather = false;
     bool poweredON = (HDR->status == MNT_S_ERROR || HDR->status == MNT_S_OFF) ? false : true;
-    // weather block
-    if(time(NULL) - HDR->weather.last_update < (int)(1. + MOUNT_CHECK_T * 10.)){ // weather data is good
-        if(poweredON && time(NULL) - lastcorr > CORRECTIONS_TIMEDIFF){ // make correction once per hour
-            if(mount_corrdata(&HDR->weather)) lastcorr = time(NULL);
-        }
-        //haveweather = true;
-    }else WARNX("bad weather; curtime - HDR->weather.last_update = %g", curtime - HDR->weather.last_update);
     if(!hdname){
         DBG("hdname not given!");
         return;

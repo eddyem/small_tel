@@ -34,6 +34,7 @@
 #define CMD_GETALT          ":GA#"
 #define CMD_GETAZIM         ":GZ#"
 #define CMD_GETDEC          ":GD#"
+#define CMD_GETINFO         ":Ginfo#"
 #define CMD_GETSTAT         ":Gstat#"
 #define CMD_GETRA           ":GR#"
 #define CMD_GETPS           ":pS#"
@@ -41,7 +42,8 @@
 // setters
 #define CMD_SETALT          ":Sa%s#"
 #define CMD_SETDEC          ":Sd%s#"
-#define CMD_SETTIME         ":SLDT%04d-%02d-%02d,%02d:%02d:%02d.%02ld#"
+//#define CMD_SETTIME         ":SLDT%04d-%02d-%02d,%02d:%02d:%02d.%02ld#"
+#define CMD_SETTIME         ":SLDT%04d-%02d-%02d,%02d:%02d:%.2f#"
 #define CMD_SETMINALT       ":So%d#"
 #define CMD_SETRA           ":Sr%s#"
 #define CMD_SETPRESSURE     ":SRPRS%.1f#"

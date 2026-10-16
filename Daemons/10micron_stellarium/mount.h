@@ -22,11 +22,16 @@
 
 #include "angles.h"
 
+// TODO: this value should be changed by config & proto
+// (add this to time, sent to mount)
+#define FRAC_T_TODO (.5)
+
+
 // input coordinates lifetime - 24hrs
 #define COORDS_OLD_T            (86400)
 
 // make datetime/pressure/temperature corrections each CORRECTIONS_TIMEDIFF seconds
-#define CORRECTIONS_TIMEDIFF    (3600)
+#define CORRECTIONS_TIMEDIFF    (60)
 
 // sidereal tracking rate
 #define SIDEREAL_RATE           15.041
@@ -56,6 +61,18 @@ typedef enum{
     MNT_S_STATAMOUNT    // number of statuses
 } mount_status_t;
 
+// ALL coordinates here are in radians instead of degrees like in other functions!
+typedef struct{
+    double ra;
+    double dec;
+    char pierside[8]; // 'West' or 'East'
+    double az;
+    double zd;
+    double JD;
+    mount_status_t status;
+    uint8_t slewing;
+} mount_info_t;
+
 void set_emulation_mode();
 
 bool mount_setInpHA(double ha);
@@ -79,6 +96,7 @@ mount_status_t mount_status();
 bool mount_connect();
 void mount_disconnect();
 
+bool mount_getinfo(mount_info_t *info);
 bool mount_getcoords(double *ra, double *dec);
 bool mount_getaz(double *a, double *z);
 

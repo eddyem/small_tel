@@ -23,6 +23,12 @@
 
 #define RADEC_STR_MAXLEN    64
 
+// LST for Greenwich @ J2000
+#define J2000LST0       4.894961
+// min/max Epoch
+#define EPOCH_MIN       1950.
+#define EPOCH_MAX       2050.
+
 #define RAD2DEG(angle)  ((angle) * ERFA_DR2D)
 #define DEG2RAD(angle)  ((angle) * ERFA_DD2R)
 #define RAD2HRS(angle)  ((angle) * 12. / ERFA_DPI)
@@ -74,7 +80,7 @@ void norm_RADEC(double *ra, double *dec);
 void norm_RADECr(double *ra, double *dec);
 void norm_angle180(double *a);
 
-double raha(double hara);
+double rahaNow(double hara);
 
 void hor2eq(horizCrds_t *h, polarCrds_t *pc, double sidTime);
 void eq2horH(polarCrds_t *pc, horizCrds_t *h);
@@ -100,5 +106,8 @@ void getPlaceData(placeData_t *pd);
 bool J2000_to_epoch_pn(const polarCrds_t *j2000, double epoch, polarCrds_t *jepoch);
 bool epoch_to_J2000_pn(const polarCrds_t *jepoch, double epoch, polarCrds_t *j2000);
 
+bool JXtoJ2000(const polarCrds_t *in, polarCrds_t *out, double epoch);
+bool J2000toJX(const polarCrds_t *in, polarCrds_t *out, double epoch);
 bool JnowtoJ2000(const polarCrds_t *in, polarCrds_t *out);
+bool J2000toJnow(const polarCrds_t *in, polarCrds_t *out);
 bool JXtoJnow(const polarCrds_t *in, polarCrds_t *out, double Jx);

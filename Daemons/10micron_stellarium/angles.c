@@ -392,11 +392,11 @@ bool get_LST(sMJD_t *mjd, double *LST){
 }
 
 /**
- * @brief raha - convert HA to RA and vice versa
+ * @brief rahaNow - convert HA to RA and vice versa
  * @param hara - HA or RA
  * @return RA or HA
  */
-double raha(double hara){
+double rahaNow(double hara){
     double LST;
     if(get_LST(NULL, &LST)) return eraAnp(LST - hara);
     return 0.;
@@ -460,7 +460,7 @@ bool get_ObsPlace(struct timeval *tval, polarCrds_t *p2000, polarCrds_t *pnow, h
 }
 #endif
 
-
+#if 0
 // used in two functions
 static bool J2000to_ep_(const polarCrds_t *j2000, polarCrds_t *jepoch, double date1, double date2){
     if(!j2000 || !jepoch) return false;
@@ -549,8 +549,75 @@ bool JXtoJnow(const polarCrds_t *in, polarCrds_t *out, double Jx){
     // and convert J2000 to Jnow
     return J2000to_ep_(&j2000, out, MJD.tt1, MJD.tt2);
 }
+#endif
 
-#if 0
+static int is_leap_year(int year){
+    return (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+}
+
+static void epoch2timeval(double frac_year, struct timeval *tval){
+    if(!tval) return;
+    int year = (int)frac_year;
+    double fraction = frac_year - year;
+    int days_in_year = is_leap_year(year) ? 366 : 365;
+    double seconds_in_year = days_in_year * 86400.0;
+    struct tm start_of_year = {0};
+    start_of_year.tm_year = year - 1900;
+    start_of_year.tm_mon = 0;
+    start_of_year.tm_mday = 1;
+    start_of_year.tm_hour = 0;
+    start_of_year.tm_min = 0;
+    start_of_year.tm_sec = 0;
+    start_of_year.tm_isdst = 0;
+    // UNIX time for start of year
+    time_t unix_start = timegm(&start_of_year);
+    // total time
+    fraction *= seconds_in_year; // seconds from year's start
+    tval->tv_sec = (time_t)(seconds_in_year); // integer fraction
+    tval->tv_usec = (int)((fraction - tval->tv_sec)* 1e6);
+    tval->tv_sec += unix_start;
+}
+
+/**
+ * @brief JxtoJ2000 - convert (with aberrations, prec/nut, etc) coordinates from given epoch to J2000
+ * @param in - for `epoch`
+ * @param out - for J2000
+ * @param epoch - like 2050.
+ * @return false if failed
+ */
+bool JXtoJ2000(const polarCrds_t *in, polarCrds_t *out, double epoch){
+    if(!in || !out || epoch < EPOCH_MIN || epoch > EPOCH_MAX) return false;
+    struct timeval tv;
+    epoch2timeval(epoch, &tv);
+    sMJD_t MJD;
+    if(!get_MJDt(&tv, &MJD)) return false;
+    double ri, eo;
+    eraAtic13(in->ra, in->dec, MJD.tt1, MJD.tt2, &ri, &out->dec, &eo);
+    out->ra = eraAnp(ri);
+    // LST @J2000, Greenwich = 18:41:50.548 = 4.894961
+    out->ha = eraAnp(J2000LST0 + place.slong - out->ra);
+    return true;
+}
+
+/**
+ * @brief J2000toJx - reverse of JxtoJ2000
+ * @param in - for J2000
+ * @param out - for `epoch`
+ * @param epoch - like 2030.
+ * @return false if failed
+ */
+bool J2000toJX(const polarCrds_t *in, polarCrds_t *out, double epoch){
+    if(!in || !out || epoch < EPOCH_MIN || epoch > EPOCH_MAX) return false;
+    struct timeval tv;
+    epoch2timeval(epoch, &tv);
+    sMJD_t MJD;
+    if(!get_MJDt(&tv, &MJD)) return false;
+    double ri, eo, lst;
+    eraAtci13(in->ra, in->dec, 0., 0., 0., 0., MJD.tt1, MJD.tt2, &ri, &out->dec, &eo);
+    out->ra = eraAnp(ri);
+    if(get_LST(&MJD, &lst)) out->ha = eraAnp(lst - out->ra);
+    return true;
+}
 
 /**
  * convert geocentric coordinates (nowadays, CIRS) to mean (JD2000, ICRS)
@@ -558,50 +625,41 @@ bool JXtoJnow(const polarCrds_t *in, polarCrds_t *out, double Jx){
  * @return false if failed
  */
 bool JnowtoJ2000(const polarCrds_t *in, polarCrds_t *out){
+    if(!in || !out) return false;
     bool ret = false;
-    DBG("appRa: %gdegr, appDecl: %gdegr", RAD2DEG(in->ra), RAD2DEG(in->dec));
-//#define ERFA(f, ...) do{if(f(__VA_ARGS__)){WARNX("Error in " #f); goto rtn;}}while(0)
     sMJD_t MJD;
     if(!get_MJDt(NULL, &MJD)) return false;
-    double ri = 0., di = 0., eo = 0.;
-    eraAtic13(in->ra, in->dec, MJD.tt1, MJD.tt2, &ri, &di, &eo);
-    if(out){
-        out->ha = 0.; out->eo = 0.;
-        //out->ra = eraAnp(ri - eo);
-        out->ra = ri;
-        out->dec = di;
-        DBG("JnowtoJ2000: ra=%gdeg, dec=%gdeg", RAD2DEG(out->ra), RAD2DEG(out->dec));
-    }
+    double ri = 0., eo = 0.;
+    // Jx to J2000
+    eraAtic13(in->ra, in->dec, MJD.tt1, MJD.tt2, &ri, &out->dec, &eo);
+    out->ra = eraAnp(ri);
+    out->ha = eraAnp(J2000LST0 + place.slong - out->ra);
     ret = true;
-//#undef ERFA
     return ret;
 }
 
-/**
- * @brief JXtoJnow - convert ra/dec between epochs
- * @param in  - coordinates for Jx (degrees)
- * @param out - Jnow  (degrees)
- * @param Jx - Epoch for `in`
- * @return false if failed
- */
-bool JXtoJnow(const polarCrds_t *in, polarCrds_t *out, double Jx){
-    DBG("JXRA: %ghrs, JXDec: %gdegr; epoch X: %g", RAD2HRS(in->ra), RAD2DEG(in->dec), Jx);
-    if(!in) return false;
-    // these values could be changed (e.g. by user's input)
-    double pr = 0.0;     // RA proper motion (radians/year)
-    double pd = 0.0;     // Dec proper motion (radians/year)
-    double px = 0.0;     // parallax (arcsec)
-    double rv = 0.0;     // radial velocity (km/s, positive if receding)
-    double ri, di, eo;
-    eraAtci13(in->ra, in->dec, pr, pd, px, rv, ERFA_DJM0, Jx, &ri, &di, &eo);
-    LOGDBG("ri: %ghrs, eo: %ghrs, di: %gdeg", RAD2HRS(ri), RAD2HRS(eo), RAD2DEG(di));
-    if(out){
-        out->ha = 0.; out->eo = 0.;
-        //out->ra  = eraAnp(ri - eo);
-        out->ra = ri;
-        out->dec = di;
-    }
+bool J2000toJnow(const polarCrds_t *in, polarCrds_t *out){
+    if(!in || !out) return false;
+    sMJD_t MJD;
+    if(!get_MJDt(NULL, &MJD)) return false;
+    double ri, eo;
+    eraAtci13(in->ra, in->dec, 0., 0., 0., 0., MJD.tt1, MJD.tt2, &ri, &out->dec, &eo);
+    out->ra = eraAnp(ri);
+    out->ha = rahaNow(out->ra);
     return true;
 }
 
-#endif
+/**
+ * @brief JXtoJnow - convert ra/dec between epochs with aberrations, prec/nut, ...
+ * @param in  - coordinates for Jx
+ * @param out - Jnow
+ * @param epoch - Epoch for `in`
+ * @return false if failed
+ */
+bool JXtoJnow(const polarCrds_t *in, polarCrds_t *out, double epoch){
+    if(!in || !out || epoch < EPOCH_MIN || epoch > EPOCH_MAX) return false;
+    polarCrds_t j2000;
+    if(fabs(epoch - 2000.) < 1e-3) j2000 = *in;
+    else if(!JXtoJ2000(in, &j2000, epoch)) return false;
+    return J2000toJnow(&j2000, out);
+}
