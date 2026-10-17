@@ -31,8 +31,6 @@
 
 // try to reconnect each RECONN seconds
 #define MOUNT_RECONNECT_T   60.
-// max weather lost time
-#define MOUNT_WEATHER_ALRM  900.
 
 // shutdown key refresh period (5min)
 #define SHTDWN_KEY_TMOUT    300

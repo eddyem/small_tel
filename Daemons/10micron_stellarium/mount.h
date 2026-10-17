@@ -73,7 +73,9 @@ typedef struct{
     uint8_t slewing;
 } mount_info_t;
 
-void set_emulation_mode();
+void mount_emulation_set();
+bool mount_emulation_get();
+
 
 bool mount_setInpHA(double ha);
 bool mount_setInpRA(double ra);

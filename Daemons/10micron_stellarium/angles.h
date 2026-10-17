@@ -21,7 +21,7 @@
 #include <erfam.h>
 #include <weather_data.h>
 
-#define RADEC_STR_MAXLEN    64
+#define RADEC_STR_MAXLEN    16
 
 // LST for Greenwich @ J2000
 #define J2000LST0       4.894961

@@ -43,6 +43,9 @@ typedef struct {
 // status checking interval and writing FITS-header, seconds
 #define MOUNT_CHECK_T       0.5
 
+// max weather lost time
+#define MOUNT_WEATHER_ALRM  900.
+
 #ifndef FLT_EPSILON
 #define FLT_EPSILON 1e-6
 #endif

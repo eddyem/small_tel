@@ -130,7 +130,7 @@ int main(int argc, char **argv){
     if(!isrunning) return 0;
 #endif
 
-    if(G->emulation) set_emulation_mode();
+    if(G->emulation) mount_emulation_set();
     else if(!mount_set_dev(G->device, G->serspeed, G->sertmout)){
         WARNX("Can't open device %s @ %d", G->device, G->serspeed);
         return 4;

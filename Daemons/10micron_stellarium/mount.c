@@ -498,8 +498,12 @@ retn:
     return ret;
 }
 
-void set_emulation_mode(){
+void mount_emulation_set(){
     isemulated = true;
+}
+
+bool mount_emulation_get(){
+    return isemulated;
 }
 
 static bool get_declination(double *dec){
@@ -561,12 +565,12 @@ retn:
 
 
 bool mount_getinfo(mount_info_t *info){
-    if(!info || !mount_dev) return false;
     double ra, dec, az, zd, jd;
     char pier;
     int stat, slew;
     char resp[128];
     if(isemulated){
+        DBG("Get emul info");
         mount_getaz(&az, &zd);
         mount_getcoords(&ra, &dec);
         sMJD_t mjd;
@@ -576,6 +580,7 @@ bool mount_getinfo(mount_info_t *info){
         stat = emulation_status();
         slew = 0;
     }else{
+        if(!info || !mount_dev) return false;
         bool OK = false;
         pthread_mutex_lock(&mntdev_mutex);
         if(send_cmd_resp(CMD_GETINFO, resp, sizeof(resp))) OK = true;
@@ -834,6 +839,7 @@ static bool send_pulse(const char *dir_cmd, int total_ms){
  */
 bool correct_ra(double arcsec){
     if(fabs(arcsec) < 1e-6) return false; // near pole there's may be...
+    if(isemulated) return emul_corra(arcsec);
     bool ret = false;
     pthread_mutex_lock(&mntdev_mutex);
     double guide_rate = get_guide_rate();
@@ -867,6 +873,7 @@ rtn:
  */
 bool correct_dec(double arcsec){
     if(fabs(arcsec) < MIN_CORR_ANGLE) return false;
+    if(isemulated) return emul_cordec(arcsec);
     bool ret = false;
     pthread_mutex_lock(&mntdev_mutex);
     double guide_rate = get_guide_rate();

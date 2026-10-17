@@ -67,6 +67,7 @@
 #define CMD_TRACK       "track"
 #define CMD_UNIXT       "unixt"
 #define CMD_UPDATE      "update"
+#define CMD_FORMAT      "format"
 
 
 // main command socket
@@ -94,9 +95,38 @@ bool server_setsleept(unsigned int t){
     return true;
 }
 
+// print hours and angles in user's format
+static void print_hour(sl_sock_t *c, const char *key, double radians){
+    int format = (intptr_t)c->data;
+    char buf[64], valbuf[RADEC_STR_MAXLEN];
+    size_t L = 0;
+    if(0 == format){ // default: double number
+        L = snprintf(buf, 63, "%s=%.8f\n", key, RAD2HRS(radians));
+    }else{
+        r2sHMS(radians, valbuf);
+        L = snprintf(buf, 63, "%s=%s\n", key, valbuf);
+    }
+    if(L > 62) buf[63] = 0;
+    sl_sock_sendstrmessage(c, buf);
+}
+
+static void print_deg(sl_sock_t *c, const char *key, double radians){
+    int format = (intptr_t)c->data;
+    char buf[64], valbuf[RADEC_STR_MAXLEN];
+    size_t L = 0;
+    if(0 == format){ // default: double number
+        L = snprintf(buf, 63, "%s=%.8f\n", key, RAD2DEG(radians));
+    }else{
+        r2sDMS(radians, valbuf);
+        L = snprintf(buf, 63, "%s=%s\n", key, valbuf);
+    }
+    if(L > 62) buf[63] = 0;
+    sl_sock_sendstrmessage(c, buf);
+}
+
 /////// handlers
 // unixt - send to ALL clients
-static sl_sock_hresult_e dtimeh(sl_sock_t *c, _U_ sl_sock_hitem_t *item, _U_ const char *req){
+static sl_sock_hresult_e cmd_dtimeh(sl_sock_t *c, _U_ sl_sock_hitem_t *item, _U_ const char *req){
     char buf[32];
     snprintf(buf, 31, "%s=%.2f\n", item->key, sl_dtime());
     LOGDBG("Client %d asks time: %s", c->fd, buf);
@@ -105,7 +135,7 @@ static sl_sock_hresult_e dtimeh(sl_sock_t *c, _U_ sl_sock_hitem_t *item, _U_ con
 }
 
 // statust - text format status
-static sl_sock_hresult_e status(sl_sock_t *c, sl_sock_hitem_t *item, _U_ const char *req){
+static sl_sock_hresult_e cmd_status(sl_sock_t *c, sl_sock_hitem_t *item, _U_ const char *req){
     char buf[BUFSIZ];
     snprintf(buf, BUFSIZ-1, "%s=%s\n", item->key, mount_status_str(HDR.status));
     LOGDBG("Client %d asks status: %s", c->fd, buf);
@@ -131,14 +161,10 @@ static sl_sock_hresult_e cmd_tagra(sl_sock_t *c, sl_sock_hitem_t *item, const ch
         LOGDBG("Client %d set tagra: %g", c->fd, val);
         if(mount_setInpRA(val))  return RESULT_OK;
         return RESULT_BADVAL;
-    }else{ // getter
-        polarCrds_t p;
-        mount_getInpCoords(&p);
-        double ra_h = RAD2HRS(p.ra);
-        char buf[64];
-        snprintf(buf, 63, "%s=%.6f\n", item->key, ra_h);
-        sl_sock_sendstrmessage(c, buf);
-    }
+    } // getter
+    polarCrds_t p;
+    mount_getInpCoords(&p);
+    print_hour(c, item->key, p.ra);
     return RESULT_SILENCE;
 }
 
@@ -150,14 +176,10 @@ static sl_sock_hresult_e cmd_tagdec(sl_sock_t *c, sl_sock_hitem_t *item, const c
         LOGDBG("Client %d set tagdec: %g", c->fd, val);
         if(mount_setInpDec(val)) return RESULT_OK;
         return RESULT_BADVAL;
-    }else{
-        polarCrds_t p;
-        mount_getInpCoords(&p);
-        double dec_d = RAD2DEG(p.dec);
-        char buf[64];
-        snprintf(buf, 63, "%s=%.6f\n", item->key, dec_d);
-        sl_sock_sendstrmessage(c, buf);
     }
+    polarCrds_t p;
+    mount_getInpCoords(&p);
+    print_deg(c, item->key, p.dec);
     return RESULT_SILENCE;
 }
 
@@ -169,14 +191,10 @@ static sl_sock_hresult_e cmd_tagha(sl_sock_t *c, sl_sock_hitem_t *item, const ch
         LOGDBG("Client %d set tagha: %g", c->fd, val);
         if(mount_setInpHA(val)) return RESULT_OK;
         return RESULT_BADVAL;
-    }else{
-        polarCrds_t p;
-        mount_getInpCoords(&p);
-        double ha_h = RAD2HRS(p.ha);
-        char buf[64];
-        snprintf(buf, 63, "%s=%.6f\n", item->key, ha_h);
-        sl_sock_sendstrmessage(c, buf);
     }
+    polarCrds_t p;
+    mount_getInpCoords(&p);
+    print_hour(c, item->key, p.ha);
     return RESULT_SILENCE;
 }
 
@@ -188,14 +206,10 @@ static sl_sock_hresult_e cmd_tagaz(sl_sock_t *c, sl_sock_hitem_t *item, const ch
         LOGDBG("Client %d set tagaz: %g", c->fd, val);
         if(mount_setInpA(val)) return RESULT_OK;
         return RESULT_BADVAL;
-    }else{
-        horizCrds_t h;
-        mount_getInpHor(&h);
-        double az_d = RAD2DEG(h.az);
-        char buf[64];
-        snprintf(buf, 63, "%s=%.6f\n", item->key, az_d);
-        sl_sock_sendstrmessage(c, buf);
     }
+    horizCrds_t h;
+    mount_getInpHor(&h);
+    print_deg(c, item->key, h.az);
     return RESULT_SILENCE;
 }
 
@@ -207,61 +221,45 @@ static sl_sock_hresult_e cmd_tagzd(sl_sock_t *c, sl_sock_hitem_t *item, const ch
         LOGDBG("Client %d set tagzd: %g", c->fd, val);
         if(mount_setInpZ(val)) return RESULT_OK;
         return RESULT_BADVAL;
-    }else{
-        horizCrds_t h;
-        mount_getInpHor(&h);
-        double zd_d = RAD2DEG(h.zd);
-        char buf[64];
-        snprintf(buf, 63, "%s=%.6f\n", item->key, zd_d);
-        sl_sock_sendstrmessage(c, buf);
     }
+    horizCrds_t h;
+    mount_getInpHor(&h);
+    print_deg(c, item->key, h.zd);
     return RESULT_SILENCE;
 }
 
 static sl_sock_hresult_e cmd_lst(sl_sock_t *c, sl_sock_hitem_t *item, _U_ const char *req){
-    char buf[64];
-    snprintf(buf, 63, "%s=%.6f\n", item->key, RAD2HRS(HDR.sidtime));
-    sl_sock_sendstrmessage(c, buf);
+    print_hour(c, item->key, HDR.sidtime);
     return RESULT_SILENCE;
 }
 
 static sl_sock_hresult_e cmd_telra(sl_sock_t *c, sl_sock_hitem_t *item, _U_ const char *req){
     if(weatherlost || HDR.status == MNT_S_ERROR) return RESULT_FAIL;
-    char buf[64];
-    snprintf(buf, 63, "%s=%.6f\n", item->key, RAD2HRS(HDR.polar.ra));
-    sl_sock_sendstrmessage(c, buf);
+    print_hour(c, item->key, HDR.polar.ra);
     return RESULT_SILENCE;
 }
 
 static sl_sock_hresult_e cmd_telha(sl_sock_t *c, sl_sock_hitem_t *item, _U_ const char *req){
     if(weatherlost || HDR.status == MNT_S_ERROR) return RESULT_FAIL;
-    char buf[64];
-    snprintf(buf, 63, "%s=%.6f\n", item->key, RAD2HRS(HDR.polar.ha));
-    sl_sock_sendstrmessage(c, buf);
+    print_hour(c, item->key, HDR.polar.ha);
     return RESULT_SILENCE;
 }
 
 static sl_sock_hresult_e cmd_teldec(sl_sock_t *c, sl_sock_hitem_t *item, _U_ const char *req){
     if(weatherlost || HDR.status == MNT_S_ERROR) return RESULT_FAIL;
-    char buf[64];
-    snprintf(buf, 63, "%s=%.6f\n", item->key, RAD2DEG(HDR.polar.dec));
-    sl_sock_sendstrmessage(c, buf);
+    print_deg(c, item->key, HDR.polar.dec);
     return RESULT_SILENCE;
 }
 
 static sl_sock_hresult_e cmd_telaz(sl_sock_t *c, sl_sock_hitem_t *item, _U_ const char *req){
     if(weatherlost || HDR.status == MNT_S_ERROR) return RESULT_FAIL;
-    char buf[64];
-    snprintf(buf, 63, "%s=%.6f\n", item->key, RAD2DEG(HDR.altaz.az));
-    sl_sock_sendstrmessage(c, buf);
+    print_deg(c, item->key, HDR.altaz.az);
     return RESULT_SILENCE;
 }
 
 static sl_sock_hresult_e cmd_telzd(sl_sock_t *c, sl_sock_hitem_t *item, _U_ const char *req){
     if(weatherlost || HDR.status == MNT_S_ERROR) return RESULT_FAIL;
-    char buf[64];
-    snprintf(buf, 63, "%s=%.6f\n", item->key, RAD2DEG(HDR.altaz.zd));
-    sl_sock_sendstrmessage(c, buf);
+    print_deg(c, item->key, HDR.altaz.zd);
     return RESULT_SILENCE;
 }
 
@@ -338,13 +336,10 @@ static sl_sock_hresult_e cmd_parkaz(sl_sock_t *c, sl_sock_hitem_t *item, const c
         LOGDBG("Client %d set parking Az to %g", c->fd, val);
         if(mount_setParkAz(val)) return RESULT_OK;
         return RESULT_BADVAL;
-    }else{
-        horizCrds_t h;
-        mount_getPark(&h);
-        char buf[64];
-        snprintf(buf, 63, "%s=%.6f\n", item->key, RAD2DEG(h.az));
-        sl_sock_sendstrmessage(c, buf);
     }
+    horizCrds_t h;
+    mount_getPark(&h);
+    print_deg(c, item->key, h.az);
     return RESULT_SILENCE;
 }
 static sl_sock_hresult_e cmd_parkzd(sl_sock_t *c, sl_sock_hitem_t *item, const char *req){
@@ -355,13 +350,10 @@ static sl_sock_hresult_e cmd_parkzd(sl_sock_t *c, sl_sock_hitem_t *item, const c
         LOGDBG("Client %d set parking ZD to %g", c->fd, val);
         if(mount_setParkZD(val)) return RESULT_OK;
         return RESULT_BADVAL;
-    }else{
-        horizCrds_t h;
-        mount_getPark(&h);
-        char buf[64];
-        snprintf(buf, 63, "%s=%.6f\n", item->key, RAD2DEG(h.zd));
-        sl_sock_sendstrmessage(c, buf);
     }
+    horizCrds_t h;
+    mount_getPark(&h);
+    print_deg(c, item->key, h.zd);
     return RESULT_SILENCE;
 }
 
@@ -436,11 +428,12 @@ static sl_sock_hresult_e cmd_polary(sl_sock_t *c, sl_sock_hitem_t *item, const c
 }
 
 static sl_sock_hresult_e cmd_place(sl_sock_t *c, sl_sock_hitem_t _U_ *item, const char _U_ *req){
-    char buf[128];
+    char buf[32];
     placeData_t place;
     getPlaceData(&place);
-    snprintf(buf, 127, "latitude=%.7f\nlongitude=%.7f\naltitude=%.7f\n",
-        RAD2DEG(place.slat), RAD2DEG(place.slong), place.salt);
+    print_deg(c, "latitude", place.slat);
+    print_deg(c, "longitude", place.slong);
+    snprintf(buf, 31, "altitude=%.7f\n", place.salt);
     sl_sock_sendstrmessage(c, buf);
     return RESULT_SILENCE;
 }
@@ -451,13 +444,12 @@ static sl_sock_hresult_e rawcommand(sl_sock_t *c, const char *req){
     if(!mount_rawcmd(req, buf, 126)){
         LOGMSG("Client %d asks for raw command '%s'; got no answer or error", c->fd, req);
         return RESULT_FAIL;
-    }else{
-        size_t L = strlen(buf);
-        if(L > 126){ L = 126; buf[126] = 0; }
-        LOGMSG("Client %d asks for raw command '%s'; answer: '%s'", c->fd, req, buf);
-        buf[L] = '\n';
-        buf[L + 1] = 0;
     }
+    size_t L = strlen(buf);
+    if(L > 126){ L = 126; buf[126] = 0; }
+    LOGMSG("Client %d asks for raw command '%s'; answer: '%s'", c->fd, req, buf);
+    buf[L] = '\n';
+    buf[L + 1] = 0;
     sl_sock_sendstrmessage(c, buf);
     return RESULT_SILENCE;
 }
@@ -526,6 +518,19 @@ static sl_sock_hresult_e cmd_update(sl_sock_t _U_ *c, sl_sock_hitem_t _U_ *item,
     return RESULT_OK;
 }
 
+static sl_sock_hresult_e cmd_format(sl_sock_t *c, sl_sock_hitem_t *item, const char *req){
+    double val;
+    char buf[32];
+    int res = parse_key_value(req, &val);
+    if(res < 0) return RESULT_BADVAL;
+    if(res > 0){ // set format: 0 - double, 1 - string
+        c->data = (val < 0.5) ? (void*)(intptr_t)0 : (void*)(intptr_t)1;
+    }
+    snprintf(buf, 31, "%s=%" PRIdPTR "\n", item->key, (intptr_t)c->data);
+    sl_sock_sendstrmessage(c, buf);
+    return RESULT_SILENCE;
+}
+
 // default handler: if message starts from ':' and ends by '#' treat it as raw command
 static sl_sock_hresult_e unknown_command(struct sl_sock *c, const char *str){
     if(!str || !*str) return RESULT_BADKEY;
@@ -537,38 +542,51 @@ static sl_sock_hresult_e unknown_command(struct sl_sock *c, const char *str){
 
 //  and all handlers collection
 static sl_sock_hitem_t handlers[] = {
-    {cmd_dut1, CMD_DUT1, "set DUT1 (s)", NULL},
+    {sl_comment, NULL, "    Moving", NULL},
     {cmd_gotoaz, CMD_GOTOAZ, "point telescope by input Az/ZD and stop", NULL},
     {cmd_gotord, CMD_GOTORD, "point telescope by input RA/Dec and start tracking", NULL},
     {cmd_gotorh, CMD_GOTORH, "point telescope by input RA/HA and start tracking", NULL},
-    {cmd_lst, CMD_LST, "get current local sidereal time", NULL},
     {cmd_park, CMD_PARK, "park telescope", NULL},
-    {cmd_parkaz, CMD_PARKAZ, "set parking azimuth (Deg: 0 - north, 90 - east)", NULL},
-    {cmd_parkzd, CMD_PARKZD, "set parking zenith distance (Deg)", NULL},
-    {cmd_place, CMD_PLACE, "get place data", NULL},
-    {cmd_polarx, CMD_POLARX, "set polar X value (m)", NULL},
-    {cmd_polary, CMD_POLARY, "set polar Y value (m)", NULL},
-    {cmd_raw, CMD_RAW, "send raw command to mount", NULL},
-    {cmd_shutdown, CMD_SHUTDOWN, "shut down mount power", NULL},
-    {status, CMD_STATUS, "get mount status", NULL},
     {cmd_stop, CMD_STOP, "stop telescope", NULL},
     {cmd_stoptrk, CMD_STOPTRK, "stop tracking", NULL},
-    {cmd_tagaz, CMD_TAGAZ, "get/set target azimuth (Deg)", NULL},
-    {cmd_tagdec, CMD_TAGDEC, "get/set target declination (Deg)", NULL},
-    {cmd_tagha, CMD_TAGHA, "get/set target hour angle (Hrs)", NULL},
-    {cmd_tagepoch, CMD_TAGEPOCH, "get/set target epoch (-1 for Jnow), like 2050.", NULL},
-    {cmd_tagra, CMD_TAGRA, "get/set target right acsention (Hrs)", NULL},
-    {cmd_tagzd, CMD_TAGZD, "get/set target zenith distance (Deg)", NULL},
+    {cmd_track, CMD_TRACK, "start tracking from current position", NULL},
+
+    {sl_comment, NULL, "    Get coordinates", NULL},
+    {cmd_telaz, CMD_TELAZ, "get current telescope azimuth (Deg)", NULL},
     {cmd_teldec, CMD_TELDEC, "get current telescope declination (Deg)", NULL},
     {cmd_telha, CMD_TELHA, "get current telescope hour angle (Hrs)", NULL},
     {cmd_telra, CMD_TELRA, "get current telescope right acsention (Hrs)", NULL},
-    {cmd_telaz, CMD_TELAZ, "get current telescope azimuth (Deg)", NULL},
     {cmd_telzd, CMD_TELZD, "get current telescope zenith distance (Deg)", NULL},
-    {cmd_track, CMD_TRACK, "start tracking from current position", NULL},
-    {dtimeh, CMD_UNIXT, "get server's UNIX time", NULL},
-    {cmd_corra, CMD_CORRA, "correct RA by x arcseconds", NULL},
+
+    {sl_comment, NULL, "    Set coordinates", NULL},
+    {cmd_parkaz, CMD_PARKAZ, "set parking azimuth (Deg: 0 - north, 90 - east)", NULL},
+    {cmd_parkzd, CMD_PARKZD, "set parking zenith distance (Deg)", NULL},
+    {cmd_tagaz, CMD_TAGAZ, "get/set target azimuth (Deg)", NULL},
+    {cmd_tagdec, CMD_TAGDEC, "get/set target declination (Deg)", NULL},
+    {cmd_tagepoch, CMD_TAGEPOCH, "get/set target epoch (-1 for Jnow), like 2050.", NULL},
+    {cmd_tagha, CMD_TAGHA, "get/set target hour angle (Hrs)", NULL},
+    {cmd_tagra, CMD_TAGRA, "get/set target right acsention (Hrs)", NULL},
+    {cmd_tagzd, CMD_TAGZD, "get/set target zenith distance (Deg)", NULL},
+
+    {sl_comment, NULL, "    Correction", NULL},
     {cmd_cordec, CMD_CORDEC, "correct Dec by x arcseconds", NULL},
+    {cmd_corra, CMD_CORRA, "correct RA by x arcseconds", NULL},
     {cmd_update, CMD_UPDATE, "update time/weather data to mount", NULL},
+
+    {sl_comment, NULL, "    Mount specific", NULL},
+    {cmd_raw, CMD_RAW, "send raw command to mount", NULL},
+    {cmd_shutdown, CMD_SHUTDOWN, "shut down mount power", NULL},
+    {cmd_status, CMD_STATUS, "get mount status", NULL},
+
+    {sl_comment, NULL, "    Miscellaneous", NULL},
+    {cmd_dtimeh, CMD_UNIXT, "get server's UNIX time", NULL},
+    {cmd_dut1, CMD_DUT1, "set DUT1 (s)", NULL},
+    {cmd_format, CMD_FORMAT, "change output angles format: floating (0) or string (1)", NULL},
+    {cmd_lst, CMD_LST, "get current local sidereal time", NULL},
+    {cmd_place, CMD_PLACE, "get place data", NULL},
+    {cmd_polarx, CMD_POLARX, "set polar X value (m)", NULL},
+    {cmd_polary, CMD_POLARY, "set polar Y value (m)", NULL},
+
     {NULL, NULL, NULL, NULL}
 };
 
@@ -661,6 +679,7 @@ void server_run(){
 
     getPlaceData(&HDR.place);
     mount_get_name(HDR.mountname, MAX_HDR_STRLEN);
+    bool isemulated = mount_emulation_get();
     DBG("While");
     while(isrunning && cmd_socket && cmd_socket->connected){
         usleep(sleept);
@@ -672,10 +691,12 @@ void server_run(){
         double tnow = sl_dtime();
         if(tnow - tcheck >= MOUNT_CHECK_T){
             tcheck = tnow;
-            if(get_weather_data(&HDR.weather) == 0){ // for airmass
-                lastweathertime = HDR.weather.last_update;
-            }else{
-                WARNX("Can't get weather data");
+            if(!isemulated){
+                if(get_weather_data(&HDR.weather) == 0){ // for airmass
+                    lastweathertime = HDR.weather.last_update;
+                }else{
+                    WARNX("Can't get weather data");
+                }
             }
             // collect data for other fields
             pthread_mutex_lock(&headermutex);
@@ -706,23 +727,25 @@ void server_run(){
                     HDR.altaz.zd = DEG2RAD(deg2);
                 }
                 */
-                if(tnow - lastweathertime > MOUNT_WEATHER_ALRM){
-                    weatherlost = true;
-                    if(HDR.status == MNT_S_TRACKING || HDR.status == MNT_S_SLEWING){
-                        LOGERR("Lost meteo connection -> park");
-                        if(mount_park()) lastweathertime = tnow;
-                    }
-                } else {
-                    weatherlost = false;
-                    if(tnow - lastweathertime < (int)(1. + MOUNT_CHECK_T * 10.)){ // weather data is good
-                        // make correction once per hour, but only in non-tracking state
-                        if(needcorr || ((HDR.status != MNT_S_TRACKING) && tnow - lastcorr > CORRECTIONS_TIMEDIFF)){
-                            if(mount_corrdata(&HDR.weather)){
-                                needcorr = false;
-                                lastcorr = tnow;
-                            }
+                if(!isemulated){
+                    if(tnow - lastweathertime > MOUNT_WEATHER_ALRM){
+                        weatherlost = true;
+                        if(HDR.status == MNT_S_TRACKING || HDR.status == MNT_S_SLEWING){
+                            LOGERR("Lost meteo connection -> park");
+                            if(mount_park()) lastweathertime = tnow;
                         }
-                    }else WARNX("bad weather; curtime - HDR->weather.last_update = %g", tnow - lastweathertime);
+                    } else {
+                        weatherlost = false;
+                        if(tnow - lastweathertime < (int)(1. + MOUNT_CHECK_T * 10.)){ // weather data is good
+                            // make correction once per hour, but only in non-tracking state
+                            if(needcorr || ((HDR.status != MNT_S_TRACKING) && tnow - lastcorr > CORRECTIONS_TIMEDIFF)){
+                                if(mount_corrdata(&HDR.weather)){
+                                    needcorr = false;
+                                    lastcorr = tnow;
+                                }
+                            }
+                        }else WARNX("bad weather; curtime - HDR->weather.last_update = %g", tnow - lastweathertime);
+                    }
                 }
             }
             getDUT(&HDR.dut);

@@ -29,17 +29,17 @@
 #define RASPEED         (DEG2RAD(5.))
 #define DECSPEED        (DEG2RAD(8.))
 // limiting Zen.d.
-#define ZD_LIMIT        (DEG2RAD(80.))
+#define ZD_LIMIT        (DEG2RAD(90.))
 // pointing tolerance: ~1''
 #define POINTING_TOL    (DEG2RAD(0.0003))
 
 // current emulation status (only MNT_S_STOPPED, MNT_S_TRACKING and MNT_S_SLEWING supported)
 static atomic_int emul_status = MNT_S_STOPPED;
-// current & target coordinates for stationary process
+// current & target coordinates for stationary process (radians)
 static horizCrds_t CurAZ = {.az = DEG2RAD(180.), .zd = DEG2RAD(80.)}, TagAZ = {0};
 // pointing to AZ and stop
 static bool pointAZ = false;
-// current and target Ra/Dec
+// current and target Ra/Dec (radians)
 static polarCrds_t CurRD = {0}, TagRD = {0};
 // last time user asks for coordinates or change something
 static double tlast = -1.;
@@ -131,9 +131,11 @@ static void get_flip_target(const polarCrds_t *src, polarCrds_t *dst){
  * get coordinates (emulation)
  */
 void get_emul_coords(double *ra, double *decl){
+    FNAME();
     mount_status_t curstat = emulation_status();
     double LST, tcur = sl_dtime();
     if(!get_LST(NULL, &LST)) return;
+    DBG("Get coords");
     if(curstat == MNT_S_STOPPED){ // just show constant A/Z
         DBG("Stopped -> get from a=%gdeg, z=%gdeg", RAD2DEG(CurAZ.az), RAD2DEG(CurAZ.zd));
         hor2eq(&CurAZ, &CurRD, LST);
@@ -175,8 +177,10 @@ void get_emul_coords(double *ra, double *decl){
         double dt = tcur - tlast;
         if(dist < POINTING_TOL || time_to_reach < dt){ // on position
             DBG("ON Position, time to reach=%gs, dt=%gs\n\n\n", time_to_reach, dt);
-            if(pointAZ) emulation_stop(); // got A/Z position, stop
-            else atomic_store(&emul_status, MNT_S_TRACKING);
+            if(pointAZ){
+                emulation_stop(); // got A/Z position, stop
+                CurAZ = TagAZ;
+            }else atomic_store(&emul_status, MNT_S_TRACKING);
             if(flip_in_progress) flip_in_progress = false;
             CurRD = TagRD; // fix to dec <=90
         }else{
@@ -223,4 +227,18 @@ void emul_start_tracking(){
 mount_status_t emulation_status(){
     mount_status_t curstate = (mount_status_t) atomic_load(&emul_status);
     return curstate;
+}
+
+// emulated correction (simplest as possible)
+bool emul_corra(double dra){
+    if(MNT_S_TRACKING != emulation_status() || fabs(dra) > MAX_ARCSEC_CORR) return false;
+    CurRD.ra += DEG2RAD(dra / 3600.);
+    norm_RADECr(&CurRD.ra, &CurRD.dec);
+    return true;
+}
+bool emul_cordec(double ddec){
+    if(MNT_S_TRACKING != emulation_status() || fabs(ddec) > MAX_ARCSEC_CORR) return false;
+    CurRD.dec += DEG2RAD(ddec / 3600.);
+    norm_RADECr(&CurRD.ra, &CurRD.dec);
+    return true;
 }

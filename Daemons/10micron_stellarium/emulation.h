@@ -20,6 +20,9 @@
 
 #include "mount.h" // mount status
 
+// maximal correction, arcsec
+#define MAX_ARCSEC_CORR     75.
+
 bool point_emulation(double ra, double decl);
 bool pointAZ_emulation(double a, double z);
 mount_status_t emulation_status();
@@ -27,3 +30,5 @@ mount_status_t emulation_status();
 void get_emul_coords(double *ra, double *decl);
 void emulation_stop();
 void emul_start_tracking();
+bool emul_corra(double dra);
+bool emul_cordec(double ddec);

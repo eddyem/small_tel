@@ -103,7 +103,7 @@ void wrhdr(fitsheader_t *HDR){
         return;
     }
     fchmod(fd, 0644);
-#define VALLEN 22
+#define VALLEN 64
 #define CMNTLEN 51
     char val[VALLEN+1];
     char ang[RADEC_STR_MAXLEN], cmnt[CMNTLEN+1];
@@ -194,18 +194,20 @@ void wrhdr(fitsheader_t *HDR){
         WRHDR("ZDCALC", val, cmnt);
         // calculate airmass
         time_t t_now = time(NULL);
-        struct tm *tm_loc;
-        tm_loc = localtime(&t_now);
-        double am, acd, wcd, wam;
-        calc_airmass(tm_loc->tm_yday, &HDR->weather, &HDR->place, hor.zd, &am, &acd, &wcd, &wam);
-        snprintf(val, VALLEN, "%.2f", am);
-        WRHDR("AIRMASS", val, "Air mass by Reed D. Meyer");
-        snprintf(val, VALLEN, "%.2f", acd);
-        WRHDR("ATMDENS", val, "Atm. column density by Reed D. Meyer (g/cm^2)");
-        snprintf(val, VALLEN, "%.2f", wcd);
-        WRHDR("WVDENS", val, "WV column density by Reed D. Meyer (g/cm^2)");
-        snprintf(val, VALLEN, "%.2f", wam);
-        WRHDR("WVAM", val, "Water vapour air mass by Reed D. Meyer");
+        if(t_now - HDR->weather.last_update < MOUNT_WEATHER_ALRM){
+            struct tm *tm_loc;
+            tm_loc = localtime(&t_now);
+            double am, acd, wcd, wam;
+            calc_airmass(tm_loc->tm_yday, &HDR->weather, &HDR->place, hor.zd, &am, &acd, &wcd, &wam);
+            snprintf(val, VALLEN, "%.2f", am);
+            WRHDR("AIRMASS", val, "Air mass by Reed D. Meyer");
+            snprintf(val, VALLEN, "%.2f", acd);
+            WRHDR("ATMDENS", val, "Atm. column density by Reed D. Meyer (g/cm^2)");
+            snprintf(val, VALLEN, "%.2f", wcd);
+            WRHDR("WVDENS", val, "WV column density by Reed D. Meyer (g/cm^2)");
+            snprintf(val, VALLEN, "%.2f", wam);
+            WRHDR("WVAM", val, "Water vapour air mass by Reed D. Meyer");
+        }
     }
     WRHDR("TELSTAT", mount_status_str(HDR->status), "Telescope mount status");
     double epoch;
