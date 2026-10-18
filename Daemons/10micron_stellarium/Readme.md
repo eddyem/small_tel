@@ -193,16 +193,17 @@ motion default to 0.
 
 The daemon distinguishes the following frames:
 
-| Frame                       | Notation   | Units    | Notes                                                    |
-|-----------------------------|------------|----------|----------------------------------------------------------|
-| Catalog (ICRS / J2000)      | `J2000`    | RA: hours, Dec: degrees | Coordinates entered by the user via `tagra/tagdec`.       |
-| Epoch of date (mean equinox)| `Jnow`     | RA: hours, Dec: degrees | Used internally for pointing.                             |
-| CIRS (geocentric apparent)  | —          | radians  | Result of `eraAtci13`.                                    |
-| Observed (with refraction)  | —          | radians  | Result of `eraAtco13`.                                    |
-| Horizontal                  | `Az/Zd`    | degrees  | Azimuth, clockwise from North. ZD = 90° − altitude.       |
+| Frame                          | Notation   | Units    | Notes                                                    |
+|--------------------------------|------------|----------|----------------------------------------------------------|
+| Catalog (ICRS / J2000)         | `J2000`    | RA: hours, Dec: degrees | Coordinates entered by the user via `tagra/tagdec`.    |
+| Epoch of date (mean equinox)   | `Jnow`     | RA: hours, Dec: degrees | Used internally for pointing.                          |
+| Input epoch                    | `Jx`       | RA: hours, Dec: degrees | Default is `J2000`, but user can select another epoch  |
+| CIRS (geocentric apparent)     | —          | radians  | Result of `eraAtci13`.                                    |
+| Observed (without refraction)  | —          | radians  | Taken from mount                                          |
+| Horizontal                     | `Az/Zd`    | degrees  | Azimuth, clockwise from North. ZD = 90° − altitude.       |
 
-- **Target epoch** is stored as an MJD. By default it is J2000 (`ERFA_DJM00` = 51544.5). It can be
-set to any epoch via the `tagmjd` command.
+- **Target epoch** is stored as a decimal year. By default it is J2000 (`2000.0`). It can be set with
+the `tagepoch` command in the range 1950…2050.
 - The command `gotord` converts the input coordinates from the target epoch to *Jnow* using
 `JXtoJnow()` before sending to the mount.
 - The command `gotorh` interprets the input as an **hour angle** and converts to RA using the
@@ -238,6 +239,14 @@ Values may be given either as a decimal number (`12.345`, `-26.5`) or as `DD:MM:
 (sexagesimal). Angles are interpreted as degrees unless the field name (RA, HA, LST) explicitly
 implies hours.
 
+Angle getters reply in decimal degrees/hours by default. A client can switch its own replies to
+sexagesimal strings with `format = 1`; `format = 0` restores decimal output. The setting is
+per connection.
+
+Any command line that begins with `:` and ends with `#` is also accepted as a raw mount command,
+even if it is not one of the daemon’s own command names. For example, `:Ginfo#` is equivalent to
+`raw = Ginfo`.
+
 ### Stellarium socket
 
 Default address: `:10000` (all interfaces, port 10000). Protocol: **binary little-endian**,
@@ -245,8 +254,8 @@ according to Stellarium's "Telescope Control" plugin specification.
 
 Incoming (client → server) message, 20 bytes:
 
-| Field  | Type      | Meaning                                                |
-|--------|-----------|--------------------------------------------------------|
+| Field  | Type      | Meaning                                                 |
+|--------|-----------|---------------------------------------------------------|
 | `len`  | `uint16`  | Total message length (`20`).                            |
 | `type` | `uint16`  | `0`.                                                    |
 | `time` | `uint64`  | µs since epoch (unused).                                |
@@ -256,9 +265,10 @@ Incoming (client → server) message, 20 bytes:
 Outgoing (server → client) message, 24 bytes: same fields plus a trailing `int32 status` (0 = ok,
 other = error).
 
-The daemon treats incoming messages as `tagra`/`tagdec` in the current epoch (which for Stellarium
-is normally J2000). It does **not** automatically start a slew — the client must send `gotord` on
-the command socket.
+The daemon stores incoming RA/Dec as input target coordinates and sets the target epoch to J2000.
+It does **not** automatically start a slew — the client must send `gotord` on the command socket.
+The outgoing telescope position is converted from the mount’s *JNow* coordinates to J2000 before
+packing.
 
 ---
 
@@ -276,7 +286,7 @@ setter commands require an argument of the indicated type.
 | `tagha`   | get/set| hours              | Target hour angle (alternative to RA).                           |
 | `tagaz`   | get/set| degrees (0…360)    | Target azimuth (clock from North).                               |
 | `tagzd`   | get/set| degrees (0…90)     | Target zenith distance.                                          |
-| `tagmjd`  | get/set| MJD or `J<year>`   | Epoch of the input coordinates. `J2050` = 2050.0, `51544.5` = J2000. |
+| `tagepoch`| get/set| decimal year       | Epoch of the input RA/Dec, in the range 1950…2050. Default `2000.0`. |
 
 ### Pointing
 
@@ -290,6 +300,14 @@ setter commands require an argument of the indicated type.
 | `track`   | Start tracking from the current position.                                                   |
 | `park`    | Slew to the parking position (see `parkaz`/`parkzd`).                                       |
 | `shutdown`| Power off the mount. Requires a numeric key to confirm (see below).                         |
+
+### Corrections and housekeeping
+
+| Command   | Type   | Units   | Description                                                                 |
+|-----------|--------|---------|-----------------------------------------------------------------------------|
+| `corra`   | set    | arcsec  | Correct RA by the given angle. Positive = east, negative = west.            |
+| `cordec`  | set    | arcsec  | Correct Dec by the given angle. Positive = north, negative = south.         |
+| `update`  | action | —       | Force the next time/weather correction to be sent to the mount, even while tracking. |
 
 ### State queries
 
@@ -306,6 +324,12 @@ setter commands require an argument of the indicated type.
 
 `tel*` commands return `RESULT_FAIL` if the weather feed is lost or the mount is in `Error` state —
 this prevents a client from acting on stale coordinates.
+
+### Output format
+
+| Command   | Type   | Argument | Description                                                                 |
+|-----------|--------|----------|-----------------------------------------------------------------------------|
+| `format`  | get/set| `0`/`1`  | Per-client angle output format. `0` (default) = decimal; `1` = sexagesimal. |
 
 ### Place and almanac data
 
@@ -327,9 +351,21 @@ Place data can only be set at start-up (via CLI/config).
 
 ### Sending custom command
 
-The `raw` command allows to send any unsupported command string directly to mount.
-E.g. to set lunar tracking rate send `raw = :TL#`. If mount gives no answer for command, you will
-get message "No answer", otherwise you'll get this answer.
+The `raw` command sends an arbitrary 10Micron command. The argument may be supplied either with or
+without the protocol delimiters: the daemon prepends `:` and appends `#` if they are missing. The
+command body is limited to 29 characters before automatic wrapping.
+
+All of the following are equivalent:
+
+```
+raw = Ginfo
+raw = :Ginfo#
+:Ginfo#
+```
+
+The last form works because an unknown command line that starts with `:` and ends with `#` is
+passed to the mount as a raw command. If the mount gives no answer, the daemon reports that the raw
+command received no answer or returned an error.
 
 ### Shutdown
 
@@ -355,7 +391,6 @@ The following keywords are written (only if meaningful):
 
 | Keyword          | Comment                                                              |
 |------------------|----------------------------------------------------------------------|
-| `TIMESYS`        | `'UTC'`.                                                             |
 | `ORIGIN`         | `'SAO RAS'`.                                                         |
 | `MOUNTNAM`       | Mount name (from `--mountname`).                                     |
 | `POLARX`         | X pole coordinate, arcsec (if non-zero).                             |
@@ -366,11 +401,16 @@ The following keywords are written (only if meaningful):
 | `TAGRA`,`TAGDEC` | Last **slewed-to** target, always celestial.                         |
 | `RA`,`HA`,`DEC`  | Current telescope position in *Jnow*.                                |
 | `AZ`,`ZD`        | Current telescope position in the horizontal frame.                  |
+| `AZCALC`,`ZDCALC`| Current position recalculated from `RA` and `DEC`.                   |
+| `AIRMASS`        | Calculated air mass by current meteo data and position.              |
+| `ATMDENS`        | Atmosphere column density.                                           |
+| `WVDENS`         | Water vapour column density.                                         |
+| `WVAM`           | Water vapour air mass.                                               |
 | `TELSTAT`        | Human-readable mount status.                                         |
 | `INPEQUIN`       | Epoch (year) of the input coordinates.                               |
 | `EQUINOX`        | Epoch (year) of the current telescope coordinates.                   |
 | `MJD`            | MJD of the header.                                                   |
-| `PIERSIDE`       | Pier side of the mount (`'E'`/`'W'`).                                |
+| `PIERSIDE`       | Pier side of the mount (`'East'`/`'West'`).                          |
 | `ELEVAT`         | Site altitude, m.                                                    |
 | `LONGITUD`       | Site longitude, degrees east.                                        |
 | `LATITUDE`       | Site latitude, degrees north.                                        |
@@ -489,10 +529,9 @@ is a kinematic approximation suitable for client development.
 - `mount_corrdata()` uses **local** time for the `:SLDT` command, which matches the 10Micron
 firmware convention; this is intentional and differs from the rest of the daemon, which works in
 UTC.
-- The Stellarium protocol implementation uses JNow coordinates (the DAEMON does not perform the
-JNow→J2000 conversion that some clients expect). Planetarium programs that assume J2000 output may
-show a small offset; this is acceptable for visual pointing but should be considered if used for
-astrometric work.
+- The Stellarium protocol implementation assumes incoming coordinates are J2000 and converts the
+outgoing telescope position from JNow to J2000. Clients that use another epoch must perform their
+own conversion.
 
 ---
 

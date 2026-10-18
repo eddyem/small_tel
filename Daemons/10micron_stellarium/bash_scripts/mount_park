@@ -1,0 +1,64 @@
+#!/bin/bash
+# mount_park - send park command and wait until the mount is parked
+#
+# Environment:
+#   MOUNT_HOST    daemon hostname (default: localhost)
+#   MOUNT_PORT    daemon command port (default: 10001)
+#   NC_TIMEOUT    network timeout per command, seconds (default: 2)
+#   PARK_TIMEOUT  overall wait for Parked, seconds (default: 60)
+#
+# Exit status: 0 = parked, 1 = error or timeout.
+
+MOUNT_HOST="${MOUNT_HOST:-localhost}"
+MOUNT_PORT="${MOUNT_PORT:-10001}"
+NC_TIMEOUT="${NC_TIMEOUT:-2}"
+PARK_TIMEOUT="${PARK_TIMEOUT:-60}"
+
+send_cmd() {
+    printf '%s\n' "$1" | nc -N -w "$NC_TIMEOUT" "$MOUNT_HOST" "$MOUNT_PORT"
+}
+
+reply=$(send_cmd "park")
+# issue the park command
+for attempt in 1 2 3; do
+    if [ -n "$reply" ] && [ "$reply" == "OK" ]; then
+        break
+    fi
+    echo "Attempt $attempt failed (reply: '${reply:-no reply}')" >&2
+    sleep 1
+done
+
+if [ -n "$reply" ] && [ "$reply" != "OK" ]; then
+    echo "Error: failed to park!" >&2; exit 1
+fi
+
+echo "Wait for parking"
+sleep 2
+
+# wait until the mount reach parking position
+start=$(date +%s)
+while :; do
+    reply=$(send_cmd "status")
+    if [ -z "$reply" ]; then
+        echo "Daemon not responding" >&2
+        exit 1
+    fi
+    st=$(printf '%s\n' "$reply" | sed -n 's/^status=//p' | tr -d "'")
+    case "$st" in
+        Stopped)
+            echo "OK: Parked"
+            exit 0
+            ;;
+        Error|Off)
+            echo "Mount reported '$st' status while parking" >&2
+            exit 1
+            ;;
+    esac
+    now=$(date +%s)
+    if [ $((now - start)) -ge "$PARK_TIMEOUT" ]; then
+        echo "Timeout waiting for Parked (last status: '${st:-no reply}')" >&2
+        exit 1
+    fi
+    echo "Status: $st"
+    sleep 2
+done

@@ -1,0 +1,124 @@
+#!/bin/bash
+# send_coords - command the mount to slew to given coordinates and track
+#
+# Usage:
+#   send_coords --ra <hours> --dec <degrees>
+#   send_coords --ra <hours> --ha  <hours>
+#
+# Environment:
+#   MOUNT_HOST    daemon hostname (default: localhost)
+#   MOUNT_PORT    daemon command port (default: 10001)
+#   NC_TIMEOUT    network timeout per command, seconds (default: 2)
+#   POLL_TIMEOUT  overall wait for Tracking, seconds (default: 60)
+#
+# Exit status: 0 = tracking, 1 = error or timeout.
+
+# For UNIX-sockets: nc -N -U -w ...  <socket>
+
+MOUNT_HOST="${MOUNT_HOST:-localhost}"
+MOUNT_PORT="${MOUNT_PORT:-10001}"
+NC_TIMEOUT="${NC_TIMEOUT:-2}"
+POLL_TIMEOUT="${POLL_TIMEOUT:-60}"
+
+send_cmd() {
+    printf '%s\n' "$1" | nc -N -w "$NC_TIMEOUT" "$MOUNT_HOST" "$MOUNT_PORT"
+}
+
+usage() {
+    echo "Usage: $0 --dec <deg> (--ra <hours> | --ha <hours>)" >&2
+    exit 1
+}
+
+# --- no arguments: display current telescope coordinates -------------------
+if [ $# -eq 0 ]; then
+    # Send three commands in one batch. Without -N the daemon never sees
+    # EOF until the -w timer expires, but that is fine: each line is
+    # processed and answered as it arrives, so the replies are collected
+    # long before the connection closes.
+    reply=$(printf 'format=1\ntelra\nteldec\n' \
+        | nc -w "$NC_TIMEOUT" "$MOUNT_HOST" "$MOUNT_PORT" 2>/dev/null)
+    if [ -z "$reply" ]; then
+        echo "Mount daemon is not responding at $MOUNT_HOST:$MOUNT_PORT" >&2
+        exit 1
+    fi
+    ra=$(printf '%s\n' "$reply" | sed -n 's/^telra=//p')
+    dec=$(printf '%s\n' "$reply" | sed -n 's/^teldec=//p')
+    if [ -z "$ra" ] || [ -z "$dec" ]; then
+        # The daemon suppresses telra/teldec when the mount is Off, in
+        # Error state, or the weather feed is lost.
+        echo "Telescope coordinates not available (mount Off or in Error state?)" >&2
+        exit 1
+    fi
+    printf 'RA:  %s\n' "$ra"
+    printf 'Dec: %s\n' "$dec"
+    exit 0
+fi
+
+RA=""
+DEC=""
+HA=""
+GOTO=""
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --ra)  [ $# -ge 2 ] || usage; RA="$2";  shift 2 ;;
+        --dec) [ $# -ge 2 ] || usage; DEC="$2"; shift 2 ;;
+        --ha)  [ $# -ge 2 ] || usage; HA="$2";  shift 2 ;;
+        -h|--help) usage ;;
+        *) echo "Unknown option: $1" >&2; usage ;;
+    esac
+done
+
+[ -n "$DEC" ] || { echo "Error: --dec is required" >&2; exit 1; }
+if [ -z "$RA" ] && [ -z "$HA" ]; then
+    echo "Error: --ra or --ha is required" >&2; exit 1;
+fi
+if [ -n "$RA" ] && [ -n "$HA" ]; then
+    echo "Error: --ra and --ha are mutually exclusive" >&2; exit 1
+fi
+if [ -z "$DEC" ] && [ -z "$HA" ]; then
+    echo "Error: either --dec or --ha is required" >&2; exit 1
+fi
+
+# send coordinates
+send_cmd "tagdec = $DEC"
+if [ -n "$RA" ]; then
+    send_cmd "tagra = $RA"
+    GOTO="gotord"
+else
+    send_cmd "tagha = $HA"
+    GOTO="gotorh"
+fi
+
+# trigger the goto
+ans=$(send_cmd "$GOTO")
+if [ -z $ans ] || [ "$ans" != "OK" ]; then
+    echo "Error: can't go to given position" >&2; exit 1
+fi
+
+echo "Wait for slewing"
+sleep 3
+
+# poll status until Tracking
+start=$(date +%s)
+while :; do
+    reply=$(send_cmd "status")
+    st=$(printf '%s\n' "$reply" | sed -n 's/^status=//p' | tr -d "'")
+    case "$st" in
+        Tracking)
+            echo "OK: Tracking"
+            exit 0
+            ;;
+        Error|Off)
+            echo "Mount reported '$st' status" >&2
+            exit 1
+            ;;
+    esac
+    now=$(date +%s)
+    if [ $((now - start)) -ge "$POLL_TIMEOUT" ]; then
+        echo "Timeout waiting for Tracking (last status: '${st:-no reply}')" >&2
+        exit 1
+    fi
+    echo "Status: $st"
+    sleep 2
+done

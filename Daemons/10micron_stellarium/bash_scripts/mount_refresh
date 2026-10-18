@@ -1,0 +1,37 @@
+#!/bin/bash
+# mount_refresh - force the daemon to refresh weather/time data on the mount
+#
+# The "update" command sets an internal "needcorr" flag; the main loop then
+# calls mount_corrdata() on its next iteration (if the mount is not Off).
+# If the mount is Off the daemon returns an error, so we check the status
+# to distinguish success from failure.
+#
+# Up to 3 attempts are made.
+#
+# Environment:
+#   MOUNT_HOST    daemon hostname (default: localhost)
+#   MOUNT_PORT    daemon command port (default: 10001)
+#   NC_TIMEOUT    network timeout per command, seconds (default: 2)
+#
+# Exit status: 0 = update queued, 1 = all attempts failed.
+
+MOUNT_HOST="${MOUNT_HOST:-localhost}"
+MOUNT_PORT="${MOUNT_PORT:-10001}"
+NC_TIMEOUT="${NC_TIMEOUT:-2}"
+
+send_cmd() {
+    printf '%s\n' "$1" | nc -N -w "$NC_TIMEOUT" "$MOUNT_HOST" "$MOUNT_PORT"
+}
+
+for attempt in 1 2 3; do
+    reply=$(send_cmd "update")
+    if [ -n "$reply" ] && [ "$reply" == "OK" ]; then
+        echo "OK"
+        exit 0
+    fi
+    echo "Attempt $attempt failed (reply: '${reply:-no reply}')" >&2
+    sleep 1
+done
+
+echo "Failed to refresh mount data after 3 attempts" >&2
+exit 1

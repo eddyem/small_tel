@@ -1,0 +1,30 @@
+#!/bin/bash
+# mount_status - print the current mount status as returned by the daemon
+#
+# Output: one line, the status string without surrounding quotes
+#         (e.g. Tracking, Slewing or going to stop, Parked, Off, ...)
+#
+# Environment:
+#   MOUNT_HOST    daemon hostname (default: localhost)
+#   MOUNT_PORT    daemon command port (default: 10001)
+#   NC_TIMEOUT    network timeout, seconds (default: 2)
+#
+# Exit status: 0 = status printed, 1 = daemon not responding or bad reply.
+
+MOUNT_HOST="${MOUNT_HOST:-localhost}"
+MOUNT_PORT="${MOUNT_PORT:-10001}"
+NC_TIMEOUT="${NC_TIMEOUT:-2}"
+
+reply=$(printf 'status\n' | nc -N -w "$NC_TIMEOUT" "$MOUNT_HOST" "$MOUNT_PORT" 2>/dev/null)
+if [ -z "$reply" ]; then
+    echo "Mount daemon is not responding at $MOUNT_HOST:$MOUNT_PORT" >&2
+    exit 1
+fi
+
+st=$(printf '%s\n' "$reply" | sed -n 's/^status=//p' | tr -d "'")
+if [ -z "$st" ]; then
+    echo "Unexpected reply from daemon: $reply" >&2
+    exit 1
+fi
+
+echo "$st"

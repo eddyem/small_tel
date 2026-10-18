@@ -1,0 +1,63 @@
+#!/bin/bash
+# mount_shutdown - power the mount off via a two-step handshake
+#
+# Step 1: send "shutdown" (no argument) -> daemon returns a key
+# Step 2: send "shutdown = <key>"       -> daemon sends the power-off command
+# Step 3: poll status until the mount reports Off (or the daemon dies)
+# Step 4: wait 45 s for the mount to fully discharge
+#
+# Environment:
+#   MOUNT_HOST    daemon hostname (default: localhost)
+#   MOUNT_PORT    daemon command port (default: 10001)
+#   NC_TIMEOUT    network timeout per command, seconds (default: 2)
+#   SHUTDOWN_WAIT timeout for the mount to report Off, seconds (default: 60)
+#
+# Exit status: 0 = mount off, 1 = error or timeout.
+
+MOUNT_HOST="${MOUNT_HOST:-localhost}"
+MOUNT_PORT="${MOUNT_PORT:-10001}"
+NC_TIMEOUT="${NC_TIMEOUT:-2}"
+SHUTDOWN_WAIT="${SHUTDOWN_WAIT:-60}"
+
+send_cmd() {
+    printf '%s\n' "$1" | nc -N -w "$NC_TIMEOUT" "$MOUNT_HOST" "$MOUNT_PORT"
+}
+
+# step 1: request a shutdown key
+reply=$(send_cmd "shutdown")
+if [ -z "$reply" ]; then
+    echo "No response from daemon" >&2
+    exit 1
+fi
+key=$(printf '%s\n' "$reply" | sed -n 's/^shutdown=//p')
+if [ -z "$key" ]; then
+    echo "Unexpected reply: $reply" >&2
+    exit 1
+fi
+
+# step 2: send the key back
+send_cmd "shutdown = $key"
+
+# step 3: wait until the mount reports Off (or the daemon goes away)
+start=$(date +%s)
+while :; do
+    reply=$(send_cmd "status")
+    if [ -z "$reply" ]; then
+        # daemon is gone: assume the mount has powered off
+        break
+    fi
+    st=$(printf '%s\n' "$reply" | sed -n 's/^status=//p' | tr -d "'")
+    if [ "$st" = "Off" ]; then
+        break
+    fi
+    now=$(date +%s)
+    if [ $((now - start)) -ge "$SHUTDOWN_WAIT" ]; then
+        echo "Timeout waiting for Off (last status: '${st:-no reply}')" >&2
+        exit 1
+    fi
+    sleep 2
+done
+
+echo "Wait until the computer turns off..."
+# step 4: final settling delay
+sleep 45
